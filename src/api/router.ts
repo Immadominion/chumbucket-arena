@@ -22,6 +22,7 @@ import type { DossierView } from "../core/projections/DossierProjection.ts";
 import { DomainError } from "../domain/errors.ts";
 import { streamEvents } from "./eventStream.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
+import { verifyCallProof, verifySocialAction } from "../auth/WalletSignature.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -162,6 +163,72 @@ export const appRouter = router({
     )
     .query(({ ctx, input }) => ctx.app.social.activity(input)),
 
+  // ── social graph (FOMO) ────────────────────────────────────────────────────
+  /** The following feed: what the wallets you follow (+ friends) are calling. */
+  followingFeed: publicProcedure
+    .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(200).default(50) }))
+    .query(({ ctx, input }) => ctx.app.social.followingFeed(input.wallet, input.limit)),
+
+  followCounts: publicProcedure
+    .input(z.object({ wallet: z.string() }))
+    .query(({ ctx, input }) => ctx.app.social.followCounts(input.wallet)),
+
+  isFollowing: publicProcedure
+    .input(z.object({ viewer: z.string(), target: z.string() }))
+    .query(({ ctx, input }) => ctx.app.social.isFollowing(input.viewer, input.target)),
+
+  /** Who called what on a fixture — the match callers board. */
+  matchCallers: publicProcedure
+    .input(z.object({ matchId: z.string(), limit: z.number().min(1).max(500).default(100) }))
+    .query(({ ctx, input }) => ctx.app.social.matchCallers(input.matchId, input.limit)),
+
+  /** Record/PnL leaderboard from settled stats. */
+  socialLeaderboard: publicProcedure
+    .input(z.object({ by: z.enum(["pnl", "streak", "winrate"]).default("pnl"), limit: z.number().min(1).max(200).default(50) }))
+    .query(({ ctx, input }) => ctx.app.social.socialLeaderboard(input.by, input.limit)),
+
+  /** Composite public profile: stats + follow counts + recent positions + activity. */
+  profile: publicProcedure
+    .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(100).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const [stats, counts, positions, recent] = await Promise.all([
+        ctx.app.social.userStats(input.wallet),
+        ctx.app.social.followCounts(input.wallet),
+        ctx.app.social.myPositions(input.wallet, input.limit),
+        ctx.app.social.activity({ wallet: input.wallet, limit: input.limit }),
+      ]);
+      return { wallet: input.wallet, stats, counts, positions, activity: recent };
+    }),
+
+  /**
+   * Follow / unfollow — authenticated by a WALLET SIGNATURE over a canonical,
+   * timestamped message (proves the caller controls the follower wallet), so no
+   * one can spam the graph on someone else's behalf. No session server needed.
+   */
+  follow: publicProcedure
+    .input(z.object({ wallet: z.string(), target: z.string(), timestamp: z.number(), signature: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const check = verifySocialAction(
+        { wallet: input.wallet, action: "follow", target: input.target, timestamp: input.timestamp, signature: input.signature },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `follow rejected: ${check.reason}`);
+      return ctx.app.social.follow(input.wallet, input.target);
+    }),
+
+  unfollow: publicProcedure
+    .input(z.object({ wallet: z.string(), target: z.string(), timestamp: z.number(), signature: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const check = verifySocialAction(
+        { wallet: input.wallet, action: "unfollow", target: input.target, timestamp: input.timestamp, signature: input.signature },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `unfollow rejected: ${check.reason}`);
+      return ctx.app.social.unfollow(input.wallet, input.target);
+    }),
+
   // ── commands ─────────────────────────────────────────────────────────────
   signContract: authedProcedure
     .input(z.object({ handle: z.string().max(40).optional() }))
@@ -281,9 +348,31 @@ export const appRouter = router({
         positionAddress: z.string().optional(),
         slot: z.number().int().nonnegative().optional(),
         metadata: z.record(z.unknown()).optional(),
+        // Wallet-signature proof so this optimistic mirror can't attribute a
+        // call to a wallet the caller doesn't own (the reconciler remains the
+        // chain-authoritative source; this is only for instant UI feedback).
+        timestamp: z.number(),
+        signature: z.string(),
       }),
     )
-    .mutation(({ ctx, input }) => ctx.app.social.recordPredictionCall(input)),
+    .mutation(({ ctx, input }) => {
+      const check = verifyCallProof(
+        {
+          wallet: input.wallet,
+          matchId: input.matchId,
+          bucket: input.bucket,
+          stake: input.stakeBaseUnits,
+          txSignature: input.txSignature,
+          timestamp: input.timestamp,
+          signature: input.signature,
+        },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `call rejected: ${check.reason}`);
+      const { timestamp: _t, signature: _s, ...call } = input;
+      return ctx.app.social.recordPredictionCall(call);
+    }),
 
   // ── demo / ops ─────────────────────────────────────────────────────────────
   // Resolve a match on command so settlement can be shown live without waiting

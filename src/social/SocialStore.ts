@@ -65,6 +65,48 @@ export interface IndexerCursorRow {
   last_slot: number | null;
 }
 
+export interface FollowCounts {
+  followers: number;
+  following: number;
+}
+
+export interface MatchCallerRow {
+  wallet_address: string;
+  handle: string | null;
+  bucket: string;
+  stake_base_units: string;
+  status: string;
+  payout_base_units: string | null;
+  placed_at: string;
+}
+
+export interface LeaderboardRow {
+  wallet_address: string;
+  handle: string | null;
+  display_name: string | null;
+  calls_made: number;
+  calls_won: number;
+  calls_lost: number;
+  calls_voided: number;
+  pnl_base_units: string;
+  current_streak: number;
+  best_streak: number;
+  win_rate: number;
+}
+
+export interface UserStatsRow {
+  user_id: string;
+  wallet_address: string | null;
+  calls_made: number;
+  calls_won: number;
+  calls_lost: number;
+  calls_voided: number;
+  stake_base_units: string;
+  pnl_base_units: string;
+  current_streak: number;
+  best_streak: number;
+}
+
 export interface PredictionPositionRow {
   id: string;
   network: string;
@@ -119,6 +161,15 @@ export interface SocialStore {
   myPositions(wallet: string, limit: number): Promise<PredictionPositionRow[]>;
   claimable(wallet: string, limit: number): Promise<PredictionPositionRow[]>;
   activity(input: { matchId?: string; wallet?: string; limit: number }): Promise<PredictionActivityRow[]>;
+  // social graph
+  follow(follower: string, followee: string): Promise<{ ok: boolean; result?: unknown; reason?: string }>;
+  unfollow(follower: string, followee: string): Promise<{ ok: boolean; result?: unknown; reason?: string }>;
+  followingFeed(wallet: string, limit: number): Promise<PredictionActivityRow[]>;
+  followCounts(wallet: string): Promise<FollowCounts>;
+  isFollowing(viewer: string, target: string): Promise<boolean>;
+  matchCallers(matchId: string, limit: number): Promise<MatchCallerRow[]>;
+  socialLeaderboard(by: string, limit: number): Promise<LeaderboardRow[]>;
+  userStats(wallet: string): Promise<UserStatsRow | null>;
 }
 
 export class NoopSocialStore implements SocialStore {
@@ -158,6 +209,38 @@ export class NoopSocialStore implements SocialStore {
 
   async activity(): Promise<PredictionActivityRow[]> {
     return [];
+  }
+
+  async follow(): Promise<{ ok: boolean; reason: string }> {
+    return { ok: false, reason: "social store is not configured" };
+  }
+
+  async unfollow(): Promise<{ ok: boolean; reason: string }> {
+    return { ok: false, reason: "social store is not configured" };
+  }
+
+  async followingFeed(): Promise<PredictionActivityRow[]> {
+    return [];
+  }
+
+  async followCounts(): Promise<FollowCounts> {
+    return { followers: 0, following: 0 };
+  }
+
+  async isFollowing(): Promise<boolean> {
+    return false;
+  }
+
+  async matchCallers(): Promise<MatchCallerRow[]> {
+    return [];
+  }
+
+  async socialLeaderboard(): Promise<LeaderboardRow[]> {
+    return [];
+  }
+
+  async userStats(): Promise<UserStatsRow | null> {
+    return null;
   }
 }
 
@@ -286,6 +369,67 @@ export class SupabaseSocialStore implements SocialStore {
       limit: String(limit),
     });
     return this.getRows<PredictionPositionRow>("prediction_positions", params);
+  }
+
+  async follow(follower: string, followee: string): Promise<{ ok: boolean; result?: unknown }> {
+    const result = await this.rpc<unknown>("follow_wallet", {
+      p_network: this.cfg.network,
+      p_follower: follower,
+      p_followee: followee,
+    });
+    return { ok: true, result };
+  }
+
+  async unfollow(follower: string, followee: string): Promise<{ ok: boolean; result?: unknown }> {
+    const result = await this.rpc<unknown>("unfollow_wallet", {
+      p_network: this.cfg.network,
+      p_follower: follower,
+      p_followee: followee,
+    });
+    return { ok: true, result };
+  }
+
+  async followingFeed(wallet: string, limit: number): Promise<PredictionActivityRow[]> {
+    return (
+      (await this.rpc<PredictionActivityRow[]>("feed_following", {
+        p_network: this.cfg.network,
+        p_wallet: wallet,
+        p_limit: limit,
+      })) ?? []
+    );
+  }
+
+  async followCounts(wallet: string): Promise<FollowCounts> {
+    const r = await this.rpc<FollowCounts>("follow_counts", { p_network: this.cfg.network, p_wallet: wallet });
+    return r ?? { followers: 0, following: 0 };
+  }
+
+  async isFollowing(viewer: string, target: string): Promise<boolean> {
+    return !!(await this.rpc<boolean>("is_following", {
+      p_network: this.cfg.network,
+      p_viewer: viewer,
+      p_target: target,
+    }));
+  }
+
+  async matchCallers(matchId: string, limit: number): Promise<MatchCallerRow[]> {
+    return (
+      (await this.rpc<MatchCallerRow[]>("match_callers", {
+        p_network: this.cfg.network,
+        p_match_id: matchId,
+        p_limit: limit,
+      })) ?? []
+    );
+  }
+
+  async socialLeaderboard(by: string, limit: number): Promise<LeaderboardRow[]> {
+    return (await this.rpc<LeaderboardRow[]>("social_leaderboard", { p_by: by, p_limit: limit })) ?? [];
+  }
+
+  async userStats(wallet: string): Promise<UserStatsRow | null> {
+    const params = new URLSearchParams({ wallet_address: `eq.${wallet}`, select: "*", limit: "1" });
+    const rows = await this.getRows<UserStatsRow>("user_stats", params);
+    return rows[0] ?? null;
   }
 
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {

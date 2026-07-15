@@ -111,4 +111,40 @@ describe("SupabaseSocialStore", () => {
     expect(url.searchParams.get("order")).toBe("placed_at.desc");
     expect(url.searchParams.get("limit")).toBe("25");
   });
+
+  function rpcCapture(response: unknown) {
+    const requests: { url: string; body: unknown }[] = [];
+    const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(url), body: init?.body ? JSON.parse(init.body as string) : undefined });
+      return new Response(JSON.stringify(response), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const store = new SupabaseSocialStore(
+      { supabaseUrl: "https://example.supabase.co", serviceRoleKey: "service-role", network: "devnet" },
+      fetchImpl as typeof fetch,
+    );
+    return { store, requests };
+  }
+
+  test("follow calls the follow_wallet RPC with the right shape", async () => {
+    const { store, requests } = rpcCapture({ id: "f1", following: true });
+    const r = await store.follow("follower1", "followee1");
+    expect(r.ok).toBe(true);
+    expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/follow_wallet");
+    expect(requests[0]!.body).toEqual({ p_network: "devnet", p_follower: "follower1", p_followee: "followee1" });
+  });
+
+  test("followingFeed calls feed_following and returns the rows", async () => {
+    const { store, requests } = rpcCapture([{ id: "a1" }]);
+    const rows = await store.followingFeed("wallet1", 30);
+    expect(rows.length).toBe(1);
+    expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/feed_following");
+    expect(requests[0]!.body).toEqual({ p_network: "devnet", p_wallet: "wallet1", p_limit: 30 });
+  });
+
+  test("socialLeaderboard calls social_leaderboard with by/limit", async () => {
+    const { store, requests } = rpcCapture([]);
+    await store.socialLeaderboard("winrate", 10);
+    expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/social_leaderboard");
+    expect(requests[0]!.body).toEqual({ p_by: "winrate", p_limit: 10 });
+  });
 });

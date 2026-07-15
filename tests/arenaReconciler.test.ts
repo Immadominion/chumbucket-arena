@@ -62,6 +62,30 @@ class FakeSocial implements SocialStore {
   async activity() {
     return [];
   }
+  async follow() {
+    return { ok: true };
+  }
+  async unfollow() {
+    return { ok: true };
+  }
+  async followingFeed() {
+    return [];
+  }
+  async followCounts() {
+    return { followers: 0, following: 0 };
+  }
+  async isFollowing() {
+    return false;
+  }
+  async matchCallers() {
+    return [];
+  }
+  async socialLeaderboard() {
+    return [];
+  }
+  async userStats() {
+    return null;
+  }
 }
 
 class FakeChain implements ArenaChainSource {
