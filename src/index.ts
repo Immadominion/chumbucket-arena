@@ -50,6 +50,28 @@ if (app.config.onchainKeeper?.enabled) {
   console.log("   On-chain keeper: disabled (set ONCHAIN_KEEPER_ENABLED=true to enable)");
 }
 
+// Reconciler — a SEPARATE poll loop that walks chumbucket_arena's tx history and
+// repairs the Supabase social read model from on-chain truth (positions,
+// settlements, claims). On whenever the social store is configured; independent
+// of the keeper. Every write is idempotent, so a re-scan is always safe.
+let reconcilerTick: (() => Promise<void>) | undefined;
+if (app.reconciler) {
+  reconcilerTick = async () => {
+    try {
+      const s = await app.reconciler!.reconcile();
+      if (s.applied > 0 || s.errors > 0 || s.created > 0 || s.settlements > 0 || s.claims > 0) {
+        console.log("[reconciler]", JSON.stringify(s));
+      }
+    } catch (err) {
+      console.error("[reconciler] tick failed:", err);
+    }
+  };
+  console.log(`   Reconciler:      ENABLED (tick every ${app.config.reconciler!.tickMs}ms)`);
+  setInterval(reconcilerTick, app.config.reconciler!.tickMs);
+} else {
+  console.log("   Reconciler:      disabled (needs Supabase social config; off if RECONCILER_ENABLED=false)");
+}
+
 app.engine
   .syncFixtures()
   .then(() => console.log(`   Matchday:        ${app.readModel.pots.openFixtures().length} fixtures open`))
@@ -59,4 +81,6 @@ app.engine
     // First keeper pass runs after the Matchday is seeded, so it actually sees
     // the fixtures readModel.pots just hydrated (rather than an empty pass).
     void keeperTick?.();
+    // First reconciler pass — catch up on any history since the last boot.
+    void reconcilerTick?.();
   });

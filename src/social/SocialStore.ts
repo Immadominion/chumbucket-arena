@@ -32,6 +32,39 @@ export interface ConfirmPredictionSignatureInput {
   payload?: Record<string, unknown>;
 }
 
+export interface ApplySettlementInput {
+  marketId: string;
+  matchId: string;
+  /** HOME | DRAW | AWAY */
+  winningBucket: string;
+  settleTxSignature: string;
+  slot?: number;
+  /** On-chain Pot.distributable (losers' pool minus rake), base units. */
+  distributableBaseUnits: string;
+  /** On-chain Pot.winners_stake, base units. 0 => the pot voided (refund all). */
+  winnersStakeBaseUnits: string;
+  scoreHome?: number;
+  scoreAway?: number;
+  fixtureId?: number;
+  seq?: number;
+  proofRef?: string;
+  proof?: Record<string, unknown>;
+}
+
+export interface ApplyClaimInput {
+  wallet: string;
+  /** The Position PDA address the claim closed. */
+  positionAddress: string;
+  claimTxSignature: string;
+  amountBaseUnits?: string;
+  slot?: number;
+}
+
+export interface IndexerCursorRow {
+  last_signature: string | null;
+  last_slot: number | null;
+}
+
 export interface PredictionPositionRow {
   id: string;
   network: string;
@@ -79,7 +112,12 @@ export interface SocialStore {
   readonly enabled: boolean;
   recordPredictionCall(input: RecordPredictionCallInput): Promise<{ ok: boolean; positionId?: string; reason?: string }>;
   confirmPredictionSignature(input: ConfirmPredictionSignatureInput): Promise<{ ok: boolean; result?: unknown; reason?: string }>;
+  applySettlement(input: ApplySettlementInput): Promise<{ ok: boolean; result?: unknown; reason?: string }>;
+  applyClaim(input: ApplyClaimInput): Promise<{ ok: boolean; result?: unknown; reason?: string }>;
+  advanceCursor(source: string, cursorKey: string, signature: string, slot?: number): Promise<void>;
+  readCursor(source: string, cursorKey: string): Promise<IndexerCursorRow | null>;
   myPositions(wallet: string, limit: number): Promise<PredictionPositionRow[]>;
+  claimable(wallet: string, limit: number): Promise<PredictionPositionRow[]>;
   activity(input: { matchId?: string; wallet?: string; limit: number }): Promise<PredictionActivityRow[]>;
 }
 
@@ -94,7 +132,27 @@ export class NoopSocialStore implements SocialStore {
     return { ok: false, reason: "social store is not configured" };
   }
 
+  async applySettlement(): Promise<{ ok: boolean; reason: string }> {
+    return { ok: false, reason: "social store is not configured" };
+  }
+
+  async applyClaim(): Promise<{ ok: boolean; reason: string }> {
+    return { ok: false, reason: "social store is not configured" };
+  }
+
+  async advanceCursor(): Promise<void> {
+    // no-op
+  }
+
+  async readCursor(): Promise<IndexerCursorRow | null> {
+    return null;
+  }
+
   async myPositions(): Promise<PredictionPositionRow[]> {
+    return [];
+  }
+
+  async claimable(): Promise<PredictionPositionRow[]> {
     return [];
   }
 
@@ -160,6 +218,74 @@ export class SupabaseSocialStore implements SocialStore {
     if (input.matchId) params.set("match_id", `eq.${input.matchId}`);
     if (input.wallet) params.set("actor_wallet_address", `eq.${input.wallet}`);
     return this.getRows<PredictionActivityRow>("prediction_activity", params);
+  }
+
+  async applySettlement(input: ApplySettlementInput): Promise<{ ok: boolean; result?: unknown; reason?: string }> {
+    // distributable/winners_stake are u64 base units that overflow JS safe ints,
+    // so pass them as strings — PostgREST casts text -> NUMERIC without precision loss.
+    const result = await this.rpc<unknown>("apply_settlement", {
+      p_network: this.cfg.network,
+      p_market_id: input.marketId,
+      p_match_id: input.matchId,
+      p_winning_bucket: input.winningBucket,
+      p_settle_tx: input.settleTxSignature,
+      p_slot: input.slot ?? null,
+      p_distributable: input.distributableBaseUnits,
+      p_winners_stake: input.winnersStakeBaseUnits,
+      p_score_home: input.scoreHome ?? null,
+      p_score_away: input.scoreAway ?? null,
+      p_fixture_id: input.fixtureId ?? null,
+      p_seq: input.seq ?? null,
+      p_proof_ref: input.proofRef ?? null,
+      p_proof: input.proof ?? null,
+    });
+    return { ok: true, result };
+  }
+
+  async applyClaim(input: ApplyClaimInput): Promise<{ ok: boolean; result?: unknown; reason?: string }> {
+    const result = await this.rpc<unknown>("apply_claim_fact", {
+      p_network: this.cfg.network,
+      p_wallet: input.wallet,
+      p_position_address: input.positionAddress,
+      p_claim_tx: input.claimTxSignature,
+      p_amount: input.amountBaseUnits ?? null,
+      p_slot: input.slot ?? null,
+    });
+    return { ok: true, result };
+  }
+
+  async advanceCursor(source: string, cursorKey: string, signature: string, slot?: number): Promise<void> {
+    await this.rpc<unknown>("advance_indexer_cursor", {
+      p_network: this.cfg.network,
+      p_source: source,
+      p_cursor_key: cursorKey,
+      p_signature: signature,
+      p_slot: slot ?? null,
+    });
+  }
+
+  async readCursor(source: string, cursorKey: string): Promise<IndexerCursorRow | null> {
+    const params = new URLSearchParams({
+      network: `eq.${this.cfg.network}`,
+      source: `eq.${source}`,
+      cursor_key: `eq.${cursorKey}`,
+      select: "last_signature,last_slot",
+      limit: "1",
+    });
+    const rows = await this.getRows<IndexerCursorRow>("indexer_cursors", params);
+    return rows[0] ?? null;
+  }
+
+  async claimable(wallet: string, limit: number): Promise<PredictionPositionRow[]> {
+    const params = new URLSearchParams({
+      network: `eq.${this.cfg.network}`,
+      wallet_address: `eq.${wallet}`,
+      status: "eq.CLAIMABLE",
+      select: "*",
+      order: "settled_at.desc",
+      limit: String(limit),
+    });
+    return this.getRows<PredictionPositionRow>("prediction_positions", params);
   }
 
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {

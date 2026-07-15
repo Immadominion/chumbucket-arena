@@ -147,6 +147,11 @@ export const appRouter = router({
     .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(200).default(50) }))
     .query(({ ctx, input }) => ctx.app.social.myPositions(input.wallet, input.limit)),
 
+  /** Settled positions with funds still to pull — powers the "claim your winnings" surface. */
+  claimable: publicProcedure
+    .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(200).default(50) }))
+    .query(({ ctx, input }) => ctx.app.social.claimable(input.wallet, input.limit)),
+
   activity: publicProcedure
     .input(
       z.object({
@@ -311,6 +316,21 @@ export const appRouter = router({
         return { ok: true, matchId: input.matchId, score: { home: input.home, away: input.away } };
       }),
     ),
+
+  // Run one reconciler pass on command (walk chain history -> repair the social
+  // read model: confirm/create positions, settle pots, mark claims). Gated by
+  // DEMO_ADMIN_KEY so the settlement/claim story can be shown live in the demo.
+  reconcile: publicProcedure
+    .input(z.object({ key: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const expected = ctx.app.config.demoAdminKey;
+      if (!expected || !timingSafeEqualStr(input.key, expected)) {
+        throw new DomainError("INVALID", "not authorized to run the reconciler");
+      }
+      if (!ctx.app.reconciler) return { ok: false as const, reason: "reconciler not configured" };
+      const summary = await ctx.app.reconciler.reconcile();
+      return { ok: true as const, summary };
+    }),
 
   // ── live subscriptions (pushed over WS) ────────────────────────────────────
   onMatch: publicProcedure

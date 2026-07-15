@@ -89,7 +89,22 @@ export interface AppConfig {
    * tests/CI by default. See src/keeper/onchainDriver.ts.
    */
   onchainKeeper?: OnchainKeeperConfig;
+  /**
+   * The pull-based reconciler — walks chumbucket_arena's tx history and repairs
+   * the Supabase social read model from on-chain truth (positions, settlements,
+   * claims). Opt-in via social config; independent of the keeper. See
+   * src/indexer/ArenaReconciler.ts.
+   */
+  reconciler?: ReconcilerConfig;
   game: GameConfig;
+}
+
+export interface ReconcilerConfig {
+  enabled: boolean;
+  rpcUrl: string;
+  programId: string;
+  tickMs: number;
+  maxSignaturesPerPass: number;
 }
 
 export interface OnchainKeeperConfig {
@@ -269,6 +284,24 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       minParticipants: cfg.game.minParticipants,
       ...(env.CHUMBUCKET_USDC_MINT ? { usdcMint: env.CHUMBUCKET_USDC_MINT } : {}),
       tickMs: num(env.ONCHAIN_KEEPER_TICK_MS, 60_000),
+    };
+  }
+  // Reconciler — on by default whenever the Supabase social store is configured
+  // (it only reads chain + writes the read model; never signs). Turn off with
+  // RECONCILER_ENABLED=false. Shares the keeper's RPC/program by default.
+  if (cfg.social && env.RECONCILER_ENABLED !== "false") {
+    cfg.reconciler = {
+      enabled: true,
+      rpcUrl:
+        env.RECONCILER_RPC_URL ??
+        env.ONCHAIN_KEEPER_RPC_URL ??
+        cfg.onchainKeeper?.rpcUrl ??
+        cfg.txline?.rpcUrl ??
+        cfg.solana.rpcUrl,
+      programId:
+        env.CHUMBUCKET_PROGRAM_ID ?? cfg.onchainKeeper?.programId ?? "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG",
+      tickMs: num(env.RECONCILER_TICK_MS, 60_000),
+      maxSignaturesPerPass: num(env.RECONCILER_MAX_SIGS, 1000),
     };
   }
   return cfg;

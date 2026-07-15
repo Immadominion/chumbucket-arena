@@ -3,14 +3,14 @@ import idl from "../../vendor/chumbucket_arena/chumbucket_arena.json" with { typ
 export const DEFAULT_ARENA_PROGRAM_ID = "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG";
 
 export interface ParsedArenaInstruction {
-  name: "place_call" | "claim" | "settle_pot";
+  name: "place_call" | "claim" | "settle_pot" | "void_pot";
   programId: string;
   accounts: string[];
   namedAccounts: Record<string, string>;
   args: Record<string, string | number>;
 }
 
-const TARGET_NAMES = new Set(["place_call", "claim", "settle_pot"]);
+const TARGET_NAMES = new Set(["place_call", "claim", "settle_pot", "void_pot"]);
 
 const SPECS = Object.fromEntries(
   (idl.instructions as Array<{ name: string; discriminator: number[]; accounts?: Array<{ name: string }> }>)

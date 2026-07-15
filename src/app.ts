@@ -33,6 +33,7 @@ import { TxlineMatchData } from "./ports/TxlineMatchData.ts";
 import { TxlineSettlementVerifier, type FixtureIdMap } from "./ports/TxlineSettlementVerifier.ts";
 import { StubSettlementVerifier, type SettlementVerifier } from "./ports/SettlementVerifier.ts";
 import { NoopSocialStore, SupabaseSocialStore, type SocialStore } from "./social/SocialStore.ts";
+import { ArenaReconciler, SolanaArenaChainSource } from "./indexer/ArenaReconciler.ts";
 import txoracleIdl from "../vendor/txline/idl/txoracle.json" with { type: "json" };
 import { seedFixtures } from "./data/fixtures.ts";
 
@@ -48,6 +49,8 @@ export interface App {
   ledgerMirror: WalrusLedgerMirror;
   matchData: MatchDataProvider;
   social: SocialStore;
+  /** Pull-based chain->read-model reconciler (present when social + reconciler configured). */
+  reconciler?: ArenaReconciler;
   /** Description of which adapters are live — handy for /health and the demo. */
   wiring: Record<string, string>;
 }
@@ -199,6 +202,19 @@ export async function createApp(opts: CreateAppOptions = {}): Promise<App> {
       : new NoopSocialStore());
   wiring.social = opts.social ? "custom" : config.social ? "supabase" : "none";
 
+  // The reconciler needs a live social store to write into and its own chain
+  // read config. Independent of the keeper (settlement reconciliation must work
+  // even when the admin keeper isn't running this process).
+  const reconciler =
+    config.reconciler?.enabled && social.enabled
+      ? new ArenaReconciler(
+          social,
+          new SolanaArenaChainSource({ rpcUrl: config.reconciler.rpcUrl, programId: config.reconciler.programId }),
+          config.reconciler.maxSignaturesPerPass,
+        )
+      : undefined;
+  wiring.reconciler = reconciler ? "on" : "off";
+
   const auth: Auth =
     opts.auth ??
     (config.privy?.appSecret
@@ -252,5 +268,5 @@ export async function createApp(opts: CreateAppOptions = {}): Promise<App> {
     ...(depositGateway ? { depositGateway } : {}),
   });
 
-  return { config, store, readModel, engine, gaffer, auth, memory, memoryWriter, ledgerMirror, matchData, social, wiring };
+  return { config, store, readModel, engine, gaffer, auth, memory, memoryWriter, ledgerMirror, matchData, social, ...(reconciler ? { reconciler } : {}), wiring };
 }
