@@ -1,0 +1,23 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+chumbucket_arena = "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG"
+
+[programs.devnet]
+chumbucket_arena = "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG"
+
+[provider]
+# Default is local dev/testing. For devnet work, override on the command line:
+# `anchor deploy --provider.cluster devnet --provider.wallet ./devnet-wallet.json`
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]

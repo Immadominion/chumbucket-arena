@@ -1,0 +1,14 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+devnet-wallet.json
+.devnet/
+scripts/devnet-lifecycle/player-a.json
+scripts/devnet-lifecycle/player-b.json
+scripts/devnet-lifecycle/.env
+scripts/devnet-lifecycle/node_modules

@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["bun"],
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src", "scripts", "tests"],
+  "exclude": [
+    "scripts/privy-sessions-provision.ts",
+    "scripts/sui-custody-check.ts",
+    "scripts/sui-roundtrip-test.ts",
+    "scripts/verify-deposit-sweep.ts",
+    "scripts/verify-privy-withdraw.ts",
+    "scripts/wal-check.ts",
+    "scripts/wal-trace.ts"
+  ]
+}

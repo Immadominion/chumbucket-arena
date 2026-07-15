@@ -1,0 +1,11 @@
+{
+  "name": "gaffer-devnet-lifecycle",
+  "private": true,
+  "description": "Live devnet lifecycle scripts for chumbucket_arena — setup, create_pot, place_call, lock_pot, settle_pot, claim, sweep_rake, run against real TxLINE World Cup data.",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "@solana/spl-token": "^0.4.14",
+    "axios": "^1.7.0"
+  }
+}

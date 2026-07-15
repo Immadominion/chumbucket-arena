@@ -1,0 +1,42 @@
+{
+  "name": "the-gaffer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Gaffer — an AI football manager with persistent memory on Walrus. Event-sourced backend.",
+  "module": "src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "dev:live": "bun run scripts/dev-live.ts",
+    "typecheck": "tsc --noEmit",
+    "gen:types": "bun run scripts/gen-web-types.ts",
+    "test": "bun test",
+    "smoke": "bun run scripts/smoke.ts",
+    "check:memwal": "bun run scripts/memwal-check.ts",
+    "check:memwal-store": "bun run scripts/memwal-store-check.ts",
+    "check:sui": "bun run scripts/sui-custody-check.ts",
+    "check:sui-roundtrip": "bun run scripts/sui-roundtrip-test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
+    "@coral-xyz/anchor": "0.32.1",
+    "@mysten-incubation/memwal": "^0.0.7",
+    "@mysten/sui": "2.19.0",
+    "@privy-io/node": "^0.22.0",
+    "@solana-program/system": "^0.9.1",
+    "@solana-program/token": "^0.8.0",
+    "@solana/kit": "^5.1.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "@trpc/server": "^11.0.0-rc.660",
+    "superjson": "^2.2.1",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,41 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+sessions-wallet.json
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+.next/
+
+# Local read-model cache (rebuildable). Root only — must NOT match src/data (source!).
+/data/
+*.sqlite
+*.sqlite-*
+*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Frontend — its own repo, deploys to Vercel separately
+/web/
+
+# Redundant large 3D assets (live in the frontend's public/models)
+/assets/
+
+# Local agent / editor config
+.claude/
+
+# External reference doc (hackathon rules) — not part of the published backend
+context.md
+
+# local security reports / gstack state
+.gstack/
