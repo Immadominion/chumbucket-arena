@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { TRPCError } from "@trpc/server";
 import { appRouter } from "../src/api/router.ts";
 import { createApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
@@ -149,5 +150,27 @@ describe("tRPC API", () => {
     expect(res.net).toBe(4_900_000n); // 5 USDC − 0.1 USDC reaches the player
     const me = await al.me();
     expect(me!.balance).toBe(wal(5)); // gross 5 WAL left the balance
+  });
+
+  // A wallet-signature rejection is a CLIENT error. These mutations throw
+  // DomainError("INVALID") directly (not via guard()); the mapDomainErrors
+  // middleware must still translate that to BAD_REQUEST (400), so a bad proof
+  // is never surfaced or logged as INTERNAL_SERVER_ERROR (500).
+  test("a bad wallet-signature on follow maps to BAD_REQUEST, not INTERNAL_SERVER_ERROR", async () => {
+    const app = await freshApp();
+    const anon = appRouter.createCaller({ app });
+    try {
+      await anon.follow({
+        wallet: "34cts2e8euGAHCNrkC9damXAcgyR9FpTiSbC9Sw1DYz9",
+        target: "9b6qd61UqFaHgeCtZ1wFETiwBzkBvJaJavSvaNwiYqtz",
+        timestamp: FIXED_NOW,
+        signature: "1".repeat(64),
+      });
+      throw new Error("expected follow to reject");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect((e as TRPCError).code).toBe("BAD_REQUEST");
+      expect((e as TRPCError).message).toMatch(/follow rejected/i);
+    }
   });
 });

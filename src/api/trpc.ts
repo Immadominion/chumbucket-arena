@@ -36,14 +36,6 @@ export async function makeContext(app: App, token: string | undefined): Promise<
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
-
-export const authedProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.wallet) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "connect your wallet (x-wallet)" });
-  }
-  return next({ ctx: { ...ctx, wallet: ctx.wallet } });
-});
 
 const CODE_MAP: Record<DomainErrorCode, TRPC_ERROR_CODE_KEY> = {
   NOT_SIGNED: "UNAUTHORIZED",
@@ -61,6 +53,33 @@ const CODE_MAP: Record<DomainErrorCode, TRPC_ERROR_CODE_KEY> = {
   CONFLICT: "CONFLICT",
   INVALID: "BAD_REQUEST",
 };
+
+/**
+ * Translate a DomainError thrown ANYWHERE in a procedure into the right transport
+ * code. Procedures that wrap their body in guard() already throw TRPCError; this
+ * catches the ones that throw DomainError directly (e.g. the wallet-signature
+ * rejections on follow/recordPredictionCall/linkIdentity) so an auth failure is a
+ * 400, not a 500 — which keeps client error handling honest and stops legitimate
+ * rejections from being logged as INTERNAL_SERVER_ERROR. Idempotent: a guard()
+ * TRPCError whose cause is a DomainError re-maps to the same code.
+ */
+const mapDomainErrors = t.middleware(async ({ next }) => {
+  const res = await next();
+  if (!res.ok && res.error.cause instanceof DomainError) {
+    const de = res.error.cause;
+    throw new TRPCError({ code: CODE_MAP[de.code], message: de.message, cause: de });
+  }
+  return res;
+});
+
+export const publicProcedure = t.procedure.use(mapDomainErrors);
+
+export const authedProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.wallet) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "connect your wallet (x-wallet)" });
+  }
+  return next({ ctx: { ...ctx, wallet: ctx.wallet } });
+});
 
 /** Run an engine command, translating DomainError into the right tRPC code. */
 export async function guard<T>(fn: () => Promise<T>): Promise<T> {
