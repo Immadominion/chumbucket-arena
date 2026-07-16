@@ -86,6 +86,15 @@ class FakeSocial implements SocialStore {
   async userStats() {
     return null;
   }
+  async notifications() {
+    return [];
+  }
+  async unreadCount() {
+    return 0;
+  }
+  async markNotificationsRead() {
+    return { ok: true };
+  }
 }
 
 class FakeChain implements ArenaChainSource {

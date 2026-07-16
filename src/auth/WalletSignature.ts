@@ -39,6 +39,29 @@ export function socialActionMessage(action: SocialAction, target: string, networ
   return `ChumBucket: ${action} ${target}\nnet:${network}\nts:${timestamp}`;
 }
 
+/** A parameterless signed action (e.g. "read_notifications"). */
+export function genericActionMessage(action: string, network: string, timestamp: number): string {
+  return `ChumBucket: ${action}\nnet:${network}\nts:${timestamp}`;
+}
+
+export interface GenericActionProof {
+  wallet: string;
+  action: string;
+  timestamp: number;
+  signature: string;
+}
+
+/** Verify a parameterless action proof against the backend's `network`. */
+export function verifyGenericAction(proof: GenericActionProof, now: number, network: string): { ok: boolean; reason?: string } {
+  if (!proof.wallet || !proof.action || !proof.signature) return { ok: false, reason: "missing fields" };
+  const fresh = freshness(proof.timestamp, now);
+  if (!fresh.ok) return fresh;
+  const message = genericActionMessage(proof.action, network, proof.timestamp);
+  return verifyWalletSignature(proof.wallet, message, proof.signature)
+    ? { ok: true }
+    : { ok: false, reason: "invalid signature" };
+}
+
 /** The exact string a wallet must sign to attribute a prediction call to itself. */
 export function callProofMessage(params: {
   matchId: string;

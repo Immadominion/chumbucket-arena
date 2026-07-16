@@ -22,7 +22,7 @@ import type { DossierView } from "../core/projections/DossierProjection.ts";
 import { DomainError } from "../domain/errors.ts";
 import { streamEvents } from "./eventStream.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
-import { verifyCallProof, verifySocialAction } from "../auth/WalletSignature.ts";
+import { verifyCallProof, verifyGenericAction, verifySocialAction } from "../auth/WalletSignature.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -227,6 +227,29 @@ export const appRouter = router({
       );
       if (!check.ok) throw new DomainError("INVALID", `unfollow rejected: ${check.reason}`);
       return ctx.app.social.unfollow(input.wallet, input.target);
+    }),
+
+  // ── notifications ───────────────────────────────────────────────────────────
+  /** A wallet's notifications (FOLLOWED_CALL, CLAIM_AVAILABLE, …), newest first. */
+  notifications: publicProcedure
+    .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(200).default(50), unreadOnly: z.boolean().default(false) }))
+    .query(({ ctx, input }) => ctx.app.social.notifications(input.wallet, input.limit, input.unreadOnly)),
+
+  unreadCount: publicProcedure
+    .input(z.object({ wallet: z.string() }))
+    .query(({ ctx, input }) => ctx.app.social.unreadCount(input.wallet)),
+
+  /** Mark notifications read — wallet-signature authed (only you mark your own). */
+  markNotificationsRead: publicProcedure
+    .input(z.object({ wallet: z.string(), ids: z.array(z.string()).optional(), timestamp: z.number(), signature: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const check = verifyGenericAction(
+        { wallet: input.wallet, action: "read_notifications", timestamp: input.timestamp, signature: input.signature },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `mark-read rejected: ${check.reason}`);
+      return ctx.app.social.markNotificationsRead(input.wallet, input.ids);
     }),
 
   // ── commands ─────────────────────────────────────────────────────────────

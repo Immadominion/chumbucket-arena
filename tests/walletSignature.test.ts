@@ -3,9 +3,11 @@ import { generateKeyPairSync, sign as nodeSign, type KeyObject } from "node:cryp
 import { utils } from "@coral-xyz/anchor";
 import {
   callProofMessage,
+  genericActionMessage,
   SIGNATURE_MAX_AGE_MS,
   socialActionMessage,
   verifyCallProof,
+  verifyGenericAction,
   verifySocialAction,
   verifyWalletSignature,
   type SocialAction,
@@ -152,5 +154,18 @@ describe("verifyCallProof", () => {
     const p = callProof(a.privateKey, a.walletB58);
     expect(verifyCallProof(p, ts + SIGNATURE_MAX_AGE_MS + 1, NET).ok).toBe(false);
     expect(verifyCallProof({ ...p, wallet: b.walletB58 }, ts, NET).ok).toBe(false);
+  });
+});
+
+describe("verifyGenericAction", () => {
+  const ts = 1_700_000_000_000;
+  test("accepts a correctly-signed action, rejects action/network mismatch", () => {
+    const { privateKey, walletB58 } = makeWallet();
+    const sig = signB58(privateKey, genericActionMessage("read_notifications", NET, ts));
+    const p = { wallet: walletB58, action: "read_notifications", timestamp: ts, signature: sig };
+    expect(verifyGenericAction(p, ts, NET).ok).toBe(true);
+    expect(verifyGenericAction({ ...p, action: "delete_account" }, ts, NET).ok).toBe(false);
+    expect(verifyGenericAction(p, ts, "mainnet-beta").ok).toBe(false);
+    expect(verifyGenericAction(p, ts + SIGNATURE_MAX_AGE_MS + 1, NET).ok).toBe(false);
   });
 });

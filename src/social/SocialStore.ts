@@ -107,6 +107,19 @@ export interface UserStatsRow {
   best_streak: number;
 }
 
+export interface NotificationRow {
+  id: string;
+  network: string;
+  recipient_wallet_address: string | null;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  status: string;
+  read_at: string | null;
+  created_at: string;
+}
+
 export interface PredictionPositionRow {
   id: string;
   network: string;
@@ -170,6 +183,10 @@ export interface SocialStore {
   matchCallers(matchId: string, limit: number): Promise<MatchCallerRow[]>;
   socialLeaderboard(by: string, limit: number): Promise<LeaderboardRow[]>;
   userStats(wallet: string): Promise<UserStatsRow | null>;
+  // notifications
+  notifications(wallet: string, limit: number, unreadOnly: boolean): Promise<NotificationRow[]>;
+  unreadCount(wallet: string): Promise<number>;
+  markNotificationsRead(wallet: string, ids?: string[]): Promise<{ ok: boolean; count?: number }>;
 }
 
 export class NoopSocialStore implements SocialStore {
@@ -241,6 +258,18 @@ export class NoopSocialStore implements SocialStore {
 
   async userStats(): Promise<UserStatsRow | null> {
     return null;
+  }
+
+  async notifications(): Promise<NotificationRow[]> {
+    return [];
+  }
+
+  async unreadCount(): Promise<number> {
+    return 0;
+  }
+
+  async markNotificationsRead(): Promise<{ ok: boolean }> {
+    return { ok: false };
   }
 }
 
@@ -430,6 +459,30 @@ export class SupabaseSocialStore implements SocialStore {
     const params = new URLSearchParams({ wallet_address: `eq.${wallet}`, select: "*", limit: "1" });
     const rows = await this.getRows<UserStatsRow>("user_stats", params);
     return rows[0] ?? null;
+  }
+
+  async notifications(wallet: string, limit: number, unreadOnly: boolean): Promise<NotificationRow[]> {
+    return (
+      (await this.rpc<NotificationRow[]>("get_notifications", {
+        p_network: this.cfg.network,
+        p_wallet: wallet,
+        p_limit: limit,
+        p_unread_only: unreadOnly,
+      })) ?? []
+    );
+  }
+
+  async unreadCount(wallet: string): Promise<number> {
+    return Number(await this.rpc<number>("unread_notification_count", { p_network: this.cfg.network, p_wallet: wallet })) || 0;
+  }
+
+  async markNotificationsRead(wallet: string, ids?: string[]): Promise<{ ok: boolean; count?: number }> {
+    const count = await this.rpc<number>("mark_notifications_read", {
+      p_network: this.cfg.network,
+      p_wallet: wallet,
+      p_ids: ids ?? null,
+    });
+    return { ok: true, count: Number(count) || 0 };
   }
 
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
