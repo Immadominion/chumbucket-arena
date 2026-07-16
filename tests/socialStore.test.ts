@@ -147,4 +147,45 @@ describe("SupabaseSocialStore", () => {
     expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/social_leaderboard");
     expect(requests[0]!.body).toEqual({ p_by: "winrate", p_limit: 10 });
   });
+
+  function store(fetchImpl: unknown) {
+    return new SupabaseSocialStore(
+      { supabaseUrl: "https://ex.supabase.co", serviceRoleKey: "svc", network: "devnet" },
+      fetchImpl as typeof fetch,
+    );
+  }
+
+  test("verifyOAuthUser extracts a Google identity from GoTrue /auth/v1/user", async () => {
+    const user = {
+      id: "u1",
+      email: "a@b.com",
+      identities: [
+        { provider: "google", id: "g1", identity_data: { sub: "google-sub-1", name: "Alice A", picture: "http://av/a.png", email: "a@b.com" } },
+      ],
+    };
+    const s = store(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://ex.supabase.co/auth/v1/user");
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer tok123");
+      return new Response(JSON.stringify(user), { status: 200 });
+    });
+    expect(await s.verifyOAuthUser("tok123")).toMatchObject({
+      provider: "google",
+      subject: "google-sub-1",
+      displayName: "Alice A",
+      avatarUrl: "http://av/a.png",
+      email: "a@b.com",
+    });
+  });
+
+  test("verifyOAuthUser extracts an X identity (user_name -> username) and returns null on 401", async () => {
+    const xUser = {
+      id: "u2",
+      identities: [{ provider: "twitter", id: "t1", identity_data: { sub: "x-sub-1", user_name: "satoshi", name: "Satoshi", avatar_url: "http://av/x.png" } }],
+    };
+    let ok = true;
+    const s = store(async () => (ok ? new Response(JSON.stringify(xUser), { status: 200 }) : new Response("", { status: 401 })));
+    expect(await s.verifyOAuthUser("t")).toMatchObject({ provider: "twitter", subject: "x-sub-1", username: "satoshi", displayName: "Satoshi" });
+    ok = false;
+    expect(await s.verifyOAuthUser("bad")).toBeNull();
+  });
 });

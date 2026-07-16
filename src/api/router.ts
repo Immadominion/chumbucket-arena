@@ -252,6 +252,33 @@ export const appRouter = router({
       return ctx.app.social.markNotificationsRead(input.wallet, input.ids);
     }),
 
+  // ── identity linking (Google / X) ───────────────────────────────────────────
+  /**
+   * Link a Google/X identity to a wallet. Doubly authenticated: `accessToken` is
+   * the Supabase Auth session from the OAuth sign-in (verified against GoTrue, so
+   * we trust the provider identity), and the wallet SIGNATURE proves wallet
+   * ownership — so no one can attach someone else's social account to a wallet,
+   * or a wallet they don't own to a social account.
+   */
+  linkIdentity: publicProcedure
+    .input(z.object({ wallet: z.string(), accessToken: z.string().min(10), timestamp: z.number(), signature: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const check = verifyGenericAction(
+        { wallet: input.wallet, action: "link_identity", timestamp: input.timestamp, signature: input.signature },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `link rejected: ${check.reason}`);
+      const identity = await ctx.app.social.verifyOAuthUser(input.accessToken);
+      if (!identity) throw new DomainError("INVALID", "could not verify the OAuth session");
+      return ctx.app.social.linkIdentity(input.wallet, identity);
+    }),
+
+  /** Batch resolve wallets -> display (handle/name/avatar) for feed rendering. */
+  walletProfiles: publicProcedure
+    .input(z.object({ wallets: z.array(z.string()).min(1).max(200) }))
+    .query(({ ctx, input }) => ctx.app.social.walletProfiles(input.wallets)),
+
   // ── commands ─────────────────────────────────────────────────────────────
   signContract: authedProcedure
     .input(z.object({ handle: z.string().max(40).optional() }))

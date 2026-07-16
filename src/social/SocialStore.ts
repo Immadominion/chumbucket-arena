@@ -120,6 +120,24 @@ export interface NotificationRow {
   created_at: string;
 }
 
+export interface OAuthIdentity {
+  provider: string;
+  subject: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  email?: string;
+}
+
+export interface WalletProfileRow {
+  wallet_address: string;
+  handle: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  x_handle: string | null;
+  verified: boolean;
+}
+
 export interface PredictionPositionRow {
   id: string;
   network: string;
@@ -187,6 +205,10 @@ export interface SocialStore {
   notifications(wallet: string, limit: number, unreadOnly: boolean): Promise<NotificationRow[]>;
   unreadCount(wallet: string): Promise<number>;
   markNotificationsRead(wallet: string, ids?: string[]): Promise<{ ok: boolean; count?: number }>;
+  // identity linking
+  verifyOAuthUser(accessToken: string): Promise<OAuthIdentity | null>;
+  linkIdentity(wallet: string, identity: OAuthIdentity): Promise<{ ok: boolean; result?: unknown }>;
+  walletProfiles(wallets: string[]): Promise<WalletProfileRow[]>;
 }
 
 export class NoopSocialStore implements SocialStore {
@@ -270,6 +292,18 @@ export class NoopSocialStore implements SocialStore {
 
   async markNotificationsRead(): Promise<{ ok: boolean }> {
     return { ok: false };
+  }
+
+  async verifyOAuthUser(): Promise<OAuthIdentity | null> {
+    return null;
+  }
+
+  async linkIdentity(): Promise<{ ok: boolean; reason: string }> {
+    return { ok: false, reason: "social store is not configured" };
+  }
+
+  async walletProfiles(): Promise<WalletProfileRow[]> {
+    return [];
   }
 }
 
@@ -485,6 +519,54 @@ export class SupabaseSocialStore implements SocialStore {
     return { ok: true, count: Number(count) || 0 };
   }
 
+  /** Verify a Supabase Auth session token by asking GoTrue who it belongs to,
+   *  then extract the Google/X identity. Returns null if the token is invalid. */
+  async verifyOAuthUser(accessToken: string): Promise<OAuthIdentity | null> {
+    const authBase = `${this.cfg.supabaseUrl.replace(/\/$/, "")}/auth/v1`;
+    const res = await this.fetchImpl(`${authBase}/user`, {
+      headers: { apikey: this.cfg.serviceRoleKey, Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const user = (await res.json()) as {
+      id?: string;
+      email?: string;
+      user_metadata?: Record<string, unknown>;
+      app_metadata?: { provider?: string };
+      identities?: Array<{ provider?: string; id?: string; identity_data?: Record<string, unknown> }>;
+    };
+    const identities = Array.isArray(user.identities) ? user.identities : [];
+    const chosen = identities.find((i) => i.provider === "google" || i.provider === "twitter") ?? identities[0];
+    const data: Record<string, unknown> = { ...(user.user_metadata ?? {}), ...(chosen?.identity_data ?? {}) };
+    const subject = str(data.sub) ?? chosen?.id ?? user.id;
+    if (!subject) return null;
+    return {
+      provider: chosen?.provider ?? user.app_metadata?.provider ?? "unknown",
+      subject,
+      username: str(data.user_name) ?? str(data.preferred_username) ?? str(data.screen_name) ?? str(data.nickname),
+      displayName: str(data.name) ?? str(data.full_name) ?? str(data.display_name),
+      avatarUrl: str(data.avatar_url) ?? str(data.picture),
+      email: str(data.email) ?? user.email,
+    };
+  }
+
+  async linkIdentity(wallet: string, identity: OAuthIdentity): Promise<{ ok: boolean; result?: unknown }> {
+    const result = await this.rpc<unknown>("link_identity", {
+      p_wallet: wallet,
+      p_provider: identity.provider,
+      p_provider_subject: identity.subject,
+      p_provider_username: identity.username ?? null,
+      p_provider_display_name: identity.displayName ?? null,
+      p_provider_avatar_url: identity.avatarUrl ?? null,
+      p_provider_email: identity.email ?? null,
+    });
+    return { ok: true, result };
+  }
+
+  async walletProfiles(wallets: string[]): Promise<WalletProfileRow[]> {
+    if (wallets.length === 0) return [];
+    return (await this.rpc<WalletProfileRow[]>("wallet_profiles", { p_wallets: wallets })) ?? [];
+  }
+
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
     const res = await this.fetchImpl(`${this.restBase}/rpc/${name}`, {
       method: "POST",
@@ -519,4 +601,9 @@ export class SupabaseSocialStore implements SocialStore {
     if (!text) return undefined as T;
     return JSON.parse(text) as T;
   }
+}
+
+/** Coerce an unknown to a non-empty string, else undefined. */
+function str(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
 }

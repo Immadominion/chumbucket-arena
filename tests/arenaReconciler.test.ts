@@ -95,6 +95,15 @@ class FakeSocial implements SocialStore {
   async markNotificationsRead() {
     return { ok: true };
   }
+  async verifyOAuthUser() {
+    return null;
+  }
+  async linkIdentity() {
+    return { ok: true };
+  }
+  async walletProfiles() {
+    return [];
+  }
 }
 
 class FakeChain implements ArenaChainSource {
