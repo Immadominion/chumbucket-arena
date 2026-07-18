@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Modal from "@/components/ui/Modal";
 import { CheckCircle, PencilSimple } from "@/components/icons";
 import { PROFILE_IMAGE_IDS, profileImageUrl } from "@/lib/supabase";
 import { fetchSupabaseProfile, setSupabaseProfileImage, updateSupabaseProfile } from "@/lib/social";
+import { useSession } from "@/lib/session";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -32,14 +32,14 @@ export default function EditProfileModal({
   /** Fallback display name if Supabase has none yet (e.g. the signup handle). */
   currentHandle: string;
 }) {
-  const { user } = usePrivy();
-  const privyId = user?.id ?? "";
+  const { session } = useSession();
+  const wallet = session.wallet || "";
   const qc = useQueryClient();
 
   const profileQ = useQuery({
-    queryKey: ["supabase-profile", privyId],
-    queryFn: () => fetchSupabaseProfile(privyId),
-    enabled: open && !!privyId,
+    queryKey: ["supabase-profile", wallet],
+    queryFn: () => fetchSupabaseProfile(wallet),
+    enabled: open && !!wallet,
     staleTime: 0,
   });
 
@@ -64,13 +64,13 @@ export default function EditProfileModal({
   const saveM = useMutation({
     mutationFn: async () => {
       const trimmedName = fullName.trim() || currentHandle || "Chum";
-      await updateSupabaseProfile(privyId, trimmedName, bio.trim());
+      await updateSupabaseProfile(wallet, trimmedName, bio.trim());
       if (imageId !== null && imageId !== profileQ.data?.profile_image_id) {
-        await setSupabaseProfileImage(privyId, imageId);
+        await setSupabaseProfileImage(wallet, imageId);
       }
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["supabase-profile", privyId] });
+      void qc.invalidateQueries({ queryKey: ["supabase-profile", wallet] });
       onClose();
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Couldn't save your profile. Try again."),

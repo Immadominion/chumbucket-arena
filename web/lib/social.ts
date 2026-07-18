@@ -15,39 +15,55 @@
  *      5 bundled preset images (mirrored here under /public/img/profile/{1..5}.png), it isn't a free upload.
  *  - listSupabaseFriends / addSupabaseFriend <- chumbucket/lib/shared/services/unified_database_service.dart
  *      (getUserFriends / addFriend) — addFriend writes TWO rows (a<->b), both status 'accepted'.
+ *
+ * IDENTITY KEY: every function below is keyed by WALLET ADDRESS, not Privy id.
+ * `sync_user(p_privy_id, p_email)` — the original privy-id-keyed creation path —
+ * no longer exists server-side (confirmed via a live 404; the schema moved to
+ * `sync_user_by_wallet`, wallet-first, matching mobile and the Arena backend).
+ * `fetch_user_profile`/`update_user_profile` already tolerate this: their
+ * `p_privy_id` param matches `WHERE privy_id = $1 OR wallet_address = $1`, so
+ * passing a wallet address through unchanged finds/updates the right row — no
+ * new RPC needed there. `setSupabaseProfileImage` and the "me" lookups in
+ * `listSupabaseFriends`/`addSupabaseFriend` were raw `.eq("privy_id", ...)`
+ * table queries with no such fallback; those are fixed to match on
+ * `wallet_address` directly, since that's the column `sync_user_by_wallet`
+ * actually populates (a wallet-created row's `privy_id` is NULL).
  */
 
 import { supabase, type SupaFriendRow, type SupaUser } from "./supabase";
 
-/** Call immediately after a successful Privy login — creates/links the `users` row. */
-export async function syncSupabaseUser(privyId: string, email: string): Promise<void> {
-  const { error } = await supabase.rpc("sync_user", { p_privy_id: privyId, p_email: email });
+/** Call once the player's wallet is known (post-login) — creates/links the `users` row. */
+export async function syncSupabaseUser(walletAddress: string): Promise<void> {
+  const { error } = await supabase.rpc("sync_user_by_wallet", { p_wallet_address: walletAddress });
   if (error) throw error;
 }
 
-export async function fetchSupabaseProfile(privyId: string): Promise<SupaUser | null> {
+export async function fetchSupabaseProfile(walletAddress: string): Promise<SupaUser | null> {
   const { data, error } = await supabase
-    .rpc("fetch_user_profile", { p_privy_id: privyId })
+    .rpc("fetch_user_profile", { p_privy_id: walletAddress })
     .maybeSingle();
   if (error) throw error;
   return (data as SupaUser | null) ?? null;
 }
 
 export async function updateSupabaseProfile(
-  privyId: string,
+  walletAddress: string,
   fullName: string,
   bio: string,
 ): Promise<void> {
   const { error } = await supabase.rpc("update_user_profile", {
-    p_privy_id: privyId,
+    p_privy_id: walletAddress,
     p_full_name: fullName,
     p_bio: bio,
   });
   if (error) throw error;
 }
 
-export async function setSupabaseProfileImage(privyId: string, imageId: number): Promise<void> {
-  const { error } = await supabase.from("users").update({ profile_image_id: imageId }).eq("privy_id", privyId);
+export async function setSupabaseProfileImage(walletAddress: string, imageId: number): Promise<void> {
+  const { error } = await supabase
+    .from("users")
+    .update({ profile_image_id: imageId })
+    .eq("wallet_address", walletAddress);
   if (error) throw error;
 }
 
@@ -57,11 +73,11 @@ export type FriendRow = {
   profileImageId: number | null;
 };
 
-export async function listSupabaseFriends(privyId: string): Promise<FriendRow[]> {
+export async function listSupabaseFriends(walletAddress: string): Promise<FriendRow[]> {
   const { data: me, error: meErr } = await supabase
     .from("users")
     .select("id")
-    .eq("privy_id", privyId)
+    .eq("wallet_address", walletAddress)
     .maybeSingle();
   if (meErr) throw meErr;
   if (!me) return [];
@@ -84,16 +100,16 @@ export async function listSupabaseFriends(privyId: string): Promise<FriendRow[]>
 }
 
 export async function addSupabaseFriend(opts: {
-  privyId: string;
+  walletAddress: string;
   friendWalletAddress: string;
   friendName: string;
 }): Promise<{ alreadyFriends: boolean }> {
-  const { privyId, friendWalletAddress, friendName } = opts;
+  const { walletAddress, friendWalletAddress, friendName } = opts;
 
   const { data: me, error: meErr } = await supabase
     .from("users")
     .select("id")
-    .eq("privy_id", privyId)
+    .eq("wallet_address", walletAddress)
     .maybeSingle();
   if (meErr) throw meErr;
   if (!me) throw new Error("Your account isn't set up yet — try again in a moment.");

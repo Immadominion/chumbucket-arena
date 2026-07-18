@@ -18,8 +18,12 @@
  * SAME `users` row the mobile app (Flutter) would create/reuse in Supabase —
  * same accounts, friends and profile across both platforms. This mirrors
  * chumbucket/lib/features/authentication/providers/auth_provider.dart's
- * _syncUserWithSupabase() trigger point exactly (call sync_user right after
- * Privy auth succeeds). See lib/social.ts for the query layer.
+ * _syncUserWithSupabase() trigger point, but keyed by WALLET ADDRESS, not Privy
+ * id — the original privy-id-keyed `sync_user` RPC no longer exists server-side
+ * (confirmed via a live 404); the schema moved to `sync_user_by_wallet`,
+ * matching mobile and the Arena backend. That means the sync can only fire once
+ * the wallet is known — i.e. once `me` resolves — not at raw Privy-login time.
+ * See lib/social.ts for the query layer and the full identity-key rationale.
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -28,16 +32,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/lib/trpc";
 import { frostToWal, walToFrost } from "@/lib/format";
 import { fetchSupabaseProfile, syncSupabaseUser, updateSupabaseProfile } from "@/lib/social";
-
-/** Best-effort email for sync_user(): mobile only ever logs in with email, so it
- * always has one. Web also allows Google / X / wallet login, where an email may
- * not exist — X in particular never exposes one via Privy. We fall back through
- * the linked accounts that do carry an email, then an empty string as a last
- * resort so the account still gets created (open question: unverified against
- * the actual sync_user SQL, since it isn't in this repo). */
-function bestEffortEmail(user: ReturnType<typeof usePrivy>["user"]): string {
-  return user?.email?.address ?? user?.google?.email ?? user?.apple?.email ?? "";
-}
 
 export type Session = {
   status: "guest" | "signed";
@@ -75,23 +69,26 @@ const SessionContext = createContext<Ctx | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const { ready: authReady, authenticated, user, login, logout } = usePrivy();
+  const { ready: authReady, authenticated, login, logout } = usePrivy();
 
   const meQ = useQuery({ ...trpc.me.queryOptions(), enabled: authenticated, retry: false, staleTime: 5_000 });
 
-  // Sync the shared Supabase `users` row once per authenticated Privy identity —
-  // same trigger point as mobile (right after login succeeds), independent of
-  // whether this browser has picked a handle with the backend yet.
-  const syncedPrivyIdRef = useRef<string | null>(null);
+  // Sync the shared Supabase `users` row once per known wallet — the wallet is
+  // resolved server-side by PrivyAuth on the very first authenticated tRPC
+  // call, so it's available as soon as `me` resolves, well before raw
+  // Privy-login readiness would have it. Keyed on wallet (not Privy user id)
+  // to match `sync_user_by_wallet`.
+  const syncedWalletRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!authReady || !authenticated || !user?.id) return;
-    if (syncedPrivyIdRef.current === user.id) return;
-    syncedPrivyIdRef.current = user.id;
-    syncSupabaseUser(user.id, bestEffortEmail(user)).catch((e) => {
-      syncedPrivyIdRef.current = null; // allow a retry on the next render/login
-      console.warn("[session] sync_user failed", e);
+    const wallet = meQ.data?.wallet;
+    if (!authenticated || !wallet) return;
+    if (syncedWalletRef.current === wallet) return;
+    syncedWalletRef.current = wallet;
+    syncSupabaseUser(wallet).catch((e) => {
+      syncedWalletRef.current = null; // allow a retry on the next render/login
+      console.warn("[session] sync_user_by_wallet failed", e);
     });
-  }, [authReady, authenticated, user]);
+  }, [authenticated, meQ.data?.wallet]);
 
   // Local onboarding flags (The Trial + the spotlight tour).
   const [local, setLocal] = useState({ onboarded: false, tourDone: false });
@@ -157,15 +154,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // there's no separate handle concept, so push the same value both places.
       // Best-effort only: the account is already fully signed up on the backend
       // at this point, so a Supabase hiccup here must not surface as an error.
-      if (user?.id) {
+      // invalidateMe() awaits the refetch, so the fresh wallet is already in
+      // the cache here.
+      const wallet = qc.getQueryData(trpc.me.queryKey())?.wallet;
+      if (wallet) {
         try {
           const finalHandle = handle.trim() || "Chum";
-          // Guarantee the users row exists before writing to it — the sync_user
+          // Guarantee the users row exists before writing to it — the sync
           // effect above is fire-and-forget, so a fast handle submission could
-          // otherwise race it. sync_user is idempotent on mobile, safe to repeat.
-          await syncSupabaseUser(user.id, bestEffortEmail(user));
-          const existing = await fetchSupabaseProfile(user.id);
-          await updateSupabaseProfile(user.id, finalHandle, existing?.bio ?? "");
+          // otherwise race it. sync_user_by_wallet is idempotent, safe to repeat.
+          await syncSupabaseUser(wallet);
+          const existing = await fetchSupabaseProfile(wallet);
+          await updateSupabaseProfile(wallet, finalHandle, existing?.bio ?? "");
         } catch (e) {
           console.warn("[session] full_name reconciliation failed", e);
         }

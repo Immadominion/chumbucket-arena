@@ -8,7 +8,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePrivy } from "@privy-io/react-auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { PaperPlaneRight, UserPlus } from "@/components/icons";
@@ -30,16 +29,15 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function FriendsPage() {
-  const { user } = usePrivy();
   const { session } = useSession();
   const qc = useQueryClient();
-  const privyId = user?.id ?? "";
-  const friendsKey = ["supabase-friends", privyId];
+  const wallet = session.wallet || "";
+  const friendsKey = ["supabase-friends", wallet];
 
   const friendsQ = useQuery({
     queryKey: friendsKey,
-    queryFn: () => listSupabaseFriends(privyId),
-    enabled: !!privyId,
+    queryFn: () => listSupabaseFriends(wallet),
+    enabled: !!wallet,
     staleTime: 15_000,
   });
 
@@ -61,7 +59,7 @@ export default function FriendsPage() {
       if (session.wallet && trimmedAddress === session.wallet) {
         throw new Error("That's your own wallet address.");
       }
-      return addSupabaseFriend({ privyId, friendWalletAddress: trimmedAddress, friendName: trimmedName });
+      return addSupabaseFriend({ walletAddress: wallet, friendWalletAddress: trimmedAddress, friendName: trimmedName });
     },
     onSuccess: (r) => {
       setNotice(r.alreadyFriends ? "You're already friends." : `Added ${name.trim()}.`);

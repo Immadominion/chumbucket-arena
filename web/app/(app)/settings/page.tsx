@@ -23,11 +23,10 @@ export default function SettingsPage() {
   const wallet = session.wallet || "";
   const seed = session.handle || "manager";
 
-  const privyId = user?.id ?? "";
   const profileQ = useQuery({
-    queryKey: ["supabase-profile", privyId],
-    queryFn: () => fetchSupabaseProfile(privyId),
-    enabled: !!privyId,
+    queryKey: ["supabase-profile", wallet],
+    queryFn: () => fetchSupabaseProfile(wallet),
+    enabled: !!wallet,
     staleTime: 15_000,
   });
   const displayName = profileQ.data?.full_name || handle;
