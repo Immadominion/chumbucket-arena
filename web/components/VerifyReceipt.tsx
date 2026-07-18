@@ -69,7 +69,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
 
   return (
     <div
-      className="ink"
+      className="ink receipt-card"
       style={{ padding: 0, overflow: "hidden", border: verified ? `1.5px solid ${GREEN}` : "1.5px solid rgba(255,255,255,.06)", transition: "border-color .3s ease" }}
     >
       {/* header */}

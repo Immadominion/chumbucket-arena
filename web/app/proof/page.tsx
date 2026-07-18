@@ -24,8 +24,8 @@ export default function ProofPage() {
   }, []);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#1A1013", color: "#F7EEF0" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "40px 22px 80px" }}>
+    <div className="proof-page" style={{ minHeight: "100vh", background: "#1A1013", color: "#F7EEF0" }}>
+      <div className="proof-shell" style={{ maxWidth: 720, margin: "0 auto", padding: "40px 22px 80px" }}>
         <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 700, color: "#FFB0C0", textDecoration: "none", marginBottom: 34 }}>
           <ArrowLeft size={15} weight="bold" /> ChumBucket
         </Link>
@@ -33,10 +33,10 @@ export default function ProofPage() {
         <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(242,58,92,.12)", border: "1px solid rgba(242,58,92,.25)", borderRadius: 30, padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#FFB0C0" }}>
           <ShieldCheck size={14} weight="fill" /> Real on-chain settlement
         </div>
-        <h1 className="cd" style={{ fontSize: 40, lineHeight: 1.05, color: "#fff", margin: "18px 0 0", letterSpacing: "-.5px", textWrap: "balance" }}>
+        <h1 className="cd proof-title" style={{ fontSize: 40, lineHeight: 1.05, color: "#fff", margin: "18px 0 0", letterSpacing: "0", textWrap: "balance" }}>
           How a result settles.
         </h1>
-        <p style={{ fontSize: 15.5, lineHeight: 1.5, color: "#D9C3C9", margin: "14px 0 0", maxWidth: 560 }}>
+        <p className="proof-copy" style={{ fontSize: 15.5, lineHeight: 1.5, color: "#D9C3C9", margin: "14px 0 0", maxWidth: 560 }}>
           When a match ends, ChumBucket proves the final score against{" "}
           <b style={{ color: "#F7EEF0" }}>TxLINE&rsquo;s Merkle-committed data on Solana</b> — and only then makes the winning position claimable. No
           human decides. Here&rsquo;s a real settlement and the exact on-chain check that authorized the claim.

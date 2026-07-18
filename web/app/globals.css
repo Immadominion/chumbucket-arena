@@ -56,6 +56,8 @@ html,
 body {
   margin: 0;
   padding: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 body {
   background: #faf6f7;
@@ -320,6 +322,10 @@ body {
   gap: 40px;
   align-items: center;
 }
+.lp-hero > *,
+.lp-2 > * {
+  min-width: 0;
+}
 .lp-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -332,10 +338,33 @@ body {
   gap: 24px;
 }
 .lp-h1 {
-  font-size: clamp(40px, 7vw, 62px);
+  font-size: 62px;
+  overflow-wrap: break-word;
 }
 .lp-h2 {
-  font-size: clamp(30px, 5vw, 46px);
+  font-size: 46px;
+}
+.lp-copy,
+.lp-visual,
+.lp-stat {
+  min-width: 0;
+}
+.lp-stat {
+  overflow-wrap: anywhere;
+}
+.proof-page,
+.proof-shell,
+.receipt-card {
+  width: 100%;
+  min-width: 0;
+}
+.proof-page {
+  overflow-x: clip;
+}
+.proof-title,
+.proof-copy,
+.receipt-card {
+  overflow-wrap: anywhere;
 }
 .lp-herovis {
   width: 100%;
@@ -540,6 +569,12 @@ model-viewer {
   .lp-navlinks {
     display: none !important;
   }
+  .lp-h1 {
+    font-size: 48px;
+  }
+  .lp-h2 {
+    font-size: 40px;
+  }
 }
 
 /* podium reflow (Squad Ladder) */
@@ -603,6 +638,63 @@ model-viewer {
   .lp-pad {
     padding-left: 20px !important;
     padding-right: 20px !important;
+  }
+  .lp-nav-cta {
+    display: none !important;
+  }
+  .lp-brand {
+    min-width: 0;
+  }
+  .lp-brand .cd {
+    font-size: 16px !important;
+  }
+  .lp-hero {
+    padding-top: 44px !important;
+  }
+  .lp-h1 {
+    font-size: 36px;
+    line-height: 1.06 !important;
+    letter-spacing: 0 !important;
+  }
+  .lp-h2 {
+    font-size: 32px;
+    letter-spacing: 0 !important;
+  }
+  .lp-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+  }
+  .lp-action {
+    min-width: 0;
+    padding: 14px 10px !important;
+    font-size: 14px !important;
+    text-align: center;
+    justify-content: center;
+  }
+  .lp-stats {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px !important;
+    align-items: start !important;
+  }
+  .lp-stat-divider {
+    display: none;
+  }
+  .lp-stat .mono {
+    font-size: 20px !important;
+  }
+  .lp-footer {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .proof-shell {
+    padding: 28px 16px 64px !important;
+  }
+  .proof-title {
+    font-size: 34px !important;
+    line-height: 1.08 !important;
   }
 }
 

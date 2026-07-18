@@ -31,7 +31,7 @@ export default async function LandingPage() {
       {/* NAV */}
       <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.85)", backdropFilter: "blur(12px)", borderBottom: "1px solid #F5EEF1" }}>
         <div className="lp-pad" style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 40px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="lp-brand" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Image src="/img/logo.png" alt="" width={32} height={32} style={{ objectFit: "contain" }} />
             <span className="cd" style={{ fontSize: 18, letterSpacing: ".4px" }}>CHUMBUCKET</span>
           </div>
@@ -42,7 +42,7 @@ export default async function LandingPage() {
           </div>
           <Link
             href="/contract"
-            className="btnp"
+            className="btnp lp-nav-cta"
             style={{ fontSize: 14, padding: "11px 22px", borderRadius: 30, boxShadow: "0 6px 16px rgba(11,138,60,.25)", textDecoration: "none" }}
           >
             Open Arena
@@ -52,7 +52,7 @@ export default async function LandingPage() {
 
       {/* HERO */}
       <div className="lp-hero lp-pad" style={{ maxWidth: 1200, margin: "0 auto", padding: "70px 40px 40px" }}>
-        <div>
+        <div className="lp-copy">
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#FFE7EC", color: "#B81540", fontSize: 13, fontWeight: 700, padding: "7px 14px", borderRadius: 30 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#F2385A", display: "inline-block" }} />
             World Cup 2026 · Settled by TxLINE
@@ -67,19 +67,20 @@ export default async function LandingPage() {
           <p style={{ fontSize: 18, lineHeight: 1.5, fontWeight: 500, color: "#594A50", margin: "22px 0 0", maxWidth: 480 }}>
             See what people predict, call it too, or challenge them directly. Every football pot ends from the real result, verified on Solana through TxLINE.
           </p>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 32 }}>
-            <Link href="/contract" className="btnp" style={{ fontSize: 16, padding: "16px 30px", borderRadius: 14, textDecoration: "none" }}>
+          <div className="lp-actions" style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 32 }}>
+            <Link href="/contract" className="btnp lp-action" style={{ fontSize: 16, padding: "16px 30px", borderRadius: 14, textDecoration: "none" }}>
               Open Arena
               <ArrowRight size={18} weight="bold" />
             </Link>
             <a
               href="#how"
+              className="lp-action"
               style={{ background: "#fff", color: "#221217", border: "1.5px solid #EFE6E9", fontWeight: 700, fontSize: 16, padding: "16px 26px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 9, textDecoration: "none" }}
             >
               See how it works
             </a>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 28, marginTop: 36 }}>
+          <div className="lp-stats" style={{ display: "flex", alignItems: "center", gap: 28, marginTop: 36 }}>
             <HeroStat value={stat1.value} label={stat1.label} />
             <HeroDivider />
             <HeroStat value={stat2.value} label={stat2.label} />
@@ -89,7 +90,7 @@ export default async function LandingPage() {
         </div>
 
         {/* hero visual — the two ways to play, on one clean card */}
-        <div style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <div className="lp-visual" style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center" }}>
           <div style={{ width: "100%", maxWidth: 400, background: "linear-gradient(135deg,#1A1013,#3a0f1c)", borderRadius: 28, padding: 28, color: "#fff", position: "relative", overflow: "hidden", boxShadow: "0 30px 60px rgba(26,16,19,.3)" }}>
             <div style={{ position: "absolute", right: -50, top: -50, width: 220, height: 220, borderRadius: "50%", background: "radial-gradient(circle,rgba(255,90,118,.32),transparent 70%)" }} />
             <div style={{ position: "relative" }}>
@@ -214,7 +215,7 @@ export default async function LandingPage() {
 
       {/* FOOTER */}
       <div className="lp-pad" style={{ borderTop: "1px solid #F5EEF1", padding: "36px 40px" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="lp-footer" style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Image src="/img/logo.png" alt="" width={26} height={26} style={{ objectFit: "contain" }} />
             <span className="cd" style={{ fontSize: 15 }}>CHUMBUCKET</span>
@@ -228,14 +229,14 @@ export default async function LandingPage() {
 
 function HeroStat({ value, label }: { value: string; label: string }) {
   return (
-    <div>
+    <div className="lp-stat">
       <div className="mono" style={{ fontWeight: 700, fontSize: 24, color: "#221217" }}>{value}</div>
       <div style={{ fontSize: 12, fontWeight: 600, color: "#988990" }}>{label}</div>
     </div>
   );
 }
 function HeroDivider() {
-  return <div style={{ width: 1, height: 34, background: "#F5EEF1" }} />;
+  return <div className="lp-stat-divider" style={{ width: 1, height: 34, background: "#F5EEF1" }} />;
 }
 function Step({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
