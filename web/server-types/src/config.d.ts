@@ -72,6 +72,16 @@ export interface AppConfig {
         appSecret?: string;
         verificationKey?: string;
     };
+    /** Supabase social read model used by the mobile app and indexer. */
+    social?: {
+        supabaseUrl: string;
+        serviceRoleKey: string;
+        network: "devnet" | "mainnet-beta";
+    };
+    /** External indexer/webhook integration settings. */
+    indexer?: {
+        heliusWebhookAuth?: string;
+    };
     /** TxLINE — live World Cup data + on-chain settlement verification. Unset → mock data, verification stubbed to always-pass. */
     txline?: {
         apiBaseUrl: string;
@@ -89,7 +99,21 @@ export interface AppConfig {
      * tests/CI by default. See src/keeper/onchainDriver.ts.
      */
     onchainKeeper?: OnchainKeeperConfig;
+    /**
+     * The pull-based reconciler — walks chumbucket_arena's tx history and repairs
+     * the Supabase social read model from on-chain truth (positions, settlements,
+     * claims). Opt-in via social config; independent of the keeper. See
+     * src/indexer/ArenaReconciler.ts.
+     */
+    reconciler?: ReconcilerConfig;
     game: GameConfig;
+}
+export interface ReconcilerConfig {
+    enabled: boolean;
+    rpcUrl: string;
+    programId: string;
+    tickMs: number;
+    maxSignaturesPerPass: number;
 }
 export interface OnchainKeeperConfig {
     enabled: boolean;

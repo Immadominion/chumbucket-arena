@@ -10,6 +10,9 @@ export interface Context {
     wallet?: Wallet;
     /** The player's Privy wallet handle (when provider-custodied) — for deposit sweeps. */
     privyWalletId?: string;
+    /** The provider's own user id (e.g. Privy user id) — needed to ask the Auth
+     *  port for that user's already-linked social identities (X/Google). */
+    privyUserId?: string;
 }
 /**
  * Build a request context: verify the credential via the app's Auth port and, if
@@ -23,11 +26,12 @@ export declare const router: import("@trpc/server").TRPCRouterBuilder<{
     errorShape: import("@trpc/server").TRPCDefaultErrorShape;
     transformer: true;
 }>;
-export declare const publicProcedure: import("@trpc/server").TRPCProcedureBuilder<Context, object, object, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, false>;
+export declare const publicProcedure: import("@trpc/server").TRPCProcedureBuilder<Context, object, {}, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, false>;
 export declare const authedProcedure: import("@trpc/server").TRPCProcedureBuilder<Context, object, {
     wallet: Wallet;
     privyWalletId: string | undefined;
     app: App;
+    privyUserId: string | undefined;
 }, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, import("@trpc/server").TRPCUnsetMarker, false>;
 /** Run an engine command, translating DomainError into the right tRPC code. */
 export declare function guard<T>(fn: () => Promise<T>): Promise<T>;

@@ -79,6 +79,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // Privy-login readiness would have it. Keyed on wallet (not Privy user id)
   // to match `sync_user_by_wallet`.
   const syncedWalletRef = useRef<string | null>(null);
+  const linkIdentityFromPrivyM = useMutation(trpc.linkIdentityFromPrivy.mutationOptions());
   useEffect(() => {
     const wallet = meQ.data?.wallet;
     if (!authenticated || !wallet) return;
@@ -88,6 +89,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       syncedWalletRef.current = null; // allow a retry on the next render/login
       console.warn("[session] sync_user_by_wallet failed", e);
     });
+    // Best-effort: pull in whatever X/Google identity Privy already has linked
+    // for this session (loginMethods already includes twitter/google) so the
+    // same `linked_identities` row mobile's OAuth flow writes gets populated
+    // from web too, with no extra UI. Safe to repeat — linkIdentity upserts.
+    linkIdentityFromPrivyM.mutate(undefined, {
+      onError: (e) => console.warn("[session] linkIdentityFromPrivy failed", e),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, meQ.data?.wallet]);
 
   // Local onboarding flags (The Trial + the spotlight tour).

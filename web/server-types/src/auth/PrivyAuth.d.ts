@@ -10,11 +10,20 @@
  * user's wallet — i.e. fund *this* address — so there's exactly one wallet per
  * player.)
  */
+import type { OAuthIdentity } from "../social/SocialStore";
 import type { Auth, AuthedUser } from "./Auth";
 export declare class PrivyAuth implements Auth {
     private readonly client;
     private readonly walletByUser;
     constructor(appId: string, appSecret: string, verificationKey?: string);
     verify(token: string): Promise<AuthedUser | null>;
+    /**
+     * The user's already-linked X/Google identities, straight from Privy — no
+     * separate OAuth token exchange needed, since Privy's own login already did
+     * that linking (loginMethods includes google/twitter). One extra
+     * authenticated call to Privy's Users API using the same client instance
+     * `verify()` already trusts.
+     */
+    fetchLinkedIdentities(userId: string): Promise<OAuthIdentity[]>;
     private resolveWallet;
 }

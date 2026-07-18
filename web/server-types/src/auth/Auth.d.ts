@@ -7,6 +7,7 @@
  * request as logged-out) and throws only on genuine server errors.
  */
 import type { Wallet } from "../domain/ids";
+import type { OAuthIdentity } from "../social/SocialStore";
 export interface AuthedUser {
     userId: string;
     wallet: Wallet;
@@ -16,4 +17,13 @@ export interface AuthedUser {
 }
 export interface Auth {
     verify(token: string): Promise<AuthedUser | null>;
+    /**
+     * Fetch the provider's already-linked social identities (X/Google) for an
+     * authenticated user, so the web client can populate `linked_identities`
+     * without a separate OAuth round-trip — Privy already did that linking as
+     * part of normal login (loginMethods includes google/twitter). Returns an
+     * empty array when the provider has no such concept (e.g. dev auth) or the
+     * user has no linked social accounts.
+     */
+    fetchLinkedIdentities(userId: string): Promise<OAuthIdentity[]>;
 }

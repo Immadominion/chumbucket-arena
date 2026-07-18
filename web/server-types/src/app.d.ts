@@ -17,6 +17,8 @@ import { type DepositGateway } from "./ports/PrivyDepositGateway";
 import type { Auth } from "./auth/Auth";
 import { type MatchDataProvider } from "./ports/MatchData";
 import { type SettlementVerifier } from "./ports/SettlementVerifier";
+import { type SocialStore } from "./social/SocialStore";
+import { ArenaReconciler } from "./indexer/ArenaReconciler";
 export interface App {
     config: AppConfig;
     store: EventStore;
@@ -28,6 +30,9 @@ export interface App {
     memoryWriter: MemoryWriter;
     ledgerMirror: WalrusLedgerMirror;
     matchData: MatchDataProvider;
+    social: SocialStore;
+    /** Pull-based chain->read-model reconciler (present when social + reconciler configured). */
+    reconciler?: ArenaReconciler;
     /** Description of which adapters are live — handy for /health and the demo. */
     wiring: Record<string, string>;
 }
@@ -41,6 +46,7 @@ export interface CreateAppOptions {
     depositGateway?: DepositGateway;
     matchData?: MatchDataProvider;
     settlementVerifier?: SettlementVerifier;
+    social?: SocialStore;
     /** Seed the Mock provider's fixtures (ignored if matchData is supplied). */
     now?: number;
 }

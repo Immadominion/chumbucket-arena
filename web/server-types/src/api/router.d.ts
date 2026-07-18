@@ -17,6 +17,13 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         output: {
             ok: boolean;
             wiring: Record<string, string>;
+            readiness: {
+                eventLogPersistent: boolean;
+                socialStore: boolean;
+                socialNetwork: "devnet" | "mainnet-beta" | null;
+                heliusWebhookAuth: boolean;
+                txlineSettlement: boolean;
+            };
             sessionsWallet: string;
             managersPot: bigint;
             houseRevenue: bigint;
@@ -47,6 +54,16 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     managersPot: import("@trpc/server").TRPCQueryProcedure<{
         input: void;
         output: bigint;
+        meta: object;
+    }>;
+    socialStatus: import("@trpc/server").TRPCQueryProcedure<{
+        input: void;
+        output: {
+            enabled: boolean;
+            wiring: string;
+            network: "devnet" | "mainnet-beta" | null;
+            heliusWebhookAuth: boolean;
+        };
         meta: object;
     }>;
     dossier: import("@trpc/server").TRPCQueryProcedure<{
@@ -152,10 +169,201 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         input: {
             marketId: string;
             bucket: string;
-            matchId: string;
             stake: bigint;
+            matchId: string;
         };
         output: string;
+        meta: object;
+    }>;
+    myPositions: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+        };
+        output: import("../social/SocialStore").PredictionPositionRow[];
+        meta: object;
+    }>;
+    /** Settled positions with funds still to pull — powers the "claim your winnings" surface. */
+    claimable: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+        };
+        output: import("../social/SocialStore").PredictionPositionRow[];
+        meta: object;
+    }>;
+    activity: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet?: string | undefined;
+            limit?: number | undefined;
+            matchId?: string | undefined;
+        };
+        output: import("../social/SocialStore").PredictionActivityRow[];
+        meta: object;
+    }>;
+    /** The following feed: what the wallets you follow (+ friends) are calling. */
+    followingFeed: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+        };
+        output: import("../social/SocialStore").PredictionActivityRow[];
+        meta: object;
+    }>;
+    followCounts: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+        };
+        output: import("../social/SocialStore").FollowCounts;
+        meta: object;
+    }>;
+    isFollowing: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            viewer: string;
+            target: string;
+        };
+        output: boolean;
+        meta: object;
+    }>;
+    /** Who called what on a fixture — the match callers board. */
+    matchCallers: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            matchId: string;
+            limit?: number | undefined;
+        };
+        output: import("../social/SocialStore").MatchCallerRow[];
+        meta: object;
+    }>;
+    /** Record/PnL leaderboard from settled stats. */
+    socialLeaderboard: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            limit?: number | undefined;
+            by?: "pnl" | "streak" | "winrate" | undefined;
+        };
+        output: import("../social/SocialStore").LeaderboardRow[];
+        meta: object;
+    }>;
+    /** Composite public profile: stats + follow counts + recent positions + activity. */
+    profile: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+        };
+        output: {
+            wallet: string;
+            stats: import("../social/SocialStore").UserStatsRow | null;
+            counts: import("../social/SocialStore").FollowCounts;
+            positions: import("../social/SocialStore").PredictionPositionRow[];
+            activity: import("../social/SocialStore").PredictionActivityRow[];
+        };
+        meta: object;
+    }>;
+    /**
+     * Follow / unfollow — authenticated by a WALLET SIGNATURE over a canonical,
+     * timestamped message (proves the caller controls the follower wallet), so no
+     * one can spam the graph on someone else's behalf. No session server needed.
+     */
+    follow: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+            signature: string;
+            target: string;
+            timestamp: number;
+        };
+        output: {
+            ok: boolean;
+            result?: unknown;
+            reason?: string;
+        };
+        meta: object;
+    }>;
+    unfollow: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+            signature: string;
+            target: string;
+            timestamp: number;
+        };
+        output: {
+            ok: boolean;
+            result?: unknown;
+            reason?: string;
+        };
+        meta: object;
+    }>;
+    /** A wallet's notifications (FOLLOWED_CALL, CLAIM_AVAILABLE, …), newest first. */
+    notifications: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+            unreadOnly?: boolean | undefined;
+        };
+        output: import("../social/SocialStore").NotificationRow[];
+        meta: object;
+    }>;
+    unreadCount: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+        };
+        output: number;
+        meta: object;
+    }>;
+    /** Mark notifications read — wallet-signature authed (only you mark your own). */
+    markNotificationsRead: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+            signature: string;
+            timestamp: number;
+            ids?: string[] | undefined;
+        };
+        output: {
+            ok: boolean;
+            count?: number;
+        };
+        meta: object;
+    }>;
+    /**
+     * Link a Google/X identity to a wallet. Doubly authenticated: `accessToken` is
+     * the Supabase Auth session from the OAuth sign-in (verified against GoTrue, so
+     * we trust the provider identity), and the wallet SIGNATURE proves wallet
+     * ownership — so no one can attach someone else's social account to a wallet,
+     * or a wallet they don't own to a social account.
+     */
+    linkIdentity: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+            signature: string;
+            timestamp: number;
+            accessToken: string;
+        };
+        output: {
+            ok: boolean;
+            result?: unknown;
+        };
+        meta: object;
+    }>;
+    /**
+     * Web-only counterpart to linkIdentity: links ALL of the caller's already-
+     * linked Privy X/Google identities to their wallet in one call. No separate
+     * wallet-sig proof needed — unlike mobile's Supabase-Auth-based flow, the
+     * Bearer token itself already IS Privy's proof of both the social identity
+     * and wallet ownership (authedProcedure resolves ctx.wallet from the exact
+     * same verified token). Fire-and-forget right after login; safe to call
+     * repeatedly (link_identity is idempotent per provider+subject).
+     */
+    linkIdentityFromPrivy: import("@trpc/server").TRPCMutationProcedure<{
+        input: void;
+        output: {
+            linked: string[];
+        };
+        meta: object;
+    }>;
+    /** Batch resolve wallets -> display (handle/name/avatar) for feed rendering. */
+    walletProfiles: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallets: string[];
+        };
+        output: import("../social/SocialStore").WalletProfileRow[];
         meta: object;
     }>;
     signContract: import("@trpc/server").TRPCMutationProcedure<{
@@ -217,8 +425,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     makeCall: import("@trpc/server").TRPCMutationProcedure<{
         input: {
             bucket: string;
-            matchId: string;
             stake: bigint;
+            matchId: string;
             marketId?: string | undefined;
             note?: string | undefined;
         };
@@ -230,8 +438,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     }>;
     createChallenge: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            matchId: string;
             stake: bigint;
+            matchId: string;
             side: "HOME" | "DRAW" | "AWAY";
             opponentSide?: "HOME" | "DRAW" | "AWAY" | undefined;
         };
@@ -283,6 +491,33 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         output: string;
         meta: object;
     }>;
+    /**
+     * Mobile MWA flow: the wallet signs/sends directly to chumbucket_arena, then
+     * the app submits the tx signature here so the social read model can show the
+     * call immediately. The indexer/reconciler later upgrades the record with slot
+     * and parsed account data; the unique signature makes retries harmless.
+     */
+    recordPredictionCall: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            bucket: "HOME" | "DRAW" | "AWAY";
+            wallet: string;
+            signature: string;
+            matchId: string;
+            txSignature: string;
+            timestamp: number;
+            stakeBaseUnits: string;
+            marketId?: string | undefined;
+            slot?: number | undefined;
+            positionAddress?: string | undefined;
+            metadata?: Record<string, unknown> | undefined;
+        };
+        output: {
+            ok: boolean;
+            positionId?: string;
+            reason?: string;
+        };
+        meta: object;
+    }>;
     resolveMatchNow: import("@trpc/server").TRPCMutationProcedure<{
         input: {
             key: string;
@@ -297,6 +532,21 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
                 home: number;
                 away: number;
             };
+        };
+        meta: object;
+    }>;
+    reconcile: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            key: string;
+        };
+        output: {
+            ok: false;
+            reason: string;
+            summary?: undefined;
+        } | {
+            ok: true;
+            summary: import("../indexer/ArenaReconciler").ReconcileSummary;
+            reason?: undefined;
         };
         meta: object;
     }>;

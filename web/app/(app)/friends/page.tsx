@@ -6,7 +6,7 @@
  * Adding a friend here shows up in the mobile app's friends list too, and vice versa.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
@@ -15,6 +15,7 @@ import { useSession } from "@/lib/session";
 import { addSupabaseFriend, listSupabaseFriends, type FriendRow } from "@/lib/social";
 import { profileImageUrl } from "@/lib/supabase";
 import { avatar } from "@/lib/data";
+import { useWalletProfiles } from "@/lib/useWalletProfiles";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -77,6 +78,11 @@ export default function FriendsPage() {
     addM.mutate();
   };
 
+  // Batch-resolve every friend's linked X handle in one request, so the row
+  // list can show "@handle" instead of a bare wallet address where it's known.
+  const friendWallets = useMemo(() => (friendsQ.data ?? []).map((f) => f.walletAddress), [friendsQ.data]);
+  const profiles = useWalletProfiles(friendWallets);
+
   return (
     <div className="midpad" style={{ maxWidth: 760 }}>
       <div className="cd" style={{ fontSize: 24 }}>Friends</div>
@@ -128,7 +134,12 @@ export default function FriendsPage() {
       ) : (
         <div className="card" style={{ padding: 6 }}>
           {friendsQ.data.map((f, i) => (
-            <FriendRowItem key={f.walletAddress} friend={f} last={i === friendsQ.data.length - 1} />
+            <FriendRowItem
+              key={f.walletAddress}
+              friend={f}
+              last={i === friendsQ.data.length - 1}
+              xLabel={profiles.labelFor(f.walletAddress)}
+            />
           ))}
         </div>
       )}
@@ -136,7 +147,15 @@ export default function FriendsPage() {
   );
 }
 
-function FriendRowItem({ friend, last }: { friend: FriendRow; last: boolean }) {
+function FriendRowItem({
+  friend,
+  last,
+  xLabel,
+}: {
+  friend: FriendRow;
+  last: boolean;
+  xLabel: string | null;
+}) {
   const img = profileImageUrl(friend.profileImageId);
   return (
     <div
@@ -155,9 +174,13 @@ function FriendRowItem({ friend, last }: { friend: FriendRow; last: boolean }) {
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700 }}>{friend.name}</div>
-        <div className="mono" style={{ fontSize: 11.5, color: "#988990", fontWeight: 600 }}>
-          {friend.walletAddress.slice(0, 6)}…{friend.walletAddress.slice(-4)}
-        </div>
+        {xLabel ? (
+          <div style={{ fontSize: 11.5, color: "#F2385A", fontWeight: 700 }}>{xLabel}</div>
+        ) : (
+          <div className="mono" style={{ fontSize: 11.5, color: "#988990", fontWeight: 600 }}>
+            {friend.walletAddress.slice(0, 6)}…{friend.walletAddress.slice(-4)}
+          </div>
+        )}
       </div>
       <Link
         href={`/send?to=${encodeURIComponent(friend.walletAddress)}&name=${encodeURIComponent(friend.name)}`}
