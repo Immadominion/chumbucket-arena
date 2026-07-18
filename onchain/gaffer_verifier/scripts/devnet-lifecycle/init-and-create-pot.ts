@@ -11,7 +11,6 @@ import type { ChumbucketArena } from "./chumbucket_arena";
 import idl from "./chumbucket_arena.json";
 
 const RPC = "https://api.devnet.solana.com";
-const ADMIN_KEYPAIR_PATH = "/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/onchain/gaffer_verifier/devnet-wallet.json";
 const DEVNET_TXORACLE_PROGRAM = "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J";
 const OUT_DIR = __dirname;
 
@@ -30,8 +29,10 @@ function matchIdBytes(label: string): number[] {
 }
 
 async function main() {
+  const adminKeypairPath = process.env.DEVNET_ADMIN_KEYPAIR;
+  if (!adminKeypairPath) throw new Error("Set DEVNET_ADMIN_KEYPAIR to the Arena config admin keypair path");
   const connection = new Connection(RPC, "confirmed");
-  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, "utf8"))));
+  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(adminKeypairPath, "utf8"))));
   const usdcMint = new PublicKey(JSON.parse(fs.readFileSync(`${OUT_DIR}/test-usdc-mint.json`, "utf8")));
 
   const provider = new AnchorProvider(connection, new Wallet(admin), AnchorProvider.defaultOptions());

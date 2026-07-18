@@ -6,7 +6,7 @@
  * Find the matchId from the matchday list (GET /matchday or the app), then:
  *
  *   DEMO_ADMIN_KEY=your-secret \
- *   BACKEND_URL=https://gaffer-backend-production-6543.up.railway.app \
+ *   BACKEND_URL=https://chumbucket-arena-production.up.railway.app \
  *     bun run scripts/demo-resolve.ts <matchId> <homeGoals> <awayGoals>
  *
  * The same DEMO_ADMIN_KEY must be set on the backend (Railway) or the endpoint
@@ -15,7 +15,7 @@
 
 const [matchId, home, away] = process.argv.slice(2);
 const key = process.env.DEMO_ADMIN_KEY;
-const url = (process.env.BACKEND_URL ?? "https://gaffer-backend-production-6543.up.railway.app").replace(/\/$/, "");
+const url = (process.env.BACKEND_URL ?? "https://chumbucket-arena-production.up.railway.app").replace(/\/$/, "");
 
 if (!matchId || home === undefined || away === undefined) {
   console.error("usage: bun run scripts/demo-resolve.ts <matchId> <homeGoals> <awayGoals>");

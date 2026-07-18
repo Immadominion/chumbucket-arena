@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "the-gaffer",
+      "name": "chumbucket-arena",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.105.0",
         "@coral-xyz/anchor": "0.32.1",

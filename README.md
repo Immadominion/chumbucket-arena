@@ -1,106 +1,189 @@
-# The Gaffer — backend
+# Chumbucket Arena
 
-The event-sourced engine behind *The Gaffer*: a World Cup staking-prediction game
-with an AI manager whose memory lives on Walrus. This repo is the **backend +
-game logic** only. The product spec is in [`THE-GAFFER.md`](./THE-GAFFER.md); the
-hackathon rules are in [`context.md`](./context.md).
+Chumbucket is a social prediction product on Solana. People can call a live
+football result, follow people whose judgement they trust, copy a call, or
+challenge a friend. TxLINE supplies the match data and cryptographic proof;
+Chumbucket's Solana program holds the pot and releases claims only after that
+proof validates on-chain.
 
-> **Why not plain REST?** The Gaffer is a stateful agent with an append-only,
-> evolving memory per player — that's an *event log*, not a table of rows. So the
-> core is **event-sourced**: every Call, result, and Hot Take is an immutable
-> event; the Dossier, Pots, Leaderboard, and the Gaffer's read are *projections*
-> of it. The canonical log lives on **Walrus** (the hackathon's "all state on
-> Walrus" requirement, satisfied literally). The API is **typed RPC + live
-> subscriptions** (tRPC over WebSocket), so the frontend imports real types and
-> gets pushed updates instead of polling.
+This repository contains the Arena backend, social indexer, settlement keeper,
+Solana program, proof receipt, and Next.js web app. The Flutter mobile client is
+in [Chum-Bucket](https://github.com/Immadominion/Chum-Bucket).
+
+## Live build
+
+- Web app: [thegaffer.fun](https://thegaffer.fun) (the domain predates the
+  Chumbucket rebrand)
+- Arena API: [Railway health](https://chumbucket-arena-production.up.railway.app/health)
+- Arena program (devnet):
+  [`AMFp...K9CG`](https://explorer.solana.com/address/AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG?cluster=devnet)
+- TxLINE oracle (devnet):
+  [`6pW6...yP2J`](https://explorer.solana.com/address/6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J?cluster=devnet)
+- Original friend-challenge escrow (mainnet):
+  [`D6mj...9sF1`](https://explorer.solana.com/address/D6mjMGW1fX8oH3UcwZDh3teWcHEWvghUqaR2aeWD9sF1)
+
+The hackathon Arena uses devnet USDC-like test tokens. The existing mobile
+friend-challenge product and its Pinocchio escrow predate this hackathon and are
+deployed on mainnet.
+
+## Existing traction
+
+Verified on July 18, 2026:
+
+- Production Supabase: `185` user profiles, `183` linked wallets, `160` push
+  notification tokens, `48` friend relationships, and `49` challenge records.
+- Original mainnet escrow: `15` successful funded challenge creations locking
+  `0.19 SOL`, `13` successful resolutions, and `0.00325 SOL` in protocol fees.
+- The new Arena read model already contains `5` markets, `7` positions, `15`
+  social prediction activities, and `5` settlement receipts on devnet.
+
+These are deliberately reported as separate measurements. A registered profile
+is not presented as an on-chain bettor, and a database challenge record is not
+presented as a funded mainnet escrow. Reproduce both reports with
+`analyze:product-traction` and `analyze:legacy-usage` below.
+
+## Product flow
+
+1. TxLINE fixtures populate the mobile and web matchday.
+2. A user connects a wallet and calls HOME, DRAW, or AWAY.
+3. USDC is locked in a pot PDA owned by the Arena program.
+4. The keeper waits for a terminal TxLINE score event.
+5. It fetches the two-stat Merkle proof and submits `settle_pot`.
+6. `settle_pot` binds the proof to the pot's fixture and match window, then CPIs
+   into TxLINE's `validate_stat` instruction.
+7. Winning positions become claimable. Helius and the reconciler project the
+   chain result into feeds, profiles, leaderboards, and notifications.
+
+No operator-supplied score can release a valid pot. A wrong fixture, wrong day
+root, non-terminal result, mismatched exact score, or rejected TxLINE predicate
+leaves the pot unsettled.
+
+## TxLINE integration
+
+TxLINE is the Arena's primary match and settlement data source:
+
+| Endpoint / primitive | Use |
+| --- | --- |
+| `GET /api/fixtures/snapshot` | World Cup fixture discovery and matchday |
+| `GET /api/scores/snapshot/{fixtureId}` | Terminal status and final score |
+| `GET /api/scores/stat-validation?fixtureId=...&seq=...&statKey=1&statKey2=2` | Merkle proof for both teams' goal totals |
+| `validate_stat` CPI | On-chain proof of HOME, DRAW, or AWAY |
+
+The adapter deliberately scans the full score snapshot for the highest terminal
+sequence (`StatusId` 5, 10, or 13). TxLINE score arrays are not ordered, so using
+the last row can settle from a stale in-play event. The proof adapter also
+cross-checks the exact score before sending the transaction; the on-chain
+predicate then proves the result difference against TxLINE's daily root.
 
 ## Architecture
 
-```
-                         commands (tRPC mutations)
-  frontend ──────────────────────────────────────────────►  PlayerActor (1 per wallet, serialized)
-     ▲                                                            │ validates vs Dossier, appends events
-     │  queries + live subscriptions (tRPC/WS)                    ▼
-     └───────────────  ReadModel  ◄────── projections ──────  EventStore  ──► Walrus (canonical log)
-                        (Dossier / Pots / Leaderboard)             │
-                                                                   ├─► MemoryWriter ─► MemoryStore (MemWal / Walrus)
-   match feed ─► Engine (open→lock→resolve) ─► Settlement saga ────┘            ▲
-   (MatchData port)         │ parimutuel + rating + form + tiers                │ recall / remember
-                            └──────────────────────────► the Gaffer (Claude) ───┘  (pre-bet read · verdict · chat)
+```text
+Flutter + MWA                 Next.js + wallet auth
+       |                              |
+       +----------- tRPC API --------+
+                         |
+          Railway / Bun Arena service
+          |       |        |         |
+       TxLINE  Supabase  Helius   SQLite log
+          |       social    |      + keeper
+          |       graph     |
+          +------ Solana devnet -----+
+                  Chumbucket Arena
+                         |
+                  CPI validate_stat
+                         |
+                    TxLINE oracle
 ```
 
-- **Event-sourced core** — `src/domain/events.ts` is the spine. `src/core/eventstore`
-  holds the log (in-memory now; Walrus-mirrored next).
-- **Actor per player** — `src/core/actor` serializes each player's writes through a
-  mailbox; the only writer to their stream. No locks, no races.
-- **CQRS read models** — `src/core/projections` fold the log into the Dossier, the
-  Pots, and the Leaderboard. Rebuildable from the log on boot.
-- **Pure game logic** — `src/game` (parimutuel settlement, Gaffer Rating, Form,
-  tiers). Deterministic, unit-tested (`tests/game.test.ts`).
-- **The Gaffer** — `src/gaffer` (Claude Opus 4.8 + a deterministic scripted
-  fallback). Memory-aware: recalls from Walrus, never invents history.
-- **Typed API** — `src/api` (tRPC router + WS). `AppRouter` is the frontend contract.
+- Wallet signatures bind social writes and call metadata to the acting wallet.
+- Google and X are optional profile identities; they never replace the wallet
+  signature used for money or social authorization.
+- Supabase is the social read model. Solana remains authoritative for positions,
+  settlement, and claims.
+- The Helius webhook and catch-up reconciler are idempotent and cursor-backed, so
+  a missed webhook does not lose chain activity.
 
-## Run it
+## Proof receipt
+
+[`receipt-argentina-egypt.json`](onchain/gaffer_verifier/scripts/devnet-lifecycle/receipt-argentina-egypt.json)
+contains a complete TxLINE proof bundle captured from a real World Cup feed. The
+browser-ready proof page builds an unsigned `validate_stat` transaction and asks
+a public Solana RPC to simulate it. A true return value comes from the TxLINE
+program reading its own Merkle-root account, not from Chumbucket's backend.
+
+Re-run the proof check with Railway-provided TxLINE credentials:
+
+```bash
+DEVNET_JWT=... DEVNET_API_TOKEN=... \
+  bun run onchain/gaffer_verifier/scripts/devnet-lifecycle/capture-receipt.ts
+```
+
+## Run locally
+
+Backend:
 
 ```bash
 bun install
-bun run smoke       # full loop end-to-end, no keys/network — prints the day1→day2 contrast
-bun test            # game-logic unit tests
-bun run typecheck   # tsc --noEmit
-bun run dev         # the server on :8787 (PORT to override), with --watch
+bun run typecheck
+bun test
+bun run dev
 ```
 
-With **zero env set** it boots fully self-contained: in-memory event log, the
-**scripted** Gaffer, **play-money** custody, **mock** fixtures. Set keys to light
-up each real adapter independently (see `.env.example`).
-
-## Integration seams (for the other agents)
-
-Everything that touches the outside world is a port with an in-memory adapter
-today and a real adapter as a drop-in. The core never changes.
-
-| Seam | Port | Now | Real adapter |
-|---|---|---|---|
-| **On-chain / WAL** | `src/ports/Custody.ts` | `PlayLedgerCustody` (default) | `SuiCustody` — **done**: verifies inbound WAL deposits (from-player → Sessions, finalised, replay-deduped) and signs WAL payouts. Round-trip tested on Sui testnet. Set `SESSIONS_WALLET_*` + `WAL_COIN_TYPE` to enable. |
-| **Walrus memory** | `src/core/memory/MemoryStore.ts` | `InMemoryMemoryStore` | `WalrusMemoryStore` over `HttpMemWalClient` — confirm the relayer routes + delegate token from `memwal login`. |
-| **Football data** | `src/ports/MatchData.ts` | `MockMatchData` | implement `MatchDataProvider` over a World Cup API; set `FOOTBALL_API_BASE`. |
-| **The voice** | `src/gaffer/Gaffer.ts` | `ScriptedGaffer` | `ClaudeGaffer` (auto-selected when `ANTHROPIC_API_KEY` is set). |
-
-**Frontend:** import the API contract directly — no codegen.
-
-```ts
-import type { AppRouter } from "<this-repo>/src/api/router.ts";
-// createTRPCClient<AppRouter>({ links: [...] }) — httpBatchLink + wsLink (splitLink).
-// Auth: header `x-wallet: <address>` (HTTP) or connectionParams { wallet } (WS).
-```
-
-Key procedures: `health`, `matchday`, `match`, `leaderboard`, `dossier` (public),
-`me`/`touchline` (authed), `preBetRead`, `signContract`, `deposit`, `withdraw`,
-`makeCall`, `declareHotTake`, `requestVerdict`, `chat`, and subscriptions
-`onMatch`, `onDossier`, `onFeed`.
-
-## Deploy (Railway)
-
-A `Dockerfile` (Bun) and `railway.json` are included; health check is `/health`.
+Web:
 
 ```bash
-railway up           # from a linked Railway project
+cd web
+bun install
+bun run build
+bun run dev
 ```
 
-Set in Railway: `ANTHROPIC_API_KEY`, `MEMWAL_RELAYER_URL` (+ token), the
-`SESSIONS_WALLET_*` + `WAL_COIN_TYPE` (real WAL) and `FOOTBALL_API_*` vars as each
-seam goes live. `PORT` is injected by Railway automatically.
+The backend can boot with mock adapters and no secrets. Copy `.env.example` to
+configure live TxLINE, Supabase, Privy verification, Helius, and the keeper.
 
-## Status / next
+## Verification
 
-- ✅ Core loop, settlement, rating, memory write/recall, tRPC HTTP + WS, tests.
-- ✅ **`SuiCustody`** — real WAL on the dedicated Sessions wallet: deposit
-  verification (from-player → Sessions, finality, replay-deduped) and signed
-  payouts. Round-trip tested on Sui testnet:
-  `WAL_COIN_TYPE=… bun run scripts/sui-roundtrip-test.ts`. Enable with
-  `SESSIONS_WALLET_*` + `WAL_COIN_TYPE`; otherwise it stays on play-money.
-- ⬜ **MemWal login** — run the `memwal_login` browser flow, then wire/verify
-  `HttpMemWalClient` routes. Until then memory is in-process (the loop still runs).
-- ⬜ Walrus-mirror the event log for durable, rebuildable state across restarts.
-- ⬜ A live `MatchDataProvider` over a World Cup API.
+- `118` backend tests cover settlement gates, TxLINE wire shapes, proof mapping,
+  wallet signatures, social writes, webhooks, reconciliation, claims, and core
+  game logic.
+- `tsc --noEmit` passes.
+- The Next.js production build passes.
+- The Flutter client currently has `17` passing tests.
+
+Run the public-chain traction report for the original Chumbucket escrow:
+
+```bash
+bun run analyze:legacy-usage
+railway run bun scripts/analyze-product-traction.ts
+```
+
+It derives successful challenges, SOL locked, resolved fees, cancellations, and
+unique signing wallets from the Pinocchio program's mainnet logs.
+
+## TxLINE feedback
+
+What worked well:
+
+- One normalized fixture and score model scales cleanly across the tournament.
+- The stat-validation response contains enough material to independently prove
+  a result against the Solana root.
+- `validate_stat` makes deterministic, permissionless payout logic possible.
+
+Friction we hit:
+
+- Score snapshots are unordered; terminal-event selection needs to be explicit.
+- The working two-stat query is `statKey=1&statKey2=2`; a combined `statKeys=1,2`
+  form returned `404` during integration.
+- `summary.updateStats.minTimestamp`, rather than a top-level response timestamp,
+  is the timestamp accepted by `validate_stat`.
+- TxLINE may return zstd by default, while Bun fetch could not decompress it in
+  our runtime. Sending `Accept-Encoding: identity` made the adapter reliable.
+- Proof roots can arrive shortly after the terminal score, so the keeper treats
+  an incomplete bundle as retryable and never fabricates a result.
+
+## Repositories
+
+- Mobile: [Immadominion/Chum-Bucket](https://github.com/Immadominion/Chum-Bucket)
+- Arena: [Immadominion/chumbucket-arena](https://github.com/Immadominion/chumbucket-arena)
+- Original Pinocchio escrow:
+  [ubadineke/chumbucket-escrow](https://github.com/ubadineke/chumbucket-escrow)

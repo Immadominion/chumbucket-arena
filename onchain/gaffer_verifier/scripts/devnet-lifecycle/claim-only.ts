@@ -15,8 +15,10 @@ const OUT_DIR = __dirname;
 
 async function main() {
   const potInfoFile = process.argv[2] ?? "pot-info.json";
+  const adminKeypairPath = process.env.DEVNET_ADMIN_KEYPAIR;
+  if (!adminKeypairPath) throw new Error("Set DEVNET_ADMIN_KEYPAIR to the Arena config admin keypair path");
   const connection = new Connection(RPC, "confirmed");
-  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync("/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/onchain/gaffer_verifier/devnet-wallet.json", "utf8"))));
+  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(adminKeypairPath, "utf8"))));
   const playerA = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(`${OUT_DIR}/player-a.json`, "utf8"))));
   const playerB = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(`${OUT_DIR}/player-b.json`, "utf8"))));
   const usdcMint = new PublicKey(JSON.parse(fs.readFileSync(`${OUT_DIR}/test-usdc-mint.json`, "utf8")));

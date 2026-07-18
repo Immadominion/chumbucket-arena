@@ -1,0 +1,34 @@
+{
+  "fixtureId": 18202701,
+  "label": "Argentina v Egypt — World Cup 8th Finals",
+  "home": "Argentina",
+  "away": "Egypt",
+  "finalScore": {
+    "home": 3,
+    "away": 2
+  },
+  "predicateHuman": "home_goals − away_goals > 0  (HOME win)",
+  "cluster": "devnet",
+  "rpcUrl": "https://api.devnet.solana.com",
+  "txoracleProgram": "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
+  "dailyScoresMerkleRoots": "GRJBcG6G9CnvvNZPQagxietR7caFtAG8sFRZ2mg5n8QZ",
+  "settleTx": "553CkpvcpddtBzEmPPxvMJHzJXFS73f2aJ79J5BtrrdAUBrhnrLfKQKikUZcDxzRZwz39JR2FxsJFZzUfAVJrAB8",
+  "explorerSettleTx": "https://explorer.solana.com/tx/553CkpvcpddtBzEmPPxvMJHzJXFS73f2aJ79J5BtrrdAUBrhnrLfKQKikUZcDxzRZwz39JR2FxsJFZzUfAVJrAB8?cluster=devnet",
+  "explorerOracleProgram": "https://explorer.solana.com/address/6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J?cluster=devnet",
+  "explorerRootAccount": "https://explorer.solana.com/address/GRJBcG6G9CnvvNZPQagxietR7caFtAG8sFRZ2mg5n8QZ?cluster=devnet",
+  "rpcRequest": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "simulateTransaction",
+    "params": [
+      "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAMEwBDnFeMENtq2S7o5VT+gHvy+6Mvd+VMKemjSjcvWEUhWdZ8skF94YMhjdxS/JJEwncBxgVE/eiS/Ptr4f3dQAwMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAA5RisDRlZNv9s6iljPbyLjVETp/A3MtkIk0bZ3PZDX3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAICAAUCwFwVAAEBA+kEa8XoWr+IabkdP8E9nwEAAE3AFQEAAAAABQAAAB0/wT2fAQAA8GXBPZ8BAABL4Z1g1EPw/mmf+yxsNZSWUQjKpc9pZGOKRErMRr4QzgQAAADg9gUMUOophD/vgIWOe2FQgUfBohrgEzDDdQxNQ5PqEwDiJEWKbMp/kXRCUyR3ZHUczp445/EYBaoS2PctBiINcgHycZIP5OSFW6h/J+wrSg9QmOsuNIC1X0+cNelcShab7wHUkd1A94zKepbILzvOgPuW0r5CTc2Vje2Nl2NVCLsz4QABAAAAR8FonRbh1+28mdzbpvd8FnZXLbIbv5AmiY2i7oe3SswAAAAAAAABAAAAAwAAAAUAAABThxaE/EB7q5Y0NOdqtB4+YJSC04bHHHSr/JfIQnxCMgQAAACGC8i8Lme2ehYVMEXtgGVhE1IDrfdhvIBT/dSgkZbqoQGp6Y3y/JzLVwkpm05XYorUlIY3ho6g1yl3kzWIary7mwFh0AHXOcs1dQvMZw2sBIR2sA9yvih//n6PUPe+rhhp0wEQdt7va3tQc5FdWH9ezG/C4j3A2W9IAEDbjLJUL6MJzAEBAgAAAAIAAAAFAAAAU4cWhPxAe6uWNDTnarQePmCUgtOGxxx0q/yXyEJ8QjIEAAAAoNZzqFyizumv3RqbrEDXQdL4+UyXxZOFzdW4iR018jcAqemN8vycy1cJKZtOV2KK1JSGN4aOoNcpd5M1iGq8u5sBYdAB1znLNXULzGcNrASEdrAPcr4of/5+j1D3vq4YadMBEHbe72t7UHORXVh/XsxvwuI9wNlvSABA24yyVC+jCcwBAQE=",
+      {
+        "sigVerify": false,
+        "replaceRecentBlockhash": true,
+        "encoding": "base64"
+      }
+    ]
+  },
+  "expect": "value.returnData.data[0] === 'AQ==' (byte 0x01 = TRUE)",
+  "note": "The browser POSTs rpcRequest to rpcUrl (a PUBLIC Solana RPC) and reads the bool. TxLINE's on-chain program computes the verdict against its own Merkle-root account — this app never supplies the answer."
+}

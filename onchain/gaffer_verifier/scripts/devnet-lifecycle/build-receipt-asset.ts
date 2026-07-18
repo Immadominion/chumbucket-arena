@@ -6,11 +6,13 @@
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import * as fs from "fs";
+import { fileURLToPath } from "node:url";
 
 const RPC = "https://api.devnet.solana.com";
-const TXORACLE_IDL = JSON.parse(fs.readFileSync("/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/vendor/txline/idl/txoracle.json", "utf8"));
+const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const TXORACLE_IDL = JSON.parse(fs.readFileSync(`${ROOT}/vendor/txline/idl/txoracle.json`, "utf8"));
 const OUT_DIR = __dirname;
-const WEB_PUBLIC = "/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/web/public/receipts";
+const WEB_PUBLIC = `${ROOT}/web/public/receipts`;
 // Existing devnet account used as the non-signing simulation fee payer.
 const SIM_FEE_PAYER = "DvkE9uHRqSBp28thyYQdZFjsLpnZz25cDuD2B9epBesZ";
 

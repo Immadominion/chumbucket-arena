@@ -5,12 +5,14 @@
 // needs only `fetch` — the on-chain program computes the verdict on public
 // Solana infra, reading its own daily_scores_roots PDA (the Merkle root). If the
 // returnData bool is 1 (true), the whole client architecture is validated.
-import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
+import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import * as fs from "fs";
 
 const RPC = "https://api.devnet.solana.com";
-const TXORACLE_IDL = JSON.parse(fs.readFileSync("/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/vendor/txline/idl/txoracle.json", "utf8"));
+const TXORACLE_IDL = JSON.parse(
+  fs.readFileSync(new URL("../../../../vendor/txline/idl/txoracle.json", import.meta.url), "utf8"),
+);
 const OUT_DIR = __dirname;
 
 const CMP: Record<string, any> = { GreaterThan: { greaterThan: {} }, LessThan: { lessThan: {} }, EqualTo: { equalTo: {} } };

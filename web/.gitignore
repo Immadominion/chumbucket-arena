@@ -1,0 +1,19 @@
+/node_modules
+/.next
+/out
+/build
+.DS_Store
+*.pem
+.env*.local
+.vercel
+next-env.d.ts
+/.turbo
+/.shots
+*.tsbuildinfo
+.gstack/
+
+# Unused assets left from the pre-Chumbucket web concept.
+/public/models
+/public/img/gaffer.png
+/components/Gaffer3D.tsx
+/lib/gaffer.ts

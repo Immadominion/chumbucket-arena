@@ -25,9 +25,6 @@ dist/
 .vscode/
 *.log
 
-# Frontend — its own repo, deploys to Vercel separately
-/web/
-
 # Redundant large 3D assets (live in the frontend's public/models)
 /assets/
 

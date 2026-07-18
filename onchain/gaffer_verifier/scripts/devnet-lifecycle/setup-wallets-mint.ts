@@ -12,12 +12,13 @@ import {
 import * as fs from "fs";
 
 const RPC = "https://api.devnet.solana.com";
-const ADMIN_KEYPAIR_PATH = "/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/onchain/gaffer_verifier/devnet-wallet.json";
 const OUT_DIR = __dirname;
 
 async function main() {
+  const adminKeypairPath = process.env.DEVNET_ADMIN_KEYPAIR;
+  if (!adminKeypairPath) throw new Error("Set DEVNET_ADMIN_KEYPAIR to the funded devnet admin keypair path");
   const connection = new Connection(RPC, "confirmed");
-  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(ADMIN_KEYPAIR_PATH, "utf8"))));
+  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(adminKeypairPath, "utf8"))));
   console.log("Admin:", admin.publicKey.toBase58());
 
   const playerA = Keypair.generate();

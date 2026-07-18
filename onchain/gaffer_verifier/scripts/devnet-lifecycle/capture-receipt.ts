@@ -5,19 +5,20 @@
 // Re-runs validate_stat.view() to CONFIRM the captured payload verifies true,
 // so we know the receipt is complete and self-contained.
 import * as anchor from "@coral-xyz/anchor";
-import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
+import { AnchorProvider, BN, Program, type Wallet as AnchorWallet } from "@coral-xyz/anchor";
+import { Connection, PublicKey, ComputeBudgetProgram, Transaction } from "@solana/web3.js";
 import axios from "axios";
 import * as fs from "fs";
 import txIdl from "./chumbucket_arena.json" assert { type: "json" }; // unused for txoracle; kept for path parity
 // The txoracle IDL lives in the tx-on-chain clone; load the vendored copy in the backend instead.
 const TXORACLE_IDL = JSON.parse(
-  fs.readFileSync("/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/vendor/txline/idl/txoracle.json", "utf8"),
+  fs.readFileSync(new URL("../../../../vendor/txline/idl/txoracle.json", import.meta.url), "utf8"),
 );
 
 const RPC = "https://api.devnet.solana.com";
 const TXLINE_API = "https://txline-dev.txodds.com/api";
 const DEVNET_TXORACLE = "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J";
+const SIM_FEE_PAYER = "DvkE9uHRqSBp28thyYQdZFjsLpnZz25cDuD2B9epBesZ";
 const OUT_DIR = __dirname;
 
 // The real Argentina v Egypt 8th-finals settlement (see pot-info.json / memory).
@@ -34,8 +35,11 @@ const RECEIPT = {
 };
 
 async function main() {
-  const jwt = process.env.DEVNET_JWT!;
-  const apiToken = process.env.DEVNET_API_TOKEN!;
+  const jwt = process.env.DEVNET_JWT ?? process.env.KEEPER_TXLINE_JWT ?? process.env.TXLINE_JWT;
+  const apiToken = process.env.DEVNET_API_TOKEN ?? process.env.KEEPER_TXLINE_API_TOKEN ?? process.env.TXLINE_API_TOKEN;
+  if (!jwt || !apiToken) {
+    throw new Error("Set DEVNET_JWT + DEVNET_API_TOKEN (or the corresponding KEEPER_TXLINE/TXLINE variables)");
+  }
   const client = axios.create({ baseURL: TXLINE_API, headers: { Authorization: `Bearer ${jwt}`, "X-Api-Token": apiToken } });
 
   // Fetch the immutable two-stat proof bundle at the final-whistle seq.
@@ -82,9 +86,14 @@ async function main() {
   fs.writeFileSync(`${OUT_DIR}/receipt-argentina-egypt.json`, JSON.stringify(payload, null, 2));
   console.log("Wrote receipt-argentina-egypt.json");
 
-  // CONFIRM the captured payload re-verifies true via validate_stat.view().
-  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync("/Users/mac/Documents/codes/opensauce/world/thewalrussessions4/onchain/gaffer_verifier/devnet-wallet.json", "utf8"))));
-  const provider = new AnchorProvider(new Connection(RPC, "confirmed"), new Wallet(admin), AnchorProvider.defaultOptions());
+  // CONFIRM the captured payload through a signature-free public-RPC
+  // simulation. The fee payer is an existing devnet account but never signs
+  // and cannot be charged because the transaction is only simulated.
+  const provider = new AnchorProvider(
+    new Connection(RPC, "confirmed"),
+    {} as unknown as AnchorWallet,
+    AnchorProvider.defaultOptions(),
+  );
   const program = new Program({ ...(TXORACLE_IDL as any), address: DEVNET_TXORACLE } as any, provider);
   const toNodes = (ns: any[]) => ns.map((n) => ({ hash: n.hash, isRightSibling: n.isRightSibling }));
   const summ = {
@@ -92,16 +101,40 @@ async function main() {
     updateStats: { updateCount: v.summary.updateStats.updateCount, minTimestamp: new BN(v.summary.updateStats.minTimestamp), maxTimestamp: new BN(v.summary.updateStats.maxTimestamp) },
     eventsSubTreeRoot: v.summary.eventStatsSubTreeRoot,
   };
-  const isValid: boolean = await (program.methods as any)
+  const instruction = await (program.methods as any)
     .validateStat(new BN(targetTs), summ, toNodes(v.subTreeProof), toNodes(v.mainTreeProof), { threshold: 0, comparison: { greaterThan: {} } },
       { statToProve: v.statToProve, eventStatRoot: v.eventStatRoot, statProof: toNodes(v.statProof) },
       { statToProve: v.statToProve2, eventStatRoot: v.eventStatRoot, statProof: toNodes(v.statProof2) },
       { subtract: {} })
     .accounts({ dailyScoresMerkleRoots: dailyScoresPda })
-    .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 })])
-    .view();
+    .instruction();
 
-  console.log(`\nRe-verification via validate_stat.view(): ${isValid ? "✓ TRUE — proof validates against the on-chain root" : "✗ FALSE"}`);
+  const transaction = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+    instruction,
+  );
+  transaction.feePayer = new PublicKey(SIM_FEE_PAYER);
+  transaction.recentBlockhash = "11111111111111111111111111111111";
+  const encoded = transaction.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+  const simulation = await fetch(RPC, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "simulateTransaction",
+      params: [encoded, { sigVerify: false, replaceRecentBlockhash: true, encoding: "base64" }],
+    }),
+  });
+  const simulationJson = (await simulation.json()) as any;
+  const value = simulationJson.result?.value;
+  if (value?.err) throw new Error(`validate_stat simulation failed: ${JSON.stringify(value.err)}`);
+  const returnBytes = value?.returnData?.data?.[0]
+    ? Buffer.from(value.returnData.data[0], "base64")
+    : Buffer.alloc(0);
+  const isValid = returnBytes.length > 0 && returnBytes[0] === 1;
+
+  console.log(`\nRe-verification via public-RPC validate_stat simulation: ${isValid ? "TRUE - proof validates against the on-chain root" : "FALSE"}`);
   console.log("This is exactly what the browser receipt will do — independently, with no server-supplied answer.");
   if (!isValid) throw new Error("captured receipt did NOT verify — payload incomplete");
   void txIdl;

@@ -1,13 +1,15 @@
 {
-  "name": "the-gaffer",
+  "name": "chumbucket-arena",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The Gaffer — an AI football manager with persistent memory on Walrus. Event-sourced backend.",
+  "description": "Chumbucket Arena - social prediction markets with TxLINE-verified settlement on Solana.",
   "module": "src/index.ts",
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
+    "analyze:legacy-usage": "bun run scripts/analyze-legacy-mainnet.ts",
+    "analyze:product-traction": "bun run scripts/analyze-product-traction.ts",
     "dev:live": "bun run scripts/dev-live.ts",
     "typecheck": "tsc --noEmit",
     "gen:types": "bun run scripts/gen-web-types.ts",
