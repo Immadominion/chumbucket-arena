@@ -3,11 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { House, SoccerBall, ChartDonut, Wallet, Users, Plus } from "@/components/icons";
+import { House, SoccerBall, ChartDonut, Wallet, Users, Plus, Basket } from "@/components/icons";
 
 const items = [
   { href: "/arena", Icon: House, also: [] as string[] },
   { href: "/matchday", Icon: SoccerBall, also: ["/call", "/challenge"] },
+  { href: "/calls", Icon: Basket, also: [] },
   { href: "/results", Icon: ChartDonut, also: [] },
   { href: "/wallet", Icon: Wallet, also: [] },
   { href: "/friends", Icon: Users, also: ["/send"] },
@@ -15,9 +16,10 @@ const items = [
 
 export default function LeftRail() {
   const path = usePathname();
+  const matchesSegment = (p: string) => path === p || path.startsWith(`${p}/`);
   const active = (href: string, also: string[]) =>
-    (href === "/arena" ? path === "/arena" : path.startsWith(href)) ||
-    also.some((p) => path.startsWith(p));
+    (href === "/arena" ? path === "/arena" : matchesSegment(href)) ||
+    also.some((p) => matchesSegment(p));
 
   return (
     <div className="lrail">

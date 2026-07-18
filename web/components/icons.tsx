@@ -62,4 +62,5 @@ export {
   Copy,
   PencilSimple,
   ImageSquare,
+  Basket,
 } from "@phosphor-icons/react";

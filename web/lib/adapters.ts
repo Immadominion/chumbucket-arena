@@ -16,6 +16,9 @@ export type Dossier = NonNullable<Out["me"]>;
 export type LeaderRow = Out["leaderboard"][number];
 export type OpenCallView = Dossier["openCalls"][number];
 export type SettledRow = Out["settledCalls"][number];
+// trpc.activity and trpc.followingFeed both resolve to PredictionActivityRow[]
+// server-side (the latter just applies a follow/friend filter) — one row shape.
+export type ActivityRow = Out["activity"][number];
 
 const BG = ["d9f2e1", "ffe0b2", "c7e8ff", "e1d5ff", "ffd6e0", "cde7d6"];
 const bgFor = (seed: string) => BG[[...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % BG.length]!;
@@ -150,5 +153,79 @@ export function toSettledCall(c: SettledRow, match: MatchView | undefined): Sett
     gr: `${gr >= 0 ? "+" : ""}${gr}`,
     when: new Date(c.at).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }),
     line: settledLine(c.result, c.difficulty),
+  };
+}
+
+// ── Calls feed (trpc.activity / trpc.followingFeed) ─────────────────────────
+
+const BUCKET_STYLE: Record<string, { color: string; bg: string }> = {
+  HOME: { color: "#F2385A", bg: "#FFE7EC" },
+  DRAW: { color: "#C57A12", bg: "rgba(197,122,18,.12)" },
+  AWAY: { color: "#2F6BFF", bg: "rgba(47,107,255,.12)" },
+};
+const BUCKET_FALLBACK = { color: "#988990", bg: "#F5EEF1" };
+
+/** "now" / "5m" / "3h" / "2d" / "Jul 12" — mirrors mobile's Calls tab _relativeTime exactly. */
+export function relativeTime(iso: string, now = Date.now()): string {
+  const diffMs = now - new Date(iso).getTime();
+  if (diffMs < 45_000) return "now";
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d`;
+  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** Mirrors mobile's _eventVerb exactly (the feed subtitle's leading verb). */
+function activityVerb(row: ActivityRow, displayBucket: string): string {
+  switch (row.type) {
+    case "CALL_COPIED":
+      return "copied a call";
+    case "CALL_SETTLED":
+      return "call settled";
+    case "CLAIMED":
+      return "claimed winnings";
+    default:
+      return `called ${displayBucket}`;
+  }
+}
+
+export type ActivityCall = {
+  id: string;
+  wallet: string;
+  verb: string;
+  when: string;
+  home: string;
+  away: string;
+  bucketLabel: string; // always non-empty — "HOME"/"DRAW"/"AWAY" or a "?" fallback, mirrors mobile's displayBucket
+  bucketColor: string;
+  bucketBg: string;
+  stake: number | null; // USDC, null when the row carries no stake (e.g. a claim/settlement event)
+  matchId: string | null;
+  isSettled: boolean;
+  status: string;
+};
+
+/** A raw activity/followingFeed row → the Calls feed card shape. */
+export function toActivityCall(row: ActivityRow): ActivityCall {
+  const meta = row.metadata ?? {};
+  const displayBucket = row.bucket ?? (row.body ? row.body.toUpperCase() : "?");
+  const style = BUCKET_STYLE[displayBucket] ?? BUCKET_FALLBACK;
+  return {
+    id: row.id,
+    wallet: row.actor_wallet_address,
+    verb: activityVerb(row, displayBucket),
+    when: relativeTime(row.created_at),
+    home: typeof meta.home === "string" ? meta.home : "Home",
+    away: typeof meta.away === "string" ? meta.away : "Away",
+    bucketLabel: displayBucket,
+    bucketColor: style.color,
+    bucketBg: style.bg,
+    stake: row.stake_base_units ? frostToWal(BigInt(row.stake_base_units)) : null,
+    matchId: row.match_id,
+    isSettled: row.status === "SETTLED",
+    status: row.status,
   };
 }

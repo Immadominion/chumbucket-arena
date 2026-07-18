@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartDonut, House, SoccerBall, Wallet, Users } from "@/components/icons";
+import { ChartDonut, House, SoccerBall, Wallet, Users, Basket } from "@/components/icons";
 
 const items = [
   { href: "/arena", Icon: House, also: [] as string[] },
   { href: "/matchday", Icon: SoccerBall, also: ["/call", "/challenge"] },
+  { href: "/calls", Icon: Basket, also: [] },
   { href: "/results", Icon: ChartDonut, also: [] },
   { href: "/wallet", Icon: Wallet, also: [] },
   { href: "/friends", Icon: Users, also: ["/send"] },
@@ -14,9 +15,10 @@ const items = [
 
 export default function BottomNav() {
   const path = usePathname();
+  const matchesSegment = (p: string) => path === p || path.startsWith(`${p}/`);
   const active = (href: string, also: string[]) =>
-    (href === "/arena" ? path === "/arena" : path.startsWith(href)) ||
-    also.some((p) => path.startsWith(p));
+    (href === "/arena" ? path === "/arena" : matchesSegment(href)) ||
+    also.some((p) => matchesSegment(p));
 
   return (
     <nav className="bottomnav">
