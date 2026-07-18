@@ -274,6 +274,26 @@ export const appRouter = router({
       return ctx.app.social.linkIdentity(input.wallet, identity);
     }),
 
+  /**
+   * Web-only counterpart to linkIdentity: links ALL of the caller's already-
+   * linked Privy X/Google identities to their wallet in one call. No separate
+   * wallet-sig proof needed — unlike mobile's Supabase-Auth-based flow, the
+   * Bearer token itself already IS Privy's proof of both the social identity
+   * and wallet ownership (authedProcedure resolves ctx.wallet from the exact
+   * same verified token). Fire-and-forget right after login; safe to call
+   * repeatedly (link_identity is idempotent per provider+subject).
+   */
+  linkIdentityFromPrivy: authedProcedure.mutation(async ({ ctx }) => {
+    if (!ctx.privyUserId) throw new DomainError("INVALID", "no Privy session on this request");
+    const identities = await ctx.app.auth.fetchLinkedIdentities(ctx.privyUserId);
+    const linked: string[] = [];
+    for (const identity of identities) {
+      await ctx.app.social.linkIdentity(ctx.wallet, identity);
+      linked.push(identity.provider);
+    }
+    return { linked };
+  }),
+
   /** Batch resolve wallets -> display (handle/name/avatar) for feed rendering. */
   walletProfiles: publicProcedure
     .input(z.object({ wallets: z.array(z.string()).min(1).max(200) }))

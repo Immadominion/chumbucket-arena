@@ -6,6 +6,7 @@
  */
 
 import { asWallet } from "../domain/ids.ts";
+import type { OAuthIdentity } from "../social/SocialStore.ts";
 import type { Auth, AuthedUser } from "./Auth.ts";
 
 export class DevAuth implements Auth {
@@ -14,5 +15,10 @@ export class DevAuth implements Auth {
     if (!t) return null;
     const wallet = asWallet(t);
     return { userId: `dev:${wallet}`, wallet };
+  }
+
+  /** Dev auth has no real provider session to ask — nothing to link. */
+  async fetchLinkedIdentities(): Promise<OAuthIdentity[]> {
+    return [];
   }
 }

@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { TRPCError } from "@trpc/server";
 import { appRouter } from "../src/api/router.ts";
-import { createApp } from "../src/app.ts";
+import { createApp, type App } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { asWallet, wal, type MatchId } from "../src/domain/ids.ts";
 
@@ -172,5 +172,79 @@ describe("tRPC API", () => {
       expect((e as TRPCError).code).toBe("BAD_REQUEST");
       expect((e as TRPCError).message).toMatch(/follow rejected/i);
     }
+  });
+
+  describe("linkIdentityFromPrivy", () => {
+    test("links every X/Google identity Privy already reports for the caller", async () => {
+      const linkCalls: Array<{ wallet: string; identity: unknown }> = [];
+      const fakeAuth = {
+        async verify() {
+          return null;
+        },
+        async fetchLinkedIdentities(userId: string) {
+          expect(userId).toBe("privy-user-1");
+          return [
+            { provider: "twitter", subject: "tw-1", username: "satoshi", displayName: "Satoshi" },
+            { provider: "google", subject: "gg-1", displayName: "Alice", email: "a@b.com" },
+          ];
+        },
+      };
+      const fakeSocial = {
+        enabled: true,
+        async linkIdentity(wallet: string, identity: unknown) {
+          linkCalls.push({ wallet, identity });
+          return { ok: true };
+        },
+      };
+      const app = await createApp({
+        config: loadConfig({}),
+        now: FIXED_NOW,
+        auth: fakeAuth as unknown as App["auth"],
+        social: fakeSocial as unknown as App["social"],
+      });
+
+      const caller = appRouter.createCaller({
+        app,
+        wallet: asWallet("0xalice"),
+        privyUserId: "privy-user-1",
+      });
+      const result = await caller.linkIdentityFromPrivy();
+
+      expect(result).toEqual({ linked: ["twitter", "google"] });
+      expect(linkCalls.length).toBe(2);
+      expect(linkCalls[0]).toEqual({
+        wallet: "0xalice",
+        identity: { provider: "twitter", subject: "tw-1", username: "satoshi", displayName: "Satoshi" },
+      });
+      expect(linkCalls[1]).toEqual({
+        wallet: "0xalice",
+        identity: { provider: "google", subject: "gg-1", displayName: "Alice", email: "a@b.com" },
+      });
+    });
+
+    test("requires a wallet (authedProcedure) — anon rejects with UNAUTHORIZED", async () => {
+      const app = await freshApp();
+      const anon = appRouter.createCaller({ app, privyUserId: "privy-user-1" });
+      try {
+        await anon.linkIdentityFromPrivy();
+        throw new Error("expected linkIdentityFromPrivy to reject");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("UNAUTHORIZED");
+      }
+    });
+
+    test("rejects when the context has no privyUserId at all (e.g. dev-auth wallet header)", async () => {
+      const app = await freshApp();
+      const caller = appRouter.createCaller({ app, wallet: asWallet("0xalice") });
+      try {
+        await caller.linkIdentityFromPrivy();
+        throw new Error("expected linkIdentityFromPrivy to reject");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("BAD_REQUEST");
+        expect((e as TRPCError).message).toMatch(/no privy session/i);
+      }
+    });
   });
 });

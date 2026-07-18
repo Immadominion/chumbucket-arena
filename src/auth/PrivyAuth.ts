@@ -13,6 +13,7 @@
 
 import { PrivyClient } from "@privy-io/node";
 import { asWallet, type Wallet } from "../domain/ids.ts";
+import type { OAuthIdentity } from "../social/SocialStore.ts";
 import type { Auth, AuthedUser } from "./Auth.ts";
 
 const externalId = (userId: string): string =>
@@ -53,6 +54,37 @@ export class PrivyAuth implements Auth {
       wallet: info.wallet,
       privyWalletId: info.walletId,
     };
+  }
+
+  /**
+   * The user's already-linked X/Google identities, straight from Privy — no
+   * separate OAuth token exchange needed, since Privy's own login already did
+   * that linking (loginMethods includes google/twitter). One extra
+   * authenticated call to Privy's Users API using the same client instance
+   * `verify()` already trusts.
+   */
+  async fetchLinkedIdentities(userId: string): Promise<OAuthIdentity[]> {
+    const user = await this.client.users()._get(userId);
+    const identities: OAuthIdentity[] = [];
+    for (const account of user.linked_accounts) {
+      if (account.type === "twitter_oauth") {
+        identities.push({
+          provider: "twitter",
+          subject: account.subject,
+          username: account.username ?? undefined,
+          displayName: account.name ?? undefined,
+          avatarUrl: account.profile_picture_url ?? undefined,
+        });
+      } else if (account.type === "google_oauth") {
+        identities.push({
+          provider: "google",
+          subject: account.subject,
+          displayName: account.name ?? undefined,
+          email: account.email,
+        });
+      }
+    }
+    return identities;
   }
 
   private async resolveWallet(userId: string): Promise<PrivyWalletInfo> {

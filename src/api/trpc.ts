@@ -16,6 +16,9 @@ export interface Context {
   wallet?: Wallet;
   /** The player's Privy wallet handle (when provider-custodied) — for deposit sweeps. */
   privyWalletId?: string;
+  /** The provider's own user id (e.g. Privy user id) — needed to ask the Auth
+   *  port for that user's already-linked social identities (X/Google). */
+  privyUserId?: string;
 }
 
 /**
@@ -30,6 +33,7 @@ export async function makeContext(app: App, token: string | undefined): Promise<
     app,
     wallet: user.wallet,
     ...(user.privyWalletId ? { privyWalletId: user.privyWalletId } : {}),
+    ...(user.userId ? { privyUserId: user.userId } : {}),
   };
 }
 
