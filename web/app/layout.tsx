@@ -4,11 +4,11 @@ import Providers from "@/components/Providers";
 import { SessionProvider } from "@/lib/session";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://thegaffer.fun"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "Chumbucket - social predictions settled by TxLINE",
   description:
     "Follow trusted callers, copy a football prediction, or challenge a friend. Chumbucket settles the result from TxLINE proofs on Solana.",
-  icons: { icon: "/img/logo.png" },
+  icons: { icon: "/img/bucket.png" },
   openGraph: {
     title: "Chumbucket - social predictions settled by TxLINE",
     description:

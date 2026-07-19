@@ -1,0 +1,378 @@
+/* ============================================================
+   Chumbucket × Troof landing — fonts, brand, phones, stage, mobile
+   ============================================================ */
+
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Regular.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Ultrabold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Ultrabold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Ultrabold.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+html,
+body {
+  background: #faf6f7 !important;
+  margin: 0;
+  padding: 0;
+  font-family: "PP Neue Machina", system-ui, sans-serif;
+  /* Prevent ghost scroll below the landing stage */
+  overflow-x: hidden;
+}
+
+/* ---- Desktop Troof stage ---- */
+.troof-stage {
+  width: 100%;
+  overflow: hidden; /* clip unscaled 5887px child — stops scroll-past-footer */
+  background: #ffffff;
+  position: relative;
+}
+
+.troof-scaler {
+  width: 1440px;
+  height: 5887px;
+  transform-origin: top left;
+  /* layout size is full design; stage clips to scaled height */
+  will-change: transform;
+}
+
+.troof-scaler > [data-name="App Landing Page"],
+#troof-root > * {
+  margin: 0 auto;
+}
+
+#troof-root,
+#troof-root * {
+  font-family: "PP Neue Machina", system-ui, sans-serif !important;
+}
+
+.fig-asset-3fd1abe1c844886e-6708a067 {
+  background-size: 160px 160px !important;
+  background-repeat: repeat !important;
+  opacity: 0.45;
+}
+
+/* Real Chum Bucket logo (was wiped when blanking screenshots) */
+.fig-asset-19589b48a47ce559 {
+  background: url("/img/bucket.png") center / contain no-repeat !important;
+  background-color: transparent !important;
+}
+
+/* Blank product screens — keep chrome */
+.fig-asset-2259cae128199ece,
+.fig-asset-23eae9fd8c9d4617,
+.fig-asset-2cd43f933161c327,
+.fig-asset-3f6edca3e7e28809,
+.fig-asset-58e81ae2c1ded014,
+.fig-asset-593288cda5de7fce,
+.fig-asset-72f8e5ad66347460,
+.fig-asset-ac84cfb431a75785,
+.fig-asset-b035da06970100a8,
+.fig-asset-c71ed9d537a6b187,
+.fig-asset-ec31d0e1573a6da2,
+.fig-asset-3be96c1d763c0f32,
+.fig-asset-516a9a85a642ef22,
+.fig-asset-56702840e783db64,
+.fig-asset-59a0bdadba1ad90b,
+.fig-asset-5ba9e33b4b67aff1,
+.fig-asset-6b635254de95b844,
+.fig-asset-946c835689d5eeaf,
+.fig-asset-f9e4769735e51d99 {
+  background: #f5eef1 !important;
+  background-image: none !important;
+}
+
+/* Real Chumbucket product captures from the Android app. The Troof export uses
+   several copies of the same 1170x2532 screen slots across its phone mockups;
+   map each narrative beat to the screen that actually supports it. */
+.fig-asset-f9e4769735e51d99,
+.fig-asset-56702840e783db64,
+.fig-asset-2259cae128199ece {
+  background: url("/product-shots/home.png") center / cover no-repeat !important;
+}
+
+.fig-asset-59a0bdadba1ad90b,
+.fig-asset-5ba9e33b4b67aff1,
+.fig-asset-3be96c1d763c0f32,
+.fig-asset-c71ed9d537a6b187 {
+  background: url("/product-shots/calls.png") center / cover no-repeat !important;
+}
+
+.fig-asset-6b635254de95b844 {
+  background: url("/product-shots/friends.png") center / cover no-repeat !important;
+}
+
+.fig-asset-516a9a85a642ef22 {
+  background: url("/product-shots/profile.png") center / cover no-repeat !important;
+}
+
+.fig-asset-f9e4769735e51d99,
+.fig-asset-56702840e783db64,
+.fig-asset-2259cae128199ece,
+.fig-asset-59a0bdadba1ad90b,
+.fig-asset-5ba9e33b4b67aff1,
+.fig-asset-3be96c1d763c0f32,
+.fig-asset-c71ed9d537a6b187,
+.fig-asset-6b635254de95b844,
+.fig-asset-516a9a85a642ef22 {
+  z-index: 5 !important;
+}
+
+/* The source template exported an unrelated payment-card mockup over this phone. */
+.troof-payment-card-artifact {
+  display: none;
+}
+
+.troof-phone-shell {
+  border-radius: 42px !important;
+  overflow: hidden !important;
+}
+.troof-phone-screen {
+  border-radius: 34px !important;
+  overflow: hidden !important;
+}
+
+#troof-root span {
+  cursor: default;
+}
+
+/* ---- Mobile responsive landing (<768) ---- */
+.cb-m {
+  min-height: 100dvh;
+  background: #fff;
+  color: #221217;
+  font-family: "PP Neue Machina", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+.cb-m-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid #f5eef1;
+}
+.cb-m-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  min-width: 0;
+}
+.cb-m-nav-cta {
+  flex: none;
+  background: #221217;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  margin-right: 2px;
+}
+.cb-m-hero {
+  padding: 32px 16px 24px;
+  position: relative;
+  overflow: hidden;
+}
+.cb-m-kicker {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  color: #ff5a76;
+}
+.cb-m-hero h1 {
+  margin: 0;
+  font-size: clamp(30px, 8.2vw, 40px);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.cb-m-hero h1 em {
+  font-style: normal;
+  color: #ff3355;
+}
+.cb-m-lead {
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: #594a50;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+.cb-m-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.cb-m-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #221217;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 14px 20px;
+  border-radius: 8px;
+}
+.cb-m-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #221217;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 14px 16px;
+}
+.cb-m-phones {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 36px;
+  padding-bottom: 12px;
+}
+.cb-m-phone {
+  width: 42%;
+  max-width: 160px;
+  aspect-ratio: 9 / 19;
+  border-radius: 28px;
+  background: #fdf9fa;
+  border: 3px solid #1a1013;
+  box-shadow: 0 20px 40px rgba(26, 16, 19, 0.18);
+  transform: rotate(-6deg);
+  position: relative;
+  overflow: hidden;
+}
+.cb-m-phone img {
+  object-fit: cover;
+  object-position: center;
+}
+.cb-m-phone-b {
+  transform: rotate(7deg);
+  margin-top: 20px;
+}
+.cb-m-section {
+  padding: 40px 20px;
+}
+.cb-m-alt {
+  background: #faf6f7;
+}
+.cb-m-section h2 {
+  margin: 0 0 20px;
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.cb-m-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 12px rgba(40, 16, 24, 0.05);
+}
+.cb-m-alt .cb-m-card {
+  background: #fff;
+}
+.cb-m-card h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+.cb-m-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: #594a50;
+  font-weight: 500;
+}
+.cb-m-cta {
+  margin: 12px 20px 40px;
+  padding: 36px 22px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #1a1013, #2a1218);
+  color: #fff;
+  text-align: center;
+}
+.cb-m-cta h2 {
+  margin: 0;
+  font-size: 28px;
+}
+.cb-m-cta p {
+  margin: 12px auto 22px;
+  max-width: 32ch;
+  color: #d9c3c9;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.cb-m-cta .cb-m-btn {
+  background: #ff5a76;
+  color: #3a0510;
+}
+.cb-m-footer {
+  border-top: 1px solid #f5eef1;
+  padding: 24px 20px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cb-m-footer p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #988990;
+}

@@ -31,7 +31,10 @@ export default function ContractPage() {
   }, [ready, authenticated, session.status]);
 
   // One action: not logged in → Privy modal; logged in but no handle → name step.
+  // Privy only allows listed origins (dashboard → this app). Local dev must be on
+  // http://localhost:3000 — other ports look like a dead button.
   const start = () => {
+    if (!ready) return;
     if (authenticated && session.status === "guest") setShowHandle(true);
     else login();
   };

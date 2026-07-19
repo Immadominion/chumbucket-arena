@@ -88,10 +88,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       appId={PRIVY_APP_ID}
       config={{
         loginMethods: ["email", "google", "twitter", "wallet"],
-        appearance: { theme: "light", accentColor: "#F2385A", logo: "/img/logo.png" },
-        // The player's Solana wallet is provisioned + custodied server-side (PrivyAuth
-        // on the backend resolves it from the Privy user id), so no client-side
-        // embedded-wallet creation is needed here.
+        appearance: {
+          theme: "light",
+          accentColor: "#F2385A",
+          logo: "/img/bucket.png",
+          landingHeader: "Welcome to Chumbucket",
+        },
+        // Solana wallets are provisioned server-side by PrivyAuth (user-controlled
+        // server wallets). Client-side createOnLogin stays off to match the Privy
+        // app config (mode: user-controlled-server-wallets-only).
       }}
     >
       <TRPCStack>{children}</TRPCStack>
