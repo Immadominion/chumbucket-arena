@@ -88,6 +88,21 @@ describe("Helius webhook handler", () => {
     expect(JSON.parse(res.body)).toEqual({ ok: false, error: "unauthorized" });
   });
 
+  test("fails CLOSED when no secret is configured (never waves callers through)", async () => {
+    const res = responseSpy();
+    await handleHeliusWebhook(
+      {
+        config: { indexer: {} }, // no heliusWebhookAuth set
+        social: { confirmPredictionSignature: async () => ({ ok: true }) },
+      } as never,
+      requestSpy([{ signature: "sig-a" }], { "x-helius-auth": "anything" }),
+      res as never,
+    );
+
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ ok: false, error: "unauthorized" });
+  });
+
   test("confirms each observed signature through the social store", async () => {
     const calls: unknown[] = [];
     const res = responseSpy();

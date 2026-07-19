@@ -60,8 +60,13 @@ export async function handleHeliusWebhook(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readBody(req));
-  } catch {
+    parsed = JSON.parse(await readBody(req, MAX_WEBHOOK_BODY_BYTES));
+  } catch (e) {
+    if (e instanceof BodyTooLargeError) {
+      res.writeHead(413, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "payload too large" }));
+      return;
+    }
     res.writeHead(400, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "invalid json" }));
     return;
@@ -92,7 +97,12 @@ export async function handleHeliusWebhook(
 }
 
 function authorized(secret: string | undefined, req: IncomingMessage): boolean {
-  if (!secret) return true;
+  // Fail CLOSED: a missing/empty secret rejects everything rather than waving
+  // callers through. This endpoint drives settlement/claim confirmation, so an
+  // unconfigured secret must never mean "accept unauthenticated writes". Prod
+  // sets HELIUS_WEBHOOK_AUTH, so live behavior is unchanged; this only closes
+  // the latent hole if the env var is ever cleared.
+  if (!secret) return false;
   const header = first(req.headers["x-helius-auth"]) ?? bearer(first(req.headers.authorization));
   if (!header) return false;
   const a = Buffer.from(header);
@@ -108,10 +118,20 @@ function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+/** Helius enhanced webhook payloads are well under this; anything larger is
+ *  rejected rather than buffered, so a runaway/hostile body can't OOM the box. */
+const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024; // 2 MiB
+
+class BodyTooLargeError extends Error {}
+
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) throw new BodyTooLargeError();
+    chunks.push(buf);
   }
   return Buffer.concat(chunks).toString("utf8");
 }
