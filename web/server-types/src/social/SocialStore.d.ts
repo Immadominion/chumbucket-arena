@@ -124,6 +124,18 @@ export interface WalletProfileRow {
     x_handle: string | null;
     verified: boolean;
 }
+export interface PendingTargetRow {
+    id: string;
+    network: string;
+    provider: string;
+    provider_username: string;
+    created_by_wallet: string;
+    target_type: string;
+    target_ref: string | null;
+    resolved_wallet_address: string | null;
+    created_at: string;
+    resolved_at: string | null;
+}
 export interface PredictionPositionRow {
     id: string;
     network: string;
@@ -224,6 +236,12 @@ export interface SocialStore {
         result?: unknown;
     }>;
     walletProfiles(wallets: string[]): Promise<WalletProfileRow[]>;
+    createPendingTarget(wallet: string, provider: string, providerUsername: string): Promise<{
+        id: string;
+        resolvedWalletAddress: string | null;
+        alreadyResolved: boolean;
+    }>;
+    pendingTargets(wallet: string, limit: number): Promise<PendingTargetRow[]>;
 }
 export declare class NoopSocialStore implements SocialStore {
     readonly enabled = false;
@@ -273,6 +291,12 @@ export declare class NoopSocialStore implements SocialStore {
         reason: string;
     }>;
     walletProfiles(): Promise<WalletProfileRow[]>;
+    createPendingTarget(): Promise<{
+        id: string;
+        resolvedWalletAddress: string | null;
+        alreadyResolved: boolean;
+    }>;
+    pendingTargets(): Promise<PendingTargetRow[]>;
 }
 export declare class SupabaseSocialStore implements SocialStore {
     private readonly cfg;
@@ -337,6 +361,12 @@ export declare class SupabaseSocialStore implements SocialStore {
         result?: unknown;
     }>;
     walletProfiles(wallets: string[]): Promise<WalletProfileRow[]>;
+    createPendingTarget(wallet: string, provider: string, providerUsername: string): Promise<{
+        id: string;
+        resolvedWalletAddress: string | null;
+        alreadyResolved: boolean;
+    }>;
+    pendingTargets(wallet: string, limit: number): Promise<PendingTargetRow[]>;
     private rpc;
     private getRows;
     private headers;

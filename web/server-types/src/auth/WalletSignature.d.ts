@@ -20,10 +20,11 @@
  */
 /** How far the signed timestamp may drift from now (replay / stale-proof window). */
 export declare const SIGNATURE_MAX_AGE_MS: number;
-export type SocialAction = "follow" | "unfollow";
+export type SocialAction = "follow" | "unfollow" | "add_pending_target";
 /**
- * The exact string a wallet must sign for a follow/unfollow. Deterministic and
- * human-readable so the wallet's signing UI shows what's being authorized.
+ * The exact string a wallet must sign for a follow/unfollow/add_pending_target.
+ * Deterministic and human-readable so the wallet's signing UI shows what's
+ * being authorized.
  */
 export declare function socialActionMessage(action: SocialAction, target: string, network: string, timestamp: number): string;
 /** A parameterless signed action (e.g. "read_notifications"). */
@@ -57,7 +58,7 @@ export interface SocialActionProof {
     timestamp: number;
     signature: string;
 }
-/** Verify a follow/unfollow proof against the backend's configured `network`. */
+/** Verify a follow/unfollow/add_pending_target proof against the backend's configured `network`. */
 export declare function verifySocialAction(proof: SocialActionProof, now: number, network: string): {
     ok: boolean;
     reason?: string;

@@ -148,6 +148,50 @@ describe("SupabaseSocialStore", () => {
     expect(requests[0]!.body).toEqual({ p_by: "winrate", p_limit: 10 });
   });
 
+  test("createPendingTarget calls create_pending_target with the right shape and returns its result", async () => {
+    const { store, requests } = rpcCapture({ id: "pt-1", resolvedWalletAddress: null, alreadyResolved: false });
+    const r = await store.createPendingTarget("wallet1", "twitter", "satoshi");
+    expect(r).toEqual({ id: "pt-1", resolvedWalletAddress: null, alreadyResolved: false });
+    expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/create_pending_target");
+    expect(requests[0]!.body).toEqual({
+      p_network: "devnet",
+      p_wallet: "wallet1",
+      p_provider: "twitter",
+      p_provider_username: "satoshi",
+    });
+  });
+
+  // decode() can hand back `null` for a SQL-NULL RPC response — both real
+  // clients would otherwise crash on it (web reads `.alreadyResolved` off a
+  // null; mobile's `fromJson` casts a null to `Map<String, dynamic>`), so the
+  // store must fail loudly here instead of passing the null through.
+  test("createPendingTarget throws on a null/malformed RPC response instead of returning it", async () => {
+    const { store } = rpcCapture(null);
+    await expect(store.createPendingTarget("wallet1", "twitter", "satoshi")).rejects.toThrow(
+      /create_pending_target returned an unexpected response/,
+    );
+  });
+
+  test("pendingTargets calls pending_targets_for_wallet and returns the rows", async () => {
+    const row = {
+      id: "pt-1",
+      network: "devnet",
+      provider: "twitter",
+      provider_username: "satoshi",
+      created_by_wallet: "wallet1",
+      target_type: "follow",
+      target_ref: null,
+      resolved_wallet_address: null,
+      created_at: "2026-07-19T00:00:00Z",
+      resolved_at: null,
+    };
+    const { store, requests } = rpcCapture([row]);
+    const rows = await store.pendingTargets("wallet1", 25);
+    expect(rows).toEqual([row]);
+    expect(requests[0]!.url).toBe("https://example.supabase.co/rest/v1/rpc/pending_targets_for_wallet");
+    expect(requests[0]!.body).toEqual({ p_network: "devnet", p_wallet: "wallet1", p_limit: 25 });
+  });
+
   function store(fetchImpl: unknown) {
     return new SupabaseSocialStore(
       { supabaseUrl: "https://ex.supabase.co", serviceRoleKey: "svc", network: "devnet" },

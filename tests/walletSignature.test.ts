@@ -83,6 +83,11 @@ describe("verifySocialAction", () => {
     expect(verifySocialAction(proof("follow", privateKey, walletB58), ts, NET).ok).toBe(true);
   });
 
+  test("accepts a fresh, correctly-signed add_pending_target proof", () => {
+    const { privateKey, walletB58 } = makeWallet();
+    expect(verifySocialAction(proof("add_pending_target", privateKey, walletB58), ts, NET).ok).toBe(true);
+  });
+
   test("rejects a stale or future timestamp", () => {
     const { privateKey, walletB58 } = makeWallet();
     const p = proof("follow", privateKey, walletB58);

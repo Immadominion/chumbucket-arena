@@ -299,6 +299,57 @@ export const appRouter = router({
     .input(z.object({ wallets: z.array(z.string()).min(1).max(200) }))
     .query(({ ctx, input }) => ctx.app.social.walletProfiles(input.wallets)),
 
+  /**
+   * Add a pending "follow this X handle once they join" target — Venmo's
+   * "send to a number that isn't registered yet" pattern applied to the social
+   * graph. Wallet-signature authed, same posture as follow/unfollow: proves
+   * the caller controls the wallet before recording the intent. Resolves
+   * immediately if the handle already belongs to a joined user.
+   */
+  createPendingTarget: publicProcedure
+    .input(
+      z.object({
+        wallet: z.string(),
+        // trim() + min(1) so a client bypassing normalizeHandle() (or a raw
+        // API call) can't create a permanently-unresolvable empty/blank-handle
+        // pending target — the resolution hook can never match against "".
+        // max(15) + the charset regex mirror X's own username rules (letters,
+        // digits, underscores, ≤15 chars) — bounding + validating here rejects
+        // obvious garbage (multi-KB strings, "my friend bob") before it becomes
+        // a pending_identity_targets row that can never match a real
+        // OAuth-linked screen name.
+        providerUsername: z
+          .string()
+          .trim()
+          .min(1, "handle is required")
+          .max(15, "X handles are at most 15 characters")
+          .regex(/^\w+$/, "handle can only contain letters, numbers, and underscores"),
+        provider: z.literal("twitter").default("twitter"),
+        timestamp: z.number(),
+        signature: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const check = verifySocialAction(
+        {
+          wallet: input.wallet,
+          action: "add_pending_target",
+          target: input.providerUsername,
+          timestamp: input.timestamp,
+          signature: input.signature,
+        },
+        Date.now(),
+        ctx.app.config.social?.network ?? "devnet",
+      );
+      if (!check.ok) throw new DomainError("INVALID", `add-target rejected: ${check.reason}`);
+      return ctx.app.social.createPendingTarget(input.wallet, input.provider, input.providerUsername);
+    }),
+
+  /** A wallet's pending + resolved identity targets, newest first. */
+  pendingTargets: publicProcedure
+    .input(z.object({ wallet: z.string(), limit: z.number().min(1).max(200).default(50) }))
+    .query(({ ctx, input }) => ctx.app.social.pendingTargets(input.wallet, input.limit)),
+
   // ── commands ─────────────────────────────────────────────────────────────
   signContract: authedProcedure
     .input(z.object({ handle: z.string().max(40).optional() }))

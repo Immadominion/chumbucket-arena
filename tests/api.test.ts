@@ -5,11 +5,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync, sign as nodeSign, type KeyObject } from "node:crypto";
+import { utils } from "@coral-xyz/anchor";
 import { TRPCError } from "@trpc/server";
 import { appRouter } from "../src/api/router.ts";
 import { createApp, type App } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { asWallet, wal, type MatchId } from "../src/domain/ids.ts";
+import { socialActionMessage } from "../src/auth/WalletSignature.ts";
 
 const FIXED_NOW = 1_750_000_000_000;
 
@@ -172,6 +175,181 @@ describe("tRPC API", () => {
       expect((e as TRPCError).code).toBe("BAD_REQUEST");
       expect((e as TRPCError).message).toMatch(/follow rejected/i);
     }
+  });
+
+  describe("createPendingTarget / pendingTargets", () => {
+    const bs58 = utils.bytes.bs58;
+    function makeWallet() {
+      const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+      const der = publicKey.export({ format: "der", type: "spki" });
+      const raw = new Uint8Array(der.subarray(der.length - 32));
+      return { privateKey, walletB58: bs58.encode(raw) };
+    }
+    function signB58(privateKey: KeyObject, message: string): string {
+      return bs58.encode(new Uint8Array(nodeSign(null, Buffer.from(message), privateKey)));
+    }
+
+    test("a valid wallet-signature proof creates a pending target through the social store", async () => {
+      const calls: Array<{ wallet: string; provider: string; providerUsername: string }> = [];
+      const fakeSocial = {
+        enabled: true,
+        async createPendingTarget(wallet: string, provider: string, providerUsername: string) {
+          calls.push({ wallet, provider, providerUsername });
+          return { id: "pt-1", resolvedWalletAddress: null, alreadyResolved: false };
+        },
+      };
+      const app = await createApp({
+        config: loadConfig({}),
+        now: FIXED_NOW,
+        social: fakeSocial as unknown as App["social"],
+      });
+      const anon = appRouter.createCaller({ app });
+
+      const { privateKey, walletB58 } = makeWallet();
+      const providerUsername = "satoshi";
+      // The procedure freshness-checks against the real wall clock (Date.now()),
+      // not the engine's FIXED_NOW — sign for "now", not the fixture's frozen time.
+      const ts = Date.now();
+      const signature = signB58(privateKey, socialActionMessage("add_pending_target", providerUsername, "devnet", ts));
+
+      const result = await anon.createPendingTarget({
+        wallet: walletB58,
+        providerUsername,
+        timestamp: ts,
+        signature,
+      });
+
+      expect(result).toEqual({ id: "pt-1", resolvedWalletAddress: null, alreadyResolved: false });
+      expect(calls).toEqual([{ wallet: walletB58, provider: "twitter", providerUsername: "satoshi" }]);
+    });
+
+    // Same well-established pattern as the follow rejection test above: a bad
+    // proof throws DomainError("INVALID") directly (not via guard()), and the
+    // mapDomainErrors middleware must still translate that to BAD_REQUEST.
+    test("a bad wallet-signature on createPendingTarget maps to BAD_REQUEST, not INTERNAL_SERVER_ERROR", async () => {
+      const app = await freshApp();
+      const anon = appRouter.createCaller({ app });
+      try {
+        await anon.createPendingTarget({
+          wallet: "34cts2e8euGAHCNrkC9damXAcgyR9FpTiSbC9Sw1DYz9",
+          providerUsername: "satoshi",
+          timestamp: FIXED_NOW,
+          signature: "1".repeat(64),
+        });
+        throw new Error("expected createPendingTarget to reject");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("BAD_REQUEST");
+        expect((e as TRPCError).message).toMatch(/add-target rejected/i);
+      }
+    });
+
+    // Even with a validly-signed proof, an empty (or whitespace-only) handle
+    // must be rejected before it ever reaches the social store — otherwise a
+    // direct API call bypassing the client's normalizeHandle() could create a
+    // permanently-unresolvable blank-handle pending target.
+    test("an empty providerUsername is rejected by input validation, not stored", async () => {
+      const app = await freshApp();
+      const anon = appRouter.createCaller({ app });
+
+      const { privateKey, walletB58 } = makeWallet();
+      const ts = Date.now();
+      const signature = signB58(privateKey, socialActionMessage("add_pending_target", "  ", "devnet", ts));
+
+      try {
+        await anon.createPendingTarget({
+          wallet: walletB58,
+          providerUsername: "  ",
+          timestamp: ts,
+          signature,
+        });
+        throw new Error("expected createPendingTarget to reject an empty handle");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("BAD_REQUEST");
+      }
+    });
+
+    // Garbage that would never match a real OAuth-linked X screen name
+    // (too long, or containing characters X handles can't have) should be
+    // rejected as BAD_REQUEST by input validation, not silently stored as a
+    // permanently-unresolvable pending_identity_targets row.
+    test("a too-long providerUsername is rejected by input validation", async () => {
+      const app = await freshApp();
+      const anon = appRouter.createCaller({ app });
+
+      const { privateKey, walletB58 } = makeWallet();
+      const ts = Date.now();
+      const tooLong = "a".repeat(16); // X handles max out at 15 chars
+      const signature = signB58(privateKey, socialActionMessage("add_pending_target", tooLong, "devnet", ts));
+
+      try {
+        await anon.createPendingTarget({
+          wallet: walletB58,
+          providerUsername: tooLong,
+          timestamp: ts,
+          signature,
+        });
+        throw new Error("expected createPendingTarget to reject a too-long handle");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("BAD_REQUEST");
+      }
+    });
+
+    test("a providerUsername with disallowed characters is rejected by input validation", async () => {
+      const app = await freshApp();
+      const anon = appRouter.createCaller({ app });
+
+      const { privateKey, walletB58 } = makeWallet();
+      const ts = Date.now();
+      const garbage = "my friend bob";
+      const signature = signB58(privateKey, socialActionMessage("add_pending_target", garbage, "devnet", ts));
+
+      try {
+        await anon.createPendingTarget({
+          wallet: walletB58,
+          providerUsername: garbage,
+          timestamp: ts,
+          signature,
+        });
+        throw new Error("expected createPendingTarget to reject a handle with spaces");
+      } catch (e) {
+        expect(e).toBeInstanceOf(TRPCError);
+        expect((e as TRPCError).code).toBe("BAD_REQUEST");
+      }
+    });
+
+    test("pendingTargets reads through to the social store", async () => {
+      const row = {
+        id: "pt-1",
+        network: "devnet",
+        provider: "twitter",
+        provider_username: "satoshi",
+        created_by_wallet: "wallet1",
+        target_type: "follow",
+        target_ref: null,
+        resolved_wallet_address: null,
+        created_at: "2026-07-19T00:00:00Z",
+        resolved_at: null,
+      };
+      const fakeSocial = {
+        enabled: true,
+        async pendingTargets(wallet: string, limit: number) {
+          expect(wallet).toBe("wallet1");
+          expect(limit).toBe(50);
+          return [row];
+        },
+      };
+      const app = await createApp({
+        config: loadConfig({}),
+        now: FIXED_NOW,
+        social: fakeSocial as unknown as App["social"],
+      });
+      const anon = appRouter.createCaller({ app });
+      const rows = await anon.pendingTargets({ wallet: "wallet1", limit: 50 });
+      expect(rows).toEqual([row]);
+    });
   });
 
   describe("linkIdentityFromPrivy", () => {

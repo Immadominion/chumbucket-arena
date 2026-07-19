@@ -138,6 +138,19 @@ export interface WalletProfileRow {
   verified: boolean;
 }
 
+export interface PendingTargetRow {
+  id: string;
+  network: string;
+  provider: string;
+  provider_username: string;
+  created_by_wallet: string;
+  target_type: string;
+  target_ref: string | null;
+  resolved_wallet_address: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface PredictionPositionRow {
   id: string;
   network: string;
@@ -209,6 +222,13 @@ export interface SocialStore {
   verifyOAuthUser(accessToken: string): Promise<OAuthIdentity | null>;
   linkIdentity(wallet: string, identity: OAuthIdentity): Promise<{ ok: boolean; result?: unknown }>;
   walletProfiles(wallets: string[]): Promise<WalletProfileRow[]>;
+  // pending identity targets (follow an X handle who hasn't joined yet)
+  createPendingTarget(
+    wallet: string,
+    provider: string,
+    providerUsername: string,
+  ): Promise<{ id: string; resolvedWalletAddress: string | null; alreadyResolved: boolean }>;
+  pendingTargets(wallet: string, limit: number): Promise<PendingTargetRow[]>;
 }
 
 export class NoopSocialStore implements SocialStore {
@@ -303,6 +323,14 @@ export class NoopSocialStore implements SocialStore {
   }
 
   async walletProfiles(): Promise<WalletProfileRow[]> {
+    return [];
+  }
+
+  async createPendingTarget(): Promise<{ id: string; resolvedWalletAddress: string | null; alreadyResolved: boolean }> {
+    return { id: "", resolvedWalletAddress: null, alreadyResolved: false };
+  }
+
+  async pendingTargets(): Promise<PendingTargetRow[]> {
     return [];
   }
 }
@@ -565,6 +593,43 @@ export class SupabaseSocialStore implements SocialStore {
   async walletProfiles(wallets: string[]): Promise<WalletProfileRow[]> {
     if (wallets.length === 0) return [];
     return (await this.rpc<WalletProfileRow[]>("wallet_profiles", { p_wallets: wallets })) ?? [];
+  }
+
+  async createPendingTarget(
+    wallet: string,
+    provider: string,
+    providerUsername: string,
+  ): Promise<{ id: string; resolvedWalletAddress: string | null; alreadyResolved: boolean }> {
+    const result = await this.rpc<{ id: string; resolvedWalletAddress: string | null; alreadyResolved: boolean }>(
+      "create_pending_target",
+      {
+        p_network: this.cfg.network,
+        p_wallet: wallet,
+        p_provider: provider,
+        p_provider_username: providerUsername,
+      },
+    );
+    // rpc()/decode() can hand back `undefined` (empty body) or `null` (a SQL
+    // NULL return) instead of the declared shape. Both tRPC clients unwrap
+    // this straight into a required `{id, resolvedWalletAddress,
+    // alreadyResolved}` result — web reads `.alreadyResolved` off it, mobile
+    // runs `ArenaCreatePendingTargetResult.fromJson(json as Map<...>)` — so a
+    // silent null/undefined here would surface as an obscure client-side
+    // crash instead of a clear server error. Fail loudly here instead.
+    if (!result || typeof result.id !== "string") {
+      throw new Error(`[social] create_pending_target returned an unexpected response: ${JSON.stringify(result)}`);
+    }
+    return result;
+  }
+
+  async pendingTargets(wallet: string, limit: number): Promise<PendingTargetRow[]> {
+    return (
+      (await this.rpc<PendingTargetRow[]>("pending_targets_for_wallet", {
+        p_network: this.cfg.network,
+        p_wallet: wallet,
+        p_limit: limit,
+      })) ?? []
+    );
   }
 
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {

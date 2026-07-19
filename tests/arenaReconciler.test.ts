@@ -104,6 +104,12 @@ class FakeSocial implements SocialStore {
   async walletProfiles() {
     return [];
   }
+  async createPendingTarget() {
+    return { id: "", resolvedWalletAddress: null, alreadyResolved: false };
+  }
+  async pendingTargets() {
+    return [];
+  }
 }
 
 class FakeChain implements ArenaChainSource {

@@ -366,6 +366,37 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         output: import("../social/SocialStore").WalletProfileRow[];
         meta: object;
     }>;
+    /**
+     * Add a pending "follow this X handle once they join" target — Venmo's
+     * "send to a number that isn't registered yet" pattern applied to the social
+     * graph. Wallet-signature authed, same posture as follow/unfollow: proves
+     * the caller controls the wallet before recording the intent. Resolves
+     * immediately if the handle already belongs to a joined user.
+     */
+    createPendingTarget: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+            signature: string;
+            timestamp: number;
+            providerUsername: string;
+            provider?: "twitter" | undefined;
+        };
+        output: {
+            id: string;
+            resolvedWalletAddress: string | null;
+            alreadyResolved: boolean;
+        };
+        meta: object;
+    }>;
+    /** A wallet's pending + resolved identity targets, newest first. */
+    pendingTargets: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            wallet: string;
+            limit?: number | undefined;
+        };
+        output: import("../social/SocialStore").PendingTargetRow[];
+        meta: object;
+    }>;
     signContract: import("@trpc/server").TRPCMutationProcedure<{
         input: {
             handle?: string | undefined;

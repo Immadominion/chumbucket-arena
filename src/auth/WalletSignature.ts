@@ -29,11 +29,12 @@ const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 /** How far the signed timestamp may drift from now (replay / stale-proof window). */
 export const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
 
-export type SocialAction = "follow" | "unfollow";
+export type SocialAction = "follow" | "unfollow" | "add_pending_target";
 
 /**
- * The exact string a wallet must sign for a follow/unfollow. Deterministic and
- * human-readable so the wallet's signing UI shows what's being authorized.
+ * The exact string a wallet must sign for a follow/unfollow/add_pending_target.
+ * Deterministic and human-readable so the wallet's signing UI shows what's
+ * being authorized.
  */
 export function socialActionMessage(action: SocialAction, target: string, network: string, timestamp: number): string {
   return `ChumBucket: ${action} ${target}\nnet:${network}\nts:${timestamp}`;
@@ -106,10 +107,11 @@ export interface SocialActionProof {
   signature: string; // base58 or base64
 }
 
-/** Verify a follow/unfollow proof against the backend's configured `network`. */
+/** Verify a follow/unfollow/add_pending_target proof against the backend's configured `network`. */
 export function verifySocialAction(proof: SocialActionProof, now: number, network: string): { ok: boolean; reason?: string } {
   if (!proof.wallet || !proof.target || !proof.signature) return { ok: false, reason: "missing fields" };
-  if (proof.action !== "follow" && proof.action !== "unfollow") return { ok: false, reason: "unknown action" };
+  if (proof.action !== "follow" && proof.action !== "unfollow" && proof.action !== "add_pending_target")
+    return { ok: false, reason: "unknown action" };
   const fresh = freshness(proof.timestamp, now);
   if (!fresh.ok) return fresh;
   const message = socialActionMessage(proof.action, proof.target, network, proof.timestamp);

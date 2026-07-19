@@ -4,15 +4,26 @@
  * Friends — same `friends` table the mobile app reads/writes (see lib/social.ts
  * for the exact query mirror of chumbucket/lib/shared/services/unified_database_service.dart).
  * Adding a friend here shows up in the mobile app's friends list too, and vice versa.
+ *
+ * Also supports adding by @handle when that X account hasn't joined ChumBucket
+ * yet — the same "send to a number that isn't registered yet" pending-target
+ * pattern already live on the backend (pending_identity_targets) and wired
+ * into mobile in parallel. That path is wallet-signature authed (see
+ * lib/walletSign.ts) rather than a plain Supabase write, since anyone could
+ * otherwise spam pending targets against arbitrary handles.
  */
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PublicKey } from "@solana/web3.js";
-import { PaperPlaneRight, UserPlus } from "@/components/icons";
+import { useSignMessage, useWallets } from "@privy-io/react-auth/solana";
+import type { PendingTargetRow } from "@server/social/SocialStore";
+import { Clock, PaperPlaneRight, UserPlus, XLogo } from "@/components/icons";
 import { useSession } from "@/lib/session";
+import { useTRPC } from "@/lib/trpc";
 import { addSupabaseFriend, listSupabaseFriends, type FriendRow } from "@/lib/social";
+import { isValidSolanaAddress } from "@/lib/solana";
+import { normalizeHandle, signSocialAction } from "@/lib/walletSign";
 import { profileImageUrl } from "@/lib/supabase";
 import { avatar } from "@/lib/data";
 import { useWalletProfiles } from "@/lib/useWalletProfiles";
@@ -29,8 +40,14 @@ const inputStyle: React.CSSProperties = {
   color: "#221217",
 };
 
+type AddResult =
+  | { kind: "wallet"; alreadyFriends: boolean }
+  | { kind: "handle-resolved"; alreadyFriends: boolean }
+  | { kind: "handle-pending"; normalized: string };
+
 export default function FriendsPage() {
   const { session } = useSession();
+  const trpc = useTRPC();
   const qc = useQueryClient();
   const wallet = session.wallet || "";
   const friendsKey = ["supabase-friends", wallet];
@@ -42,31 +59,94 @@ export default function FriendsPage() {
     staleTime: 15_000,
   });
 
+  // Pending @handle targets this wallet asked to be notified about — only the
+  // still-unresolved ones (a resolved one is folded straight into the normal
+  // friends flow the moment it's added, see addM below).
+  const pendingQ = useQuery({
+    ...trpc.pendingTargets.queryOptions({ wallet, limit: 50 }),
+    enabled: !!wallet,
+    staleTime: 15_000,
+  });
+  const pendingList = (pendingQ.data ?? []).filter((t) => !t.resolved_wallet_address);
+
+  const { wallets } = useWallets();
+  const { signMessage } = useSignMessage();
+  const createPendingTargetM = useMutation(trpc.createPendingTarget.mutationOptions());
+
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const addM = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<AddResult> => {
       const trimmedName = name.trim();
-      const trimmedAddress = address.trim();
-      if (!trimmedName || !trimmedAddress) throw new Error("Enter both a name and a wallet address.");
-      try {
-        new PublicKey(trimmedAddress);
-      } catch {
-        throw new Error("That doesn't look like a valid Solana wallet address.");
+      const trimmedInput = address.trim();
+      if (!trimmedName || !trimmedInput) {
+        throw new Error("Enter both a name and a wallet address or @handle.");
       }
-      if (session.wallet && trimmedAddress === session.wallet) {
+
+      // Route explicitly on a leading '@': that's an X handle. Anything else is
+      // treated as a wallet address and must parse as one — we never guess a
+      // malformed/typo'd address into the handle path (which would trigger a
+      // pointless signature prompt or store an unresolvable pending row).
+      const isHandle = trimmedInput.startsWith("@");
+      if (isHandle) {
+        const normalized = normalizeHandle(trimmedInput);
+        if (!normalized) throw new Error("Enter a valid @handle.");
+        if (!wallet) throw new Error("Sign in first.");
+        // Must be the exact session wallet, never a silent fallback to
+        // wallets[0] — this proof durably writes created_by_wallet, so
+        // signing with the wrong connected wallet would misattribute it.
+        const myWallet = wallets.find((w) => w.address === wallet);
+        if (!myWallet) throw new Error("Your wallet isn't connected — reconnect and try again.");
+
+        const proof = await signSocialAction({
+          action: "add_pending_target",
+          target: normalized,
+          wallet: myWallet,
+          signMessage,
+        });
+        const result = await createPendingTargetM.mutateAsync({
+          wallet: proof.wallet,
+          providerUsername: normalized,
+          timestamp: proof.timestamp,
+          signature: proof.signature,
+        });
+
+        if (result.alreadyResolved && result.resolvedWalletAddress) {
+          if (result.resolvedWalletAddress === wallet) throw new Error("That's your own account.");
+          const r = await addSupabaseFriend({
+            walletAddress: wallet,
+            friendWalletAddress: result.resolvedWalletAddress,
+            friendName: trimmedName,
+          });
+          return { kind: "handle-resolved", alreadyFriends: r.alreadyFriends };
+        }
+        return { kind: "handle-pending", normalized };
+      }
+
+      // Wallet-address path: must be a real pubkey. A malformed one gets a
+      // clear error (with the @handle hint) rather than being coerced anywhere.
+      if (!isValidSolanaAddress(trimmedInput)) {
+        throw new Error("That doesn't look like a valid Solana wallet address. To add by X handle, start with @.");
+      }
+      if (session.wallet && trimmedInput === session.wallet) {
         throw new Error("That's your own wallet address.");
       }
-      return addSupabaseFriend({ walletAddress: wallet, friendWalletAddress: trimmedAddress, friendName: trimmedName });
+      const r = await addSupabaseFriend({ walletAddress: wallet, friendWalletAddress: trimmedInput, friendName: trimmedName });
+      return { kind: "wallet", alreadyFriends: r.alreadyFriends };
     },
     onSuccess: (r) => {
-      setNotice(r.alreadyFriends ? "You're already friends." : `Added ${name.trim()}.`);
+      if (r.kind === "handle-pending") {
+        setNotice(`@${r.normalized} hasn't joined ChumBucket yet — you'll be notified the moment they do.`);
+        void qc.invalidateQueries({ queryKey: trpc.pendingTargets.queryKey({ wallet, limit: 50 }) });
+      } else {
+        setNotice(r.alreadyFriends ? "You're already friends." : `Added ${name.trim()}.`);
+        void qc.invalidateQueries({ queryKey: friendsKey });
+      }
       setName("");
       setAddress("");
-      void qc.invalidateQueries({ queryKey: friendsKey });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Couldn't add that friend. Try again."),
   });
@@ -87,7 +167,8 @@ export default function FriendsPage() {
     <div className="midpad" style={{ maxWidth: 760 }}>
       <div className="cd" style={{ fontSize: 24 }}>Friends</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
-        The same friends list as the ChumBucket app. Add someone by wallet address, then send them SOL directly.
+        The same friends list as the ChumBucket app. Add someone by wallet address or @handle — if they
+        haven&rsquo;t joined yet, we&rsquo;ll notify you the moment they do.
       </p>
 
       <form onSubmit={submit} className="card" style={{ marginTop: 18, padding: 18 }}>
@@ -104,7 +185,7 @@ export default function FriendsPage() {
           <input
             value={address}
             onChange={(e) => setAddress(e.target.value.trim())}
-            placeholder="Wallet address"
+            placeholder="Wallet address or @handle"
             className="mono"
             style={inputStyle}
           />
@@ -122,6 +203,17 @@ export default function FriendsPage() {
         {notice && <p style={{ fontSize: 12, color: "#0A7E40", marginTop: 10, fontWeight: 600 }}>{notice}</p>}
       </form>
 
+      {pendingList.length > 0 && (
+        <>
+          <div className="cd" style={{ fontSize: 16, margin: "26px 0 12px" }}>Waiting to join</div>
+          <div className="card" style={{ padding: 6 }}>
+            {pendingList.map((t, i) => (
+              <PendingTargetRowItem key={t.id} target={t} last={i === pendingList.length - 1} />
+            ))}
+          </div>
+        </>
+      )}
+
       <div className="cd" style={{ fontSize: 16, margin: "26px 0 12px" }}>Your friends</div>
       {friendsQ.isLoading ? (
         <div style={{ fontSize: 13, color: "#988990", fontWeight: 600 }}>Loading…</div>
@@ -129,7 +221,7 @@ export default function FriendsPage() {
         <div style={{ fontSize: 13, color: "#C2373B", fontWeight: 600 }}>Couldn&rsquo;t load friends. Try refreshing.</div>
       ) : !friendsQ.data || friendsQ.data.length === 0 ? (
         <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: "#988990", fontWeight: 600 }}>
-          No friends yet — add one by wallet address above.
+          No friends yet — add one by wallet address or @handle above.
         </div>
       ) : (
         <div className="card" style={{ padding: 6 }}>
@@ -143,6 +235,41 @@ export default function FriendsPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function PendingTargetRowItem({ target, last }: { target: PendingTargetRow; last: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 14px",
+        borderBottom: last ? "none" : "1px solid #F9F3F5",
+      }}
+    >
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: "50%",
+          background: "#FBEFF2",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flex: "none",
+        }}
+      >
+        <XLogo size={18} weight="fill" color="#F2385A" />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>@{target.provider_username}</div>
+        <div style={{ fontSize: 11.5, color: "#988990", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+          <Clock size={12} weight="bold" /> not joined yet
+        </div>
+      </div>
     </div>
   );
 }
