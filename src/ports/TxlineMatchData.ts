@@ -17,7 +17,7 @@
 
 import { asMatchId, type MatchId } from "../domain/ids.ts";
 import type { Fixture } from "../domain/model.ts";
-import type { MatchDataProvider, MatchResult } from "./MatchData.ts";
+import type { LiveMatchState, MatchDataProvider, MatchResult } from "./MatchData.ts";
 
 export interface TxlineConfig {
   apiBaseUrl: string; // e.g. https://txline.txodds.com or https://txline-dev.txodds.com
@@ -48,6 +48,7 @@ export interface TxScoresEvent {
   Seq?: number;
   StatusId?: number;
   Action?: string; // "game_finalised" on the terminal record (corroboration only)
+  Participant1IsHome?: boolean; // present on every scores row — orient P1/P2 → home/away
   Stats?: Record<string, number>; // keyed by stat id: "1"/"2" = participant 1/2 total goals
 }
 
@@ -134,6 +135,58 @@ export class TxlineMatchData implements MatchDataProvider {
       }
     }
     return out;
+  }
+
+  /**
+   * Current in-play score + phase from the same scores snapshot results() reads,
+   * but returning the LATEST score rather than only a terminal one — so the live
+   * strip can show the score while a match is being played. Never settles: the
+   * on-chain proof gate in the settlement verifier is the only source of truth
+   * for payouts.
+   */
+  async liveScore(matchId: MatchId): Promise<LiveMatchState | null> {
+    try {
+      const res = await this.fetchImpl(`${this.cfg.apiBaseUrl}/api/scores/snapshot/${matchId}?asOf=${this.now()}`, {
+        headers: this.headers(),
+      });
+      if (!res.ok) return null; // no snapshot yet (not kicked off)
+      const raw = (await res.json()) as TxScoresEvent[] | null;
+      const events = Array.isArray(raw) ? raw : [];
+
+      const hasGoals = (e: TxScoresEvent | undefined): e is TxScoresEvent =>
+        !!e && e.Stats?.[String(STAT_KEY_P1_GOALS)] != null && e.Stats?.[String(STAT_KEY_P2_GOALS)] != null;
+
+      // Prefer a terminal event's score when the match is over; otherwise the
+      // highest-Seq in-play event that actually carries both goal stats.
+      const finalEv = finalScoresEvent(events);
+      let latest: TxScoresEvent | undefined;
+      for (const e of events) {
+        if (!hasGoals(e)) continue;
+        if (!latest || (e.Seq ?? 0) > (latest.Seq ?? 0)) latest = e;
+      }
+      const scoreEv = hasGoals(finalEv) ? finalEv : latest;
+      if (!hasGoals(scoreEv)) return null; // events exist but no scored state yet → 0-0 not proven
+
+      const p1 = scoreEv.Stats![String(STAT_KEY_P1_GOALS)]!;
+      const p2 = scoreEv.Stats![String(STAT_KEY_P2_GOALS)]!;
+      // Orient P1/P2 → home/away from the scores event's own flag (every row
+      // carries it), falling back to the fixtures snapshot. This keeps working
+      // after a finished match drops off the upcoming-fixtures list.
+      const p1IsHome =
+        scoreEv.Participant1IsHome ??
+        events.find((e) => e.Participant1IsHome != null)?.Participant1IsHome ??
+        (await this.fetchFixtures()).find((f) => String(f.FixtureId) === String(matchId))?.Participant1IsHome ??
+        true;
+      return {
+        matchId: asMatchId(String(matchId)),
+        score: p1IsHome ? { home: p1, away: p2 } : { home: p2, away: p1 },
+        finished: finalEv !== undefined,
+        statusId: scoreEv.StatusId,
+      };
+    } catch (err) {
+      console.error(`[txline] liveScore for ${matchId} failed:`, (err as Error).message);
+      return null;
+    }
   }
 
   private async fetchFixtures(): Promise<TxFixture[]> {

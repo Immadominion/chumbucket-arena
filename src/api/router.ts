@@ -75,6 +75,17 @@ export const appRouter = router({
     .input(z.object({ matchId: z.string() }))
     .query(({ ctx, input }) => ctx.app.readModel.pots.getMatch(asMatchId(input.matchId)) ?? null),
 
+  // Live in-play score + phase for one match (the live match strip polls this).
+  // Null when there's no live snapshot yet or the provider can't supply one.
+  // Display-only — never settles; payouts stay gated on the on-chain proof.
+  liveScore: publicProcedure
+    .input(z.object({ matchId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const provider = ctx.app.matchData;
+      if (!provider.liveScore) return null;
+      return (await provider.liveScore(asMatchId(input.matchId))) ?? null;
+    }),
+
   leaderboard: publicProcedure
     .input(z.object({ by: z.enum(["gr", "pnl"]).default("gr"), limit: z.number().min(1).max(200).default(50) }))
     .query(({ ctx, input }) =>

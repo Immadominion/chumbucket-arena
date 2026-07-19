@@ -45,14 +45,14 @@ describe("market backfill onto already-open fixtures", () => {
     // Simulate a fixture opened before the book grew: RESULT + only O/U 2.5.
     await app.engine.openMatch(FIXTURE, [overUnderGoalsMarket(2.5)]);
     let m = app.readModel.pots.getMatch(FIXTURE.matchId)!;
-    expect(m.markets.map((x) => x.marketId).sort()).toEqual(
+    expect(m.markets.map((x) => String(x.marketId)).sort()).toEqual(
       ["OU-GOALS-FULL-2.5", "RESULT"].sort(),
     );
 
     // syncFixtures: openMatch is a no-op (already exists), reconcile backfills the rest.
     await app.engine.syncFixtures();
     m = app.readModel.pots.getMatch(FIXTURE.matchId)!;
-    const ids = m.markets.map((x) => x.marketId);
+    const ids = m.markets.map((x) => String(x.marketId));
     expect(ids).toContain("RESULT");
     expect(ids.filter((id) => id.startsWith("OU-GOALS-FULL")).length).toBe(3);
     expect(ids.filter((id) => id.startsWith("HCP-GOALS-FULL")).length).toBe(2);

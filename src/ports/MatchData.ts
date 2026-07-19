@@ -14,11 +14,30 @@ export interface MatchResult {
   finished: boolean;
 }
 
+/**
+ * The live in-play state of a match — the CURRENT score and whether it's over,
+ * as opposed to MatchResult which only ever describes a finished match. Read for
+ * the live match strip; never used to settle (settlement stays gated on the
+ * on-chain-verified final proof). `finished` marks that a terminal event exists.
+ */
+export interface LiveMatchState {
+  matchId: MatchId;
+  score: { home: number; away: number };
+  finished: boolean;
+  statusId?: number; // raw feed game-phase id (5/10/13 = terminal), for display only
+}
+
 export interface MatchDataProvider {
   /** Fixtures that should be open (or opened soon) for calls. */
   fixtures(): Promise<Fixture[]>;
   /** Finished results for the given fixtures (subset that have finished). */
   results(matchIds: MatchId[]): Promise<MatchResult[]>;
+  /**
+   * Current in-play score + phase for one match, or null if there's no live
+   * snapshot yet (not kicked off) or the provider can't supply it. Optional —
+   * only the live feed implements it; the mock/dev providers omit it.
+   */
+  liveScore?(matchId: MatchId): Promise<LiveMatchState | null>;
 }
 
 /**
