@@ -53,5 +53,28 @@ export declare class OnchainKeeper {
     private tryCreatePot;
     private tryLockPot;
     private trySettlePot;
+    /**
+     * Fetch + map the TxLINE proof for a finished fixture into the shapes both
+     * settle_pot and settle_market take (identical proof; only the predicate the
+     * program bakes differs). Returns null (with a log) if the match isn't terminal
+     * or the proof root isn't posted yet — the tick just retries next pass. Mirrors
+     * trySettlePot's steps 1-3 exactly.
+     */
+    private fetchSettlementArgs;
+    /**
+     * Open a line-market pot AND attach its MarketSpec in ONE atomic transaction,
+     * so a line pot never exists without the spec that lets settle_market run. The
+     * spec fixes the predicate (op, line, stat leaves) on-chain before any calls, so
+     * a permissionless settler can never change the line. Goals/full-time only for
+     * now — that's the stat binding we've verified against a real proof.
+     */
+    private tryCreateLinePot;
+    /**
+     * Settle a locked line-market pot via settle_market: same proof as settle_pot,
+     * winning bucket (OVER/UNDER) computed from the proven score by the same
+     * resolveLine the read model uses. The on-chain predicate (from the MarketSpec)
+     * re-proves it — a mismatch would just be rejected, never mis-settle.
+     */
+    private trySettleMarket;
     private trySweepRake;
 }

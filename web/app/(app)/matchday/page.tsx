@@ -20,6 +20,8 @@ const winnerOf = (m: MatchView): string | null => {
   const wb = resultMarket(m)?.winningBucket;
   return wb === "HOME" ? m.fixture.home : wb === "AWAY" ? m.fixture.away : wb === "DRAW" ? "Draw" : null;
 };
+// How many markets you can back on this fixture (Result + any line markets).
+const marketCount = (m: MatchView) => m.markets.length;
 
 export default function MatchdayPage() {
   const g = useGameData();
@@ -80,7 +82,7 @@ export default function MatchdayPage() {
                 <Fire size={12} weight="fill" /> Featured
               </span>
               <div className="cd" style={{ fontSize: 26, color: "#fff", marginTop: 10 }}>{featured.fixture.home} <span style={{ color: "#6A5A60" }}>vs</span> {featured.fixture.away}</div>
-              <div style={{ fontSize: 12.5, color: "#B8C6BD", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}</div>
+              <div style={{ fontSize: 12.5, color: "#B8C6BD", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}{marketCount(featured) > 1 ? ` · ${marketCount(featured)} markets` : ""}</div>
             </div>
             <div style={{ position: "relative", textAlign: "right" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", color: "#fff" }}>
@@ -143,7 +145,7 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
           {f.home} {kind === "played" && m.score ? <span className="mono" style={{ color: "#6A5A60", fontWeight: 700 }}>{m.score.home}–{m.score.away}</span> : "v"} {f.away}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#988990", marginTop: 2 }}>
-          {kind === "open" && <><Clock size={13} weight="fill" /> {kickoffLabel(f.kickoff).ko} · {f.group ?? f.stage}</>}
+          {kind === "open" && <><Clock size={13} weight="fill" /> {kickoffLabel(f.kickoff).ko} · {f.group ?? f.stage}{marketCount(m) > 1 ? ` · ${marketCount(m)} markets` : ""}</>}
           {kind === "live" && <span style={{ color: "#C2373B", fontWeight: 700 }}>● Locked · in play</span>}
           {kind === "played" && <>{winnerOf(m) ? `${winnerOf(m)} ${winnerOf(m) === "Draw" ? "" : "won"}` : "Settled"} · {f.group ?? f.stage}</>}
         </div>

@@ -12,6 +12,7 @@ import { flagCode, frostToWal, kickoffLabel, shortWallet } from "@/lib/format";
 
 type Out = inferRouterOutputs<AppRouter>;
 export type MatchView = Out["matchday"][number];
+export type MarketView = MatchView["markets"][number];
 export type Dossier = NonNullable<Out["me"]>;
 export type LeaderRow = Out["leaderboard"][number];
 export type OpenCallView = Dossier["openCalls"][number];
@@ -50,6 +51,117 @@ export function toFixture(m: MatchView): Fixture {
     pot,
     pct,
   };
+}
+
+// ── Multi-market call screen ────────────────────────────────────────────────
+// A fixture now carries several parimutuel markets (Result 1X2, Over/Under,
+// Handicap). The call screen lets you switch between them and back any outcome.
+// Each market places into its OWN on-chain pot (`potMatchId`), so the shapes
+// below carry everything the screen needs to render + route money precisely.
+
+const abbr3 = (s: string) => s.slice(0, 3).toUpperCase();
+
+/** One backable outcome within a market, ready for the outcome tile + copy. */
+export type CallBucket = {
+  /** On-chain bucket key: HOME/DRAW/AWAY or OVER/UNDER. */
+  bucket: string;
+  /** On-chain bucket slot index — 0/1/2 (result) or 0/1 (line). THE money slot. */
+  index: number;
+  /** Short label on the outcome tile ("FRA", "DRAW", "Over 2.5", "France -1.5"). */
+  tile: string;
+  /** Natural subject for the pick-reactive copy ("France", "the draw", "Over 2.5 goals"). */
+  subject: string;
+  /** Tail for the "If …" payout row ("France win", "it's a draw", "Over 2.5 lands"). */
+  settle: string;
+  /** Crowd-implied share of this outcome, 0..100 (0 when the pool is empty). */
+  pct: number;
+  /** Live USDC staked on this outcome (the parimutuel pool for this bucket). */
+  pool: number;
+};
+
+/** A selectable market on the call screen (Result / Over-Under / Handicap). */
+export type CallMarket = {
+  marketId: string;
+  kind: MarketView["kind"];
+  /** The on-chain match_id of THIS market's pot — what placeCall routes into. */
+  potMatchId?: string;
+  /** Short switcher label ("Result", "O/U 2.5", "Handicap"). */
+  tab: string;
+  buckets: CallBucket[];
+};
+
+// On-chain bucket slot per domain bucket key (mirrors keeper/onchainDriver.ts:
+// BUCKET_HOME/DRAW/AWAY = 0/1/2, BUCKET_OVER/UNDER = 0/1).
+const ONCHAIN_BUCKET_INDEX: Record<string, number> = { HOME: 0, DRAW: 1, AWAY: 2, OVER: 0, UNDER: 1 };
+
+/** Short label for the market switcher segmented control. */
+function marketTab(mk: MarketView): string {
+  switch (mk.kind) {
+    case "RESULT":
+      return "Result";
+    case "OVER_UNDER":
+      return `O/U ${mk.line?.line ?? ""}`.trim();
+    case "HANDICAP":
+      return "Handicap";
+    default:
+      return mk.label;
+  }
+}
+
+/** Plain, newcomer-instant tile / copy phrasing for one bucket of a market. */
+function bucketCopy(
+  mk: MarketView,
+  home: string,
+  away: string,
+  b: MarketView["buckets"][number],
+): { tile: string; subject: string; settle: string } {
+  if (mk.kind === "RESULT") {
+    if (b.bucket === "HOME") return { tile: abbr3(home), subject: home, settle: `${home} win` };
+    if (b.bucket === "AWAY") return { tile: abbr3(away), subject: away, settle: `${away} win` };
+    return { tile: "DRAW", subject: "the draw", settle: "it's a draw" };
+  }
+  if (mk.kind === "OVER_UNDER") {
+    // b.label is already plain ("Over 2.5" / "Under 2.5").
+    return { tile: b.label, subject: `${b.label} goals`, settle: `${b.label} lands` };
+  }
+  if (mk.kind === "HANDICAP") {
+    const line = mk.line?.line ?? 0;
+    if (b.bucket === "OVER") {
+      const by = Math.floor(line) + 1; // -1.5 line ⇒ must win by 2+
+      return { tile: b.label, subject: `${home} to win by ${by}+`, settle: `${home} win by ${by}+` };
+    }
+    return { tile: b.label, subject: `${away} +${line}`, settle: `${b.label} lands` };
+  }
+  return { tile: b.label, subject: b.label, settle: `${b.label} lands` };
+}
+
+/**
+ * MatchView → the call screen's selectable markets. Result first (default tab),
+ * then any line markets. Each bucket carries its on-chain slot index + its
+ * market's `potMatchId` so the place-call path routes into the exact pot.
+ */
+export function toCallMarkets(m: MatchView): CallMarket[] {
+  const { home, away } = m.fixture;
+  const ordered = [...m.markets].sort((a, b) => (a.kind === "RESULT" ? -1 : b.kind === "RESULT" ? 1 : 0));
+  return ordered.map((mk) => {
+    const totalImplied = mk.buckets.reduce((s, b) => s + b.impliedProb, 0);
+    return {
+      marketId: mk.marketId,
+      kind: mk.kind,
+      potMatchId: mk.potMatchId,
+      tab: marketTab(mk),
+      buckets: mk.buckets.map((b) => {
+        const copy = bucketCopy(mk, home, away, b);
+        return {
+          bucket: b.bucket,
+          index: ONCHAIN_BUCKET_INDEX[b.bucket] ?? mk.buckets.indexOf(b),
+          pct: totalImplied > 0 ? Math.round((b.impliedProb / totalImplied) * 100) : 0,
+          pool: frostToWal(b.stake),
+          ...copy,
+        };
+      }),
+    };
+  });
 }
 
 /** DossierView (+ optional ladder rank) → the UI's Player ("me") shape. */

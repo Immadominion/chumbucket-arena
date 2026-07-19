@@ -139,27 +139,38 @@ async function sendUnsigned(
 // ── Writes ───────────────────────────────────────────────────────────────
 
 /**
- * Stake `amountUsdc` USDC on `bucket` for `matchId`'s Pot — moves real USDC
- * from the player's own wallet into the program's vault, on-chain, now.
- * Creates the player's USDC ATA idempotently in the same transaction if it
- * doesn't exist yet.
+ * Stake `amountUsdc` USDC on bucket index `bucketIndex` of the Pot identified by
+ * `potMatchId` — moves real USDC from the player's own wallet into that pot's
+ * vault, on-chain, now. Creates the player's USDC ATA idempotently in the same
+ * transaction if it doesn't exist yet.
+ *
+ * MONEY ROUTING: `potMatchId` is the on-chain match_id of the SELECTED market's
+ * pot — for the Result (1X2) market it equals the fixture matchId, but for a
+ * line market (Over/Under, Handicap) it is the market-specific id the backend
+ * stamps, e.g. "18202701#OU25". The pot PDA is derived from THIS id, so a call
+ * on a line market lands in that market's pot, never the fixture's Result pot.
+ * `bucketIndex` is the on-chain slot: 0/1/2 = HOME/DRAW/AWAY for Result, 0/1 =
+ * OVER/UNDER for a line market.
  */
 export async function placeCall(opts: {
-  matchId: string;
-  bucket: BucketId;
+  potMatchId: string;
+  bucketIndex: number;
   amountUsdc: number;
   wallet: ConnectedStandardSolanaWallet;
   signAndSendTransaction: SignAndSendTransaction;
 }): Promise<{ signature: string }> {
-  const { matchId, bucket, amountUsdc, wallet, signAndSendTransaction } = opts;
+  const { potMatchId, bucketIndex, amountUsdc, wallet, signAndSendTransaction } = opts;
   // USDC has 6 decimals — base units, NOT the backend's unrelated FROST/WAL
   // accounting unit (see lib/format.ts's walToFrost, which must not be reused
   // here).
   const amountBaseUnits = BigInt(Math.round(amountUsdc * 1_000_000));
   if (amountBaseUnits <= 0n) throw new Error("Stake must be greater than zero.");
+  if (!Number.isInteger(bucketIndex) || bucketIndex < 0 || bucketIndex > 2) {
+    throw new Error(`[arena-onchain] invalid bucket index: ${bucketIndex}`);
+  }
 
   const player = new PublicKey(wallet.address);
-  const potPda = derivePotPda(matchId);
+  const potPda = derivePotPda(potMatchId);
   const vaultPda = deriveVaultPda(potPda);
   const positionPda = derivePositionPda(potPda, player);
   const playerUsdc = playerUsdcAta(player);
@@ -173,7 +184,7 @@ export async function placeCall(opts: {
     TOKEN_PROGRAM_ID,
   );
   const placeCallIx = await program.methods
-    .placeCall(bucketToIndex(bucket), new BN(amountBaseUnits.toString()))
+    .placeCall(bucketIndex, new BN(amountBaseUnits.toString()))
     .accounts({
       player,
       pot: potPda,

@@ -21,17 +21,43 @@ export interface Fixture {
         participant1IsHome: boolean;
     };
 }
-export type MarketKind = "RESULT" | "BOLD";
+export type MarketKind = "RESULT" | "OVER_UNDER" | "HANDICAP" | "BOLD";
 export interface BucketDef {
     bucket: Bucket;
     label: string;
+}
+/**
+ * A two-outcome line/threshold market (over/under, handicap). `line` is the
+ * half-line shown to users (e.g. 2.5); on-chain it is stored as its integer
+ * floor (2) and settled via the MarketSpec + settle_market path. `stat` names
+ * which match stat the line runs on (goals today; corners/cards later).
+ */
+export interface LineMarketSpec {
+    op: "ADD" | "SUB";
+    line: number;
+    stat: "GOALS" | "CORNERS" | "CARDS";
+    period: "FULL" | "H1";
 }
 export interface MarketDef {
     marketId: MarketId;
     kind: MarketKind;
     label: string;
     buckets: BucketDef[];
+    /** Present on line/threshold markets (OVER_UNDER, HANDICAP). */
+    line?: LineMarketSpec;
+    /**
+     * The on-chain match_id of THIS market's pot (≤32 ascii). Stamped by openMatch
+     * from the fixture id + a per-market tag. The client derives the pot PDA from
+     * it to place a call; the keeper creates/settles the same pot. RESULT's equals
+     * the fixture matchId (backward compatible). Absent only before a match opens.
+     */
+    potMatchId?: string;
 }
+/** Line-market outcome buckets — index 0/1 map to on-chain BUCKET_OVER/UNDER. */
+export declare const LINE_BUCKETS: {
+    OVER: Bucket;
+    UNDER: Bucket;
+};
 /** A market resolves to exactly one winning bucket, or VOID (refund all). */
 export declare const VOID: "VOID";
 export type Outcome = Bucket | typeof VOID;

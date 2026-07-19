@@ -126,6 +126,12 @@ export declare class Engine {
         away: number;
     }): Promise<void>;
     openMatch(fixture: Fixture, extraMarkets?: MarketDef[]): Promise<void>;
+    /**
+     * The curated line markets offered on every fixture alongside 1X2. Kept small
+     * on purpose (UX §4 — choice overload kills conversion): the one universal
+     * over/under line plus a home handicap. More lines are a later expand.
+     */
+    private lineMarketsFor;
     lockMatch(matchId: MatchId): Promise<void>;
     resolveMatch(matchId: MatchId, score: {
         home: number;

@@ -5,7 +5,7 @@
  */
 import type { StoredEvent } from "../../domain/events";
 import type { Frost, MarketId, MatchId } from "../../domain/ids";
-import type { Fixture, MarketKind } from "../../domain/model";
+import type { Fixture, LineMarketSpec, MarketKind } from "../../domain/model";
 import type { CallStake } from "../../game/parimutuel";
 import type { Projection } from "./Projection";
 type MarketStatus = "OPEN" | "LOCKED" | "RESOLVED";
@@ -27,6 +27,8 @@ export interface MarketPotView {
     participantCount: number;
     winningBucket: string | undefined;
     settled: boolean;
+    line?: LineMarketSpec;
+    potMatchId?: string;
 }
 export interface MatchView {
     fixture: Fixture;

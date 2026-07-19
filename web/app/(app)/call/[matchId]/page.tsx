@@ -9,17 +9,15 @@ import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/sola
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import { ArrowLeft, ArrowUpRight, Clock, LockSimple, ShieldCheck } from "@/components/icons";
 import { flag } from "@/lib/data";
-import { toFixture } from "@/lib/adapters";
+import { toFixture, toCallMarkets, type CallMarket } from "@/lib/adapters";
 import { useGameData } from "@/lib/useGameData";
 import { useTRPC } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
-import { frostToWal } from "@/lib/format";
-import { placeCall, fetchUsdcBalance, type BucketId } from "@/lib/arena-onchain";
+import { placeCall, fetchUsdcBalance } from "@/lib/arena-onchain";
 import { explorerTxUrl } from "@/lib/solana";
 
 /* eslint-disable @next/next/no-img-element */
 
-const abbr = (s: string) => s.slice(0, 3).toUpperCase();
 const RAKE_BPS = 250; // 2.5% — taken from the losers' pool only (must match backend)
 
 const placeholderFixture = (matchId: string) => ({
@@ -51,11 +49,15 @@ export default function MakeCallPage() {
     [wallets, session.wallet],
   );
   const placeCallM = useMutation({
-    mutationFn: async (opts: { bucket: BucketId; amountUsdc: number }) => {
+    // MONEY ROUTING: potMatchId is the on-chain match_id of the SELECTED market's
+    // pot (Result == fixture matchId; line markets e.g. "…#OU25"), and bucketIndex
+    // is that market's on-chain slot. Both come from the selected market below —
+    // never the fixture matchId for a line market.
+    mutationFn: async (opts: { potMatchId: string; bucketIndex: number; amountUsdc: number }) => {
       if (!myWallet) throw new Error("Wallet isn't ready yet — try again in a moment.");
       return placeCall({
-        matchId: params.matchId,
-        bucket: opts.bucket,
+        potMatchId: opts.potMatchId,
+        bucketIndex: opts.bucketIndex,
         amountUsdc: opts.amountUsdc,
         wallet: myWallet,
         signAndSendTransaction,
@@ -86,32 +88,28 @@ export default function MakeCallPage() {
   });
   const balance = balanceQ.data ?? 0;
 
-  const buckets: { id: BucketId; label: string; pct: number; team: string }[] = [
-    { id: "HOME", label: abbr(fx.home.name), pct: fx.pct.home, team: fx.home.name },
-    { id: "DRAW", label: "DRAW", pct: fx.pct.draw, team: "the draw" },
-    { id: "AWAY", label: abbr(fx.away.name), pct: fx.pct.away, team: fx.away.name },
-  ];
+  // Every backable market on this fixture (Result 1X2, Over/Under, Handicap).
+  // Result is always first — the default tab.
+  const markets = useMemo<CallMarket[]>(() => (match ? toCallMarkets(match) : []), [match]);
+  const [marketIdx, setMarketIdx] = useState(0);
+  const [pick, setPick] = useState<string>("HOME");
 
-  const [pick, setPick] = useState<BucketId>("HOME");
+  const selectedMarket = markets[marketIdx] ?? markets[0];
+  const marketBuckets = selectedMarket?.buckets ?? [];
+  const sel = marketBuckets.find((b) => b.bucket === pick) ?? marketBuckets[0];
+
   const [stake, setStake] = useState(() => Math.min(2, Math.max(0, balance)) || 1);
   const [funds, setFunds] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
 
-  const sel = buckets.find((b) => b.id === pick)!;
-
-  // ── Real parimutuel projection from the LIVE pool ──────────────────────────
+  // ── Real parimutuel projection from the LIVE pool (the SELECTED market's) ────
   // If your outcome wins, you get your stake back plus a pro-rata share of the
   // stake on the OTHER outcomes (the losers' pool), less the rake. Empty pool ⇒
   // nothing to win yet.
-  const resultMarket = (match?.markets ?? []).find((m) => m.marketId === "RESULT");
-  const poolOf = (bucket: string) => {
-    const b = resultMarket?.buckets.find((x) => x.bucket === bucket);
-    return b ? frostToWal(b.stake) : 0;
-  };
-  const totalPool = poolOf("HOME") + poolOf("DRAW") + poolOf("AWAY");
-  const myBucketPool = poolOf(pick);
+  const totalPool = marketBuckets.reduce((s, b) => s + b.pool, 0);
+  const myBucketPool = sel?.pool ?? 0;
   const losersPool = Math.max(0, totalPool - myBucketPool); // your potential winnings come from here
   const newWinnersStake = myBucketPool + stake;
   const distributable = losersPool * (1 - RAKE_BPS / 10000);
@@ -121,16 +119,28 @@ export default function MakeCallPage() {
   const max = Math.max(balance, 0);
   const insufficient = stake <= 0 || stake > balance;
 
+  const subject = sel?.subject ?? fx.home.name;
+  const pct = sel?.pct ?? 0;
   const read =
     totalPool === 0
-      ? `Nobody's in yet — back ${sel.team} and you set the line.`
-      : sel.pct > 45
-        ? `The crowd's ${sel.pct}% on ${sel.team}. Safe pick, thin payout.`
-        : `${sel.pct}% on ${sel.team} — contrarian. If it lands, you scoop the pool.`;
+      ? `Nobody's in yet — back ${subject} and you set the line.`
+      : pct > 45
+        ? `The crowd's ${pct}% on ${subject}. Safe pick, thin payout.`
+        : `${pct}% on ${subject} — contrarian. If it lands, you scoop the pool.`;
+
+  const switchMarket = (i: number) => {
+    setMarketIdx(i);
+    setPick(markets[i]?.buckets[0]?.bucket ?? "HOME");
+    setError(null);
+  };
 
   const lock = async () => {
     if (!isOpen) {
       setError("This match has kicked off — betting is closed.");
+      return;
+    }
+    if (!selectedMarket || !sel) {
+      setError("Markets are still loading — try again in a moment.");
       return;
     }
     if (insufficient) {
@@ -141,9 +151,22 @@ export default function MakeCallPage() {
       setError("Wallet isn't ready yet — try again in a moment.");
       return;
     }
+    // The on-chain pot for THIS market: Result falls back to the fixture matchId
+    // (they're byte-identical), but a line market MUST use its own potMatchId or
+    // the money would land in the wrong pot.
+    const potMatchId =
+      selectedMarket.kind === "RESULT" ? selectedMarket.potMatchId ?? params.matchId : selectedMarket.potMatchId;
+    if (!potMatchId) {
+      setError("This market isn't open on-chain yet — try the Result market.");
+      return;
+    }
     setError(null);
     try {
-      const { signature } = await placeCallM.mutateAsync({ bucket: pick, amountUsdc: stake });
+      const { signature } = await placeCallM.mutateAsync({
+        potMatchId,
+        bucketIndex: sel.index,
+        amountUsdc: stake,
+      });
       setTxSignature(signature);
       // Scoped: just the on-chain USDC balance this screen itself reads — the
       // match pot totals below are the off-chain read-model and never move
@@ -203,14 +226,46 @@ export default function MakeCallPage() {
             </div>
           </div>
 
+          {/* Market switcher — only when this fixture has more than the Result market. */}
+          {markets.length > 1 && (
+            <>
+              <div className="lbl" style={{ margin: "24px 0 12px" }}>MARKET</div>
+              <div style={{ display: "inline-flex", gap: 4, background: "#F5EEF1", borderRadius: 13, padding: 4 }}>
+                {markets.map((mk, i) => {
+                  const on = i === marketIdx;
+                  return (
+                    <button
+                      key={mk.marketId}
+                      onClick={() => switchMarket(i)}
+                      className="mono"
+                      style={{
+                        border: "none",
+                        cursor: "pointer",
+                        borderRadius: 10,
+                        padding: "9px 18px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        background: on ? "#fff" : "transparent",
+                        color: on ? "#221217" : "#988990",
+                        boxShadow: on ? "0 1px 3px rgba(40,16,24,.14)" : "none",
+                      }}
+                    >
+                      {mk.tab}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
           <div className="lbl" style={{ margin: "24px 0 12px" }}>YOUR PICK</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-            {buckets.map((b) => {
-              const on = b.id === pick;
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(marketBuckets.length, 1)}, 1fr)`, gap: 14 }}>
+            {marketBuckets.map((b) => {
+              const on = b.bucket === (sel?.bucket ?? pick);
               return (
                 <button
-                  key={b.id}
-                  onClick={() => setPick(b.id)}
+                  key={b.bucket}
+                  onClick={() => setPick(b.bucket)}
                   className={on ? "btnp" : undefined}
                   style={
                     on
@@ -218,7 +273,7 @@ export default function MakeCallPage() {
                       : { background: "#fff", border: "1.5px solid #EFE6E9", borderRadius: 16, padding: "18px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }
                   }
                 >
-                  <span style={{ fontSize: 13, fontWeight: 700, color: on ? "#fff" : "#221217" }}>{b.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: on ? "#fff" : "#221217" }}>{b.tile}</span>
                   <span className="mono" style={{ fontSize: 18, fontWeight: 700, color: on ? "#fff" : "#6A5A60" }}>{totalPool > 0 ? `${b.pct}%` : "—"}</span>
                 </button>
               );
@@ -273,7 +328,7 @@ export default function MakeCallPage() {
               <span className="mono" style={{ fontWeight: 700, fontSize: 13 }}>{losersPool.toFixed(1)} USDC</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>If {sel.team === "the draw" ? "it's a draw" : `${sel.team} win`}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>If {sel?.settle ?? "it lands"}</span>
               <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: profit > 0 ? "#F2385A" : "#988990" }}>
                 {profit > 0 ? `+${profit.toFixed(1)} USDC` : "stake back"}
               </span>
