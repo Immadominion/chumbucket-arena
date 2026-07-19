@@ -59,6 +59,13 @@ export interface MarketDef {
   buckets: BucketDef[];
   /** Present on line/threshold markets (OVER_UNDER, HANDICAP). */
   line?: LineMarketSpec;
+  /**
+   * The on-chain match_id of THIS market's pot (≤32 ascii). Stamped by openMatch
+   * from the fixture id + a per-market tag. The client derives the pot PDA from
+   * it to place a call; the keeper creates/settles the same pot. RESULT's equals
+   * the fixture matchId (backward compatible). Absent only before a match opens.
+   */
+  potMatchId?: string;
 }
 
 /** Line-market outcome buckets — index 0/1 map to on-chain BUCKET_OVER/UNDER. */

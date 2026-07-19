@@ -6,7 +6,7 @@
 
 import type { StoredEvent } from "../../domain/events.ts";
 import type { Frost, MarketId, MatchId, Wallet } from "../../domain/ids.ts";
-import type { Fixture, MarketKind } from "../../domain/model.ts";
+import type { Fixture, LineMarketSpec, MarketKind } from "../../domain/model.ts";
 import type { CallStake } from "../../game/parimutuel.ts";
 import { impliedProb } from "../../game/parimutuel.ts";
 import type { Projection } from "./Projection.ts";
@@ -32,6 +32,8 @@ interface MarketState {
   status: MarketStatus;
   winningBucket?: string; // set on resolve
   settled: boolean;
+  line?: LineMarketSpec; // present on line markets (over/under, handicap)
+  potMatchId?: string; // on-chain match_id of this market's pot
 }
 
 interface MatchState {
@@ -60,6 +62,8 @@ export interface MarketPotView {
   participantCount: number;
   winningBucket: string | undefined;
   settled: boolean;
+  line?: LineMarketSpec; // present on line markets — lets the client render + settle them
+  potMatchId?: string; // the on-chain pot this market places into
 }
 
 export interface MatchView {
@@ -91,6 +95,8 @@ export class PotProjection implements Projection {
               ]),
             ),
             calls: [],
+            line: def.line,
+            potMatchId: def.potMatchId,
             status: "OPEN",
             settled: false,
           });
@@ -232,6 +238,8 @@ function toMarketView(mk: MarketState): MarketPotView {
     participantCount: participants.size,
     winningBucket: mk.winningBucket,
     settled: mk.settled,
+    line: mk.line,
+    potMatchId: mk.potMatchId,
   };
 }
 

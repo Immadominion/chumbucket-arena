@@ -25,7 +25,16 @@ import {
   type Wallet,
 } from "../domain/ids.ts";
 import { VOID, type Fixture, type MarketDef, type Outcome, type VerdictTrigger } from "../domain/model.ts";
-import { counterSide, RESULT_MARKET, resolveResult, resultMarket } from "../game/markets.ts";
+import {
+  counterSide,
+  derivePotMatchId,
+  handicapGoalsMarket,
+  overUnderGoalsMarket,
+  RESULT_MARKET,
+  resolveOutcomes,
+  resolveResult,
+  resultMarket,
+} from "../game/markets.ts";
 import { settleParimutuel, type CallStake } from "../game/parimutuel.ts";
 import type { Gaffer } from "../gaffer/Gaffer.ts";
 import { RateLimiter } from "./RateLimiter.ts";
@@ -330,9 +339,22 @@ export class Engine {
 
   async openMatch(fixture: Fixture, extraMarkets: MarketDef[] = []): Promise<void> {
     if (this.deps.readModel.pots.getMatch(fixture.matchId)) return; // idempotent
-    await this.matchAppend(fixture.matchId, [
-      { type: "MatchOpened", fixture, markets: [resultMarket(), ...extraMarkets] },
-    ]);
+    // Stamp each market's on-chain pot matchId from the fixture id + its tag, so
+    // the client and keeper both key the same pot per market.
+    const markets = [resultMarket(), ...extraMarkets].map((m) => ({
+      ...m,
+      potMatchId: derivePotMatchId(fixture.matchId as string, m),
+    }));
+    await this.matchAppend(fixture.matchId, [{ type: "MatchOpened", fixture, markets }]);
+  }
+
+  /**
+   * The curated line markets offered on every fixture alongside 1X2. Kept small
+   * on purpose (UX §4 — choice overload kills conversion): the one universal
+   * over/under line plus a home handicap. More lines are a later expand.
+   */
+  private lineMarketsFor(fixture: Fixture): MarketDef[] {
+    return [overUnderGoalsMarket(2.5), handicapGoalsMarket(1.5, fixture.home, fixture.away)];
   }
 
   async lockMatch(matchId: MatchId): Promise<void> {
@@ -365,15 +387,18 @@ export class Engine {
 
     if (m.status === "OPEN") await this.lockMatch(matchId);
 
-    const outcomes: Record<string, Outcome> = {};
-    for (const mk of m.markets) {
-      outcomes[mk.marketId] = mk.marketId === RESULT_MARKET ? resolveResult(score) : VOID;
-    }
+    // Resolve every market from the final score (RESULT + line markets); markets
+    // we can't adjudicate from score alone VOID (refund). Same rule the keeper
+    // uses to pick each pot's winning bucket on-chain.
+    const outcomes = resolveOutcomes(m.markets, score);
     await this.matchAppend(matchId, [{ type: "MatchResolved", matchId, score, outcomes, source }]);
 
-    await Promise.all(
-      m.markets.map((mk) => this.settleMarket(matchId, mk.marketId, outcomes[mk.marketId] ?? VOID)),
-    );
+    // Settle SEQUENTIALLY — each settle appends a PotSettled event under optimistic
+    // concurrency, so concurrent appends to the same match stream would race on its
+    // version. One market never raced; multiple markets must serialise.
+    for (const mk of m.markets) {
+      await this.settleMarket(matchId, mk.marketId, outcomes[mk.marketId] ?? VOID);
+    }
     // Settle the private 1-v-1s on this match behind the same verification gate.
     await this.settleChallengesForMatch(matchId, score);
   }
@@ -444,7 +469,7 @@ export class Engine {
 
   async syncFixtures(): Promise<void> {
     for (const fixture of await this.deps.matchData.fixtures()) {
-      await this.openMatch(fixture);
+      await this.openMatch(fixture, this.lineMarketsFor(fixture));
     }
   }
 

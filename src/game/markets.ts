@@ -76,6 +76,35 @@ export function handicapGoalsMarket(line: number, home: string, away: string): M
 }
 
 /**
+ * A short, deterministic on-chain-matchId tag for a market's pot, e.g. RESULT ->
+ * "" (uses the fixture matchId as-is), Over/Under 2.5 -> "OU25", handicap 1.5 ->
+ * "H15". Kept compact so `${fixtureMatchId}#${tag}` stays under the 32-byte pot
+ * seed limit.
+ */
+export function marketPotTag(m: MarketDef): string {
+  if (m.kind === "RESULT" || !m.line) return "";
+  const prefix = m.line.op === "ADD" ? "OU" : "H";
+  const lineTag = Math.round(m.line.line * 10).toString(); // 2.5 -> "25", 1.5 -> "15"
+  const period = m.line.period === "H1" ? "1H" : "";
+  return `${prefix}${lineTag}${period}`;
+}
+
+/**
+ * The on-chain match_id of a market's pot: the fixture matchId for RESULT (kept
+ * byte-identical to every live pot), else `${fixtureMatchId}#${tag}`. Throws if
+ * it would exceed the 32-byte pot-seed limit (caught at match-open time, not on a
+ * money path).
+ */
+export function derivePotMatchId(fixtureMatchId: string, m: MarketDef): string {
+  const tag = marketPotTag(m);
+  const id = tag ? `${fixtureMatchId}#${tag}` : fixtureMatchId;
+  if (new TextEncoder().encode(id).length > 32) {
+    throw new Error(`pot matchId "${id}" exceeds 32 bytes for market ${m.marketId}`);
+  }
+  return id;
+}
+
+/**
  * Winning bucket of a line market from a final score. The line is a half-line,
  * so `value > floor(line)` is OVER and everything else is UNDER — no push. Only
  * GOALS resolve from a plain score today; CORNERS/CARDS need the extended stat
@@ -108,7 +137,7 @@ export function counterSide(side: Bucket): Bucket {
  * we can't adjudicate from score alone resolve to VOID (stakes refunded).
  */
 export function resolveOutcomes(
-  markets: MarketDef[],
+  markets: readonly { marketId: MarketId; line?: LineMarketSpec }[],
   score: { home: number; away: number },
 ): Record<string, Outcome> {
   const outcomes: Record<string, Outcome> = {};
