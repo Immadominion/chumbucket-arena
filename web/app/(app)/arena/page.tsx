@@ -100,7 +100,7 @@ export default function ArenaPage() {
                 {featured.home.name} <span style={{ color: "#7c5b64", fontWeight: 600 }}>vs</span> {featured.away.name}
               </h1>
               <p style={{ fontSize: 14.5, lineHeight: 1.45, color: "#D9C3C9", margin: "10px 0 0", maxWidth: 440 }}>
-                Put your money where your mouth is. The <b style={{ color: "#fff" }}>match</b> ends, TxLINE proves the result, and winners can claim from the pot.
+                Put your money where your mouth is. The <b style={{ color: "#fff" }}>match</b> ends, TxLINE proves the result, and winners can claim from the pool.
               </p>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, flexWrap: "wrap" }}>
@@ -112,7 +112,7 @@ export default function ArenaPage() {
                 </Link>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.06)", borderRadius: 30, padding: "10px 15px" }}>
                   <Trophy size={15} weight="fill" color="#F2B705" />
-                  <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>{featured.pot.toLocaleString()} USDC in the bucket</span>
+                  <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>{featured.pot.toLocaleString()} USDC in the pool</span>
                 </div>
               </div>
             </div>
@@ -135,7 +135,7 @@ export default function ArenaPage() {
 
           {/* LIVE MATCHES */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "26px 0 14px" }}>
-            <div className="cd" style={{ fontSize: 20, color: INK }}>Today&rsquo;s buckets</div>
+            <div className="cd" style={{ fontSize: 20, color: INK }}>Today&rsquo;s matches</div>
             <Link href="/matchday" style={{ fontSize: 13, fontWeight: 700, color: CORAL, textDecoration: "none" }}>See all</Link>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -148,7 +148,7 @@ export default function ArenaPage() {
                 <div style={{ flex: 1, minWidth: 140 }}>
                   <div className="cd" style={{ fontWeight: 600, fontSize: 15.5, color: INK }}>{m.home.name} v {m.away.name}</div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: GRAY, marginTop: 2 }}>
-                    {m.koTag} · <span className="mono">{m.pot.toLocaleString()} USDC</span> in the bucket
+                    {m.koTag} · <span className="mono">{m.pot.toLocaleString()} USDC</span> in the pool
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -201,7 +201,7 @@ export default function ArenaPage() {
               <ShieldCheck size={22} weight="fill" color={CORAL_BRIGHT} />
               <div className="cd" style={{ fontSize: 17, color: "#fff", marginTop: 10 }}>No more arguing who won.</div>
               <div style={{ fontSize: 13, color: "#D9C3C9", fontWeight: 500, marginTop: 6, lineHeight: 1.5 }}>
-                Old Chumbucket made someone pick the winner. Now the match does: TxLINE proves the result on Solana, then the winner claims from the pot.
+                Old Chumbucket made someone pick the winner. Now the match does: TxLINE proves the result on Solana, then the winner claims from the pool.
               </div>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: CORAL_BRIGHT, marginTop: 12 }}>
                 See how it settles <CaretRight size={13} weight="bold" />

@@ -147,7 +147,7 @@ export default function CreateChallengePage() {
 
           <div className="card" style={{ padding: 22, marginTop: 18 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span className="lbl">YOUR STAKE</span>
+              <span className="lbl">YOUR BET</span>
               <span style={{ fontSize: 12, fontWeight: 600, color: GRAY }}>Balance {balance.toFixed(1)} USDC</span>
             </div>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8, margin: "14px 0" }}>
@@ -163,11 +163,11 @@ export default function CreateChallengePage() {
             </div>
             <div style={{ height: 1, background: "#F5EEF1", margin: "18px 0" }} />
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>Winner takes</span>
-              <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: "#F2385A" }}>{winnerTakes.toFixed(1)} USDC</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>Winner gets</span>
+              <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: "#F2385A" }}>{winnerTakes.toFixed(1)} USDC total</span>
             </div>
             <p style={{ fontSize: 11, color: "#B3A6AB", fontWeight: 500, lineHeight: 1.4, margin: "6px 0 16px" }}>
-              Both stake {stake} USDC. Winner takes the pot, less a 2.5% rake. Level match ⇒ both refunded.
+              You each bet {stake} USDC. Win and you get {winnerTakes.toFixed(1)} USDC total — your {stake} back plus {(winnerTakes - stake).toFixed(1)} profit, after a 2.5% fee. A level match refunds you both.
             </p>
             <button onClick={() => void create()} disabled={createM.isPending} className="btnp" style={{ width: "100%", fontSize: 15, padding: 15, borderRadius: 14, opacity: createM.isPending ? 0.7 : 1 }}>
               <Fire size={16} weight="fill" />
@@ -180,7 +180,7 @@ export default function CreateChallengePage() {
 
       <div className="ink" style={{ marginTop: 16, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
         <ShieldCheck size={16} weight="fill" color="#FF5A76" style={{ flex: "none" }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>TxLINE proves the final result on Solana before the winner can claim from the pot.</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>The real match result is checked automatically before anyone gets paid — no one can fake it.</span>
       </div>
 
       <AddFundsModal open={funds} onClose={() => setFunds(false)} />

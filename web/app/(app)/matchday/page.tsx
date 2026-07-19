@@ -51,7 +51,7 @@ export default function MatchdayPage() {
         <div>
           <div className="cd" style={{ fontSize: 24 }}>Matchday</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#988990", marginTop: 2 }}>
-            {open.length} open · {live.length} kicked off · {played.length} settled
+            {open.length} to predict · {live.length} in play · {played.length} finished
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -82,7 +82,7 @@ export default function MatchdayPage() {
                 <Fire size={12} weight="fill" /> Featured
               </span>
               <div className="cd" style={{ fontSize: 26, color: "#fff", marginTop: 10 }}>{featured.fixture.home} <span style={{ color: "#6A5A60" }}>vs</span> {featured.fixture.away}</div>
-              <div style={{ fontSize: 12.5, color: "#B8C6BD", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}{marketCount(featured) > 1 ? ` · ${marketCount(featured)} markets` : ""}</div>
+              <div style={{ fontSize: 12.5, color: "#B8C6BD", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}{marketCount(featured) > 1 ? ` · ${marketCount(featured)} ways to predict` : ""}</div>
             </div>
             <div style={{ position: "relative", textAlign: "right" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", color: "#fff" }}>
@@ -90,28 +90,36 @@ export default function MatchdayPage() {
                 <span className="mono" style={{ fontWeight: 700, fontSize: 14 }}>{Math.round(potOf(featured)).toLocaleString()}</span>
               </div>
               <span className="btnp" style={{ fontSize: 13.5, padding: "10px 18px", borderRadius: 12, marginTop: 12 }}>
-                {called.has(featured.fixture.matchId) ? "You're in" : "Make a call"} <ArrowRight size={15} weight="bold" />
+                {called.has(featured.fixture.matchId) ? "You're in" : "Predict"} <ArrowRight size={15} weight="bold" />
               </span>
             </div>
           </div>
         </Link>
       )}
 
-      <Group title="Open for calls" count={open.length}>
-        {open.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
-        {open.length === 0 && <Empty>No fixtures open right now.</Empty>}
-      </Group>
+      {open.length === 0 && live.length === 0 && played.length === 0 ? (
+        <div className="card" style={{ marginTop: 26, padding: "40px 24px", textAlign: "center", fontSize: 14, fontWeight: 600, color: "#988990" }}>
+          No matches scheduled yet — check back before the next round.
+        </div>
+      ) : (
+        <>
+          <Group title="Open to predict" count={open.length}>
+            {open.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
+            {open.length === 0 && <Empty>No matches open to predict right now.</Empty>}
+          </Group>
 
-      {live.length > 0 && (
-        <Group title="Kicked off · in play" count={live.length}>
-          {live.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="live" />)}
-        </Group>
-      )}
+          {live.length > 0 && (
+            <Group title="In play" count={live.length}>
+              {live.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="live" />)}
+            </Group>
+          )}
 
-      {played.length > 0 && (
-        <Group title="Settled" count={played.length}>
-          {played.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="played" />)}
-        </Group>
+          {played.length > 0 && (
+            <Group title="Finished" count={played.length}>
+              {played.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="played" />)}
+            </Group>
+          )}
+        </>
       )}
     </div>
   );
@@ -145,8 +153,8 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
           {f.home} {kind === "played" && m.score ? <span className="mono" style={{ color: "#6A5A60", fontWeight: 700 }}>{m.score.home}–{m.score.away}</span> : "v"} {f.away}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#988990", marginTop: 2 }}>
-          {kind === "open" && <><Clock size={13} weight="fill" /> {kickoffLabel(f.kickoff).ko} · {f.group ?? f.stage}{marketCount(m) > 1 ? ` · ${marketCount(m)} markets` : ""}</>}
-          {kind === "live" && <span style={{ color: "#C2373B", fontWeight: 700 }}>● Locked · in play</span>}
+          {kind === "open" && <><Clock size={13} weight="fill" /> {kickoffLabel(f.kickoff).ko} · {f.group ?? f.stage}{marketCount(m) > 1 ? ` · ${marketCount(m)} ways to predict` : ""}</>}
+          {kind === "live" && <span style={{ color: "#C2373B", fontWeight: 700 }}>● Started — predictions closed</span>}
           {kind === "played" && <>{winnerOf(m) ? `${winnerOf(m)} ${winnerOf(m) === "Draw" ? "" : "won"}` : "Settled"} · {f.group ?? f.stage}</>}
         </div>
       </div>
@@ -159,10 +167,14 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
         <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: "#988990" }}>{Math.round(potOf(m)).toLocaleString()} USDC</div>
         {kind === "open" && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, color: "#B81540", marginTop: 4 }}>
-            {called ? "Add" : "Call"} <CaretRight size={13} weight="bold" />
+            {called ? "Add a pick" : "Predict"} <CaretRight size={13} weight="bold" />
           </span>
         )}
-        {kind === "live" && <LockSimple size={15} weight="fill" color="#CBBFC3" style={{ marginTop: 6 }} />}
+        {kind === "live" && (
+          <span title="Predictions closed" aria-label="Predictions closed" style={{ display: "inline-flex", marginTop: 6 }}>
+            <LockSimple size={15} weight="fill" color="#CBBFC3" />
+          </span>
+        )}
         {kind === "played" && called && (
           <Link href="/results" style={{ fontSize: 12, fontWeight: 700, color: "#F2385A", textDecoration: "none" }}>Result</Link>
         )}

@@ -222,6 +222,19 @@ export interface MatchOpened {
   markets: MarketDef[];
 }
 
+/**
+ * Markets curated onto an ALREADY-open match after the fact. MatchOpened is
+ * idempotent by matchId, so a fixture opened before a market existed could never
+ * gain it; this event backfills the missing markets onto an open match (the
+ * projection ignores it for locked/resolved matches and skips any market that
+ * already exists). Purely additive — never touches an existing market's pot.
+ */
+export interface MarketsAdded {
+  type: "MarketsAdded";
+  matchId: MatchId;
+  markets: MarketDef[];
+}
+
 export interface MatchLocked {
   type: "MatchLocked";
   matchId: MatchId;
@@ -247,7 +260,7 @@ export interface PotSettled {
   settledCount: number;
 }
 
-export type MatchEvent = MatchOpened | MatchLocked | MatchResolved | PotSettled;
+export type MatchEvent = MatchOpened | MarketsAdded | MatchLocked | MatchResolved | PotSettled;
 
 // ── Challenge stream events (namespace: gaffer:challenge:<id>) ────────────────
 // The escrow aggregate for one 1-v-1 wager: who created it, who accepted, and

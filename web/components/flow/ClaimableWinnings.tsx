@@ -64,9 +64,14 @@ export default function ClaimableWinnings() {
 
   return (
     <div className="card" style={{ marginTop: 18, padding: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 18px" }}>
-        <Trophy size={17} weight="fill" color="#F2385A" />
-        <div className="cd" style={{ fontSize: 16 }}>Unclaimed on-chain</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px" }}>
+        <Trophy size={17} weight="fill" color="#F2385A" style={{ flex: "none" }} />
+        <div>
+          <div className="cd" style={{ fontSize: 16 }}>Winnings to collect</div>
+          <div style={{ fontSize: 11.5, color: "#988990", fontWeight: 600, marginTop: 1 }}>
+            You won — tap Claim to send it to your balance.
+          </div>
+        </div>
       </div>
       <div style={{ height: 1, background: "#F5EEF1", margin: "0 18px" }} />
       {claimable.map((p, i) => {

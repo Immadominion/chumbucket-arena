@@ -94,15 +94,15 @@ export type CallMarket = {
 // BUCKET_HOME/DRAW/AWAY = 0/1/2, BUCKET_OVER/UNDER = 0/1).
 const ONCHAIN_BUCKET_INDEX: Record<string, number> = { HOME: 0, DRAW: 1, AWAY: 2, OVER: 0, UNDER: 1 };
 
-/** Short label for the market switcher segmented control. */
+/** Short, plain label for the bet-type switcher (never "O/U" or "Handicap"). */
 function marketTab(mk: MarketView): string {
   switch (mk.kind) {
     case "RESULT":
       return "Result";
     case "OVER_UNDER":
-      return `O/U ${mk.line?.line ?? ""}`.trim();
+      return "Total goals";
     case "HANDICAP":
-      return "Handicap";
+      return "Winning margin";
     default:
       return mk.label;
   }
@@ -125,12 +125,14 @@ function bucketCopy(
     return { tile: b.label, subject: `${b.label} goals`, settle: `${b.label} lands` };
   }
   if (mk.kind === "HANDICAP") {
+    // Never show signed handicap outcomes ("Australia +1.5" / "-1.5") — a
+    // newcomer can't read them. Spell out the winning margin in plain words.
     const line = mk.line?.line ?? 0;
+    const by = Math.floor(Math.abs(line)) + 1; // 1.5 ⇒ win by 2+
     if (b.bucket === "OVER") {
-      const by = Math.floor(line) + 1; // -1.5 line ⇒ must win by 2+
-      return { tile: b.label, subject: `${home} to win by ${by}+`, settle: `${home} win by ${by}+` };
+      return { tile: `${abbr3(home)} by ${by}+`, subject: `${home} to win by ${by}+`, settle: `${home} to win by ${by}+` };
     }
-    return { tile: b.label, subject: `${away} +${line}`, settle: `${b.label} lands` };
+    return { tile: `Not by ${by}+`, subject: `${away} not to lose by ${by}+`, settle: `${away} not to lose by ${by}+` };
   }
   return { tile: b.label, subject: b.label, settle: `${b.label} lands` };
 }
@@ -243,7 +245,7 @@ const settledLine = (result: string, difficulty: number): string => {
   if (result === "WON") {
     return difficulty >= 0.55
       ? "Backed yourself when the crowd didn't. That's the version of you I want to see."
-      : "Right call — but the whole world saw it coming. Barely moves the needle.";
+      : "Right pick — but the whole world saw it coming. Barely moves the needle.";
   }
   return "Backed the favourite again. We've talked about this. You don't get paid for being safe.";
 };
@@ -290,17 +292,17 @@ export function relativeTime(iso: string, now = Date.now()): string {
   return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** Mirrors mobile's _eventVerb exactly (the feed subtitle's leading verb). */
-function activityVerb(row: ActivityRow, displayBucket: string): string {
+/** The feed subtitle's leading verb — plain, "call"-free, real team names. */
+function activityVerb(row: ActivityRow, pickLabel: string | null): string {
   switch (row.type) {
     case "CALL_COPIED":
-      return "copied a call";
+      return "made the same pick";
     case "CALL_SETTLED":
-      return "call settled";
+      return "match finished";
     case "CLAIMED":
-      return "claimed winnings";
+      return "collected winnings";
     default:
-      return `called ${displayBucket}`;
+      return pickLabel ? `picked ${pickLabel}` : "made a pick";
   }
 }
 
@@ -311,7 +313,7 @@ export type ActivityCall = {
   when: string;
   home: string;
   away: string;
-  bucketLabel: string; // always non-empty — "HOME"/"DRAW"/"AWAY" or a "?" fallback, mirrors mobile's displayBucket
+  bucketLabel: string; // always a real team name or "Draw" (never a raw HOME/DRAW/AWAY code or "?")
   bucketColor: string;
   bucketBg: string;
   stake: number | null; // USDC, null when the row carries no stake (e.g. a claim/settlement event)
@@ -325,14 +327,19 @@ export function toActivityCall(row: ActivityRow): ActivityCall {
   const meta = row.metadata ?? {};
   const displayBucket = row.bucket ?? (row.body ? row.body.toUpperCase() : "?");
   const style = BUCKET_STYLE[displayBucket] ?? BUCKET_FALLBACK;
+  const home = typeof meta.home === "string" ? meta.home : "Home";
+  const away = typeof meta.away === "string" ? meta.away : "Away";
+  // Real team names + "Draw" — never a raw HOME/DRAW/AWAY code or "?" in the UI.
+  const pickTeam = displayBucket === "HOME" ? home : displayBucket === "AWAY" ? away : null;
+  const pickLabel = displayBucket === "DRAW" ? "the draw" : pickTeam ? `${pickTeam} to win` : null;
   return {
     id: row.id,
     wallet: row.actor_wallet_address,
-    verb: activityVerb(row, displayBucket),
+    verb: activityVerb(row, pickLabel),
     when: relativeTime(row.created_at),
-    home: typeof meta.home === "string" ? meta.home : "Home",
-    away: typeof meta.away === "string" ? meta.away : "Away",
-    bucketLabel: displayBucket,
+    home,
+    away,
+    bucketLabel: displayBucket === "DRAW" ? "Draw" : pickTeam ?? "Pick",
     bucketColor: style.color,
     bucketBg: style.bg,
     stake: row.stake_base_units ? frostToWal(BigInt(row.stake_base_units)) : null,

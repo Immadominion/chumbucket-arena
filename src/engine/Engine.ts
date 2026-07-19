@@ -353,8 +353,45 @@ export class Engine {
    * on purpose (UX §4 — choice overload kills conversion): the one universal
    * over/under line plus a home handicap. More lines are a later expand.
    */
+  /**
+   * The curated book of extra markets opened alongside RESULT on every fixture.
+   * All settle from the full-time goals stat TxLINE proves on-chain (Over/Under
+   * totals + home goal handicaps), so each is a single verified predicate — no
+   * unprovable markets. Adding a line here automatically backfills onto every
+   * already-open fixture too (see reconcileMarkets), so the book can grow without
+   * re-seeding.
+   */
   private lineMarketsFor(fixture: Fixture): MarketDef[] {
-    return [overUnderGoalsMarket(2.5), handicapGoalsMarket(1.5, fixture.home, fixture.away)];
+    return [
+      overUnderGoalsMarket(1.5),
+      overUnderGoalsMarket(2.5),
+      overUnderGoalsMarket(3.5),
+      handicapGoalsMarket(1.5, fixture.home, fixture.away),
+      handicapGoalsMarket(2.5, fixture.home, fixture.away),
+    ];
+  }
+
+  /**
+   * Backfill newly-curated markets onto an already-open match. openMatch is
+   * idempotent by matchId, so a fixture opened before a market existed would
+   * never gain it; this appends the missing markets (with their on-chain pot ids
+   * stamped) to any OPEN match. No-op for new matches (openMatch already gave
+   * them the full book) and for locked/resolved matches (their book is frozen).
+   */
+  private async reconcileMarkets(fixture: Fixture): Promise<void> {
+    const m = this.deps.readModel.pots.getMatch(fixture.matchId);
+    if (!m || m.status !== "OPEN") return;
+    const have = new Set(m.markets.map((mk) => mk.marketId));
+    const desired = [resultMarket(), ...this.lineMarketsFor(fixture)];
+    const missing = desired.filter((d) => !have.has(d.marketId));
+    if (missing.length === 0) return;
+    const stamped = missing.map((mk) => ({
+      ...mk,
+      potMatchId: derivePotMatchId(fixture.matchId as string, mk),
+    }));
+    await this.matchAppend(fixture.matchId, [
+      { type: "MarketsAdded", matchId: fixture.matchId, markets: stamped },
+    ]);
   }
 
   async lockMatch(matchId: MatchId): Promise<void> {
@@ -469,7 +506,10 @@ export class Engine {
 
   async syncFixtures(): Promise<void> {
     for (const fixture of await this.deps.matchData.fixtures()) {
+      // New fixtures open with the full book; already-open fixtures get any
+      // newly-curated markets backfilled (openMatch is idempotent).
       await this.openMatch(fixture, this.lineMarketsFor(fixture));
+      await this.reconcileMarkets(fixture);
     }
   }
 

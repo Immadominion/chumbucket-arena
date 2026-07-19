@@ -167,8 +167,9 @@ export default function FriendsPage() {
     <div className="midpad" style={{ maxWidth: 760 }}>
       <div className="cd" style={{ fontSize: 24 }}>Friends</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
-        The same friends list as the ChumBucket app. Add someone by wallet address or @handle — if they
-        haven&rsquo;t joined yet, we&rsquo;ll notify you the moment they do.
+        Add friends to challenge them and follow their predictions. They&rsquo;ll appear in the ChumBucket mobile
+        app too. Add someone by wallet address or @handle — if they haven&rsquo;t joined yet, we&rsquo;ll let you know
+        the moment they do.
       </p>
 
       <form onSubmit={submit} className="card" style={{ marginTop: 18, padding: 18 }}>
@@ -216,9 +217,18 @@ export default function FriendsPage() {
 
       <div className="cd" style={{ fontSize: 16, margin: "26px 0 12px" }}>Your friends</div>
       {friendsQ.isLoading ? (
-        <div style={{ fontSize: 13, color: "#988990", fontWeight: 600 }}>Loading…</div>
+        <div style={{ fontSize: 13, color: "#988990", fontWeight: 600 }}>Loading your friends…</div>
       ) : friendsQ.isError ? (
-        <div style={{ fontSize: 13, color: "#C2373B", fontWeight: 600 }}>Couldn&rsquo;t load friends. Try refreshing.</div>
+        <div className="card" style={{ padding: 22, textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "#C2373B", fontWeight: 600 }}>Couldn&rsquo;t load your friends — check your connection.</div>
+          <button
+            onClick={() => void friendsQ.refetch()}
+            className="btnp"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, padding: "9px 18px", borderRadius: 11, marginTop: 12, border: "none", cursor: "pointer" }}
+          >
+            Try again
+          </button>
+        </div>
       ) : !friendsQ.data || friendsQ.data.length === 0 ? (
         <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: "#988990", fontWeight: 600 }}>
           No friends yet — add one by wallet address or @handle above.
@@ -313,7 +323,7 @@ function FriendRowItem({
         href={`/send?to=${encodeURIComponent(friend.walletAddress)}&name=${encodeURIComponent(friend.name)}`}
         style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#F2385A", textDecoration: "none", flex: "none" }}
       >
-        <PaperPlaneRight size={15} weight="fill" /> Send
+        <PaperPlaneRight size={15} weight="fill" /> Send USDC
       </Link>
     </div>
   );

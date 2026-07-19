@@ -6,7 +6,7 @@
 
 import type { StoredEvent } from "../../domain/events.ts";
 import type { Frost, MarketId, MatchId, Wallet } from "../../domain/ids.ts";
-import type { Fixture, LineMarketSpec, MarketKind } from "../../domain/model.ts";
+import type { Fixture, LineMarketSpec, MarketDef, MarketKind } from "../../domain/model.ts";
 import type { CallStake } from "../../game/parimutuel.ts";
 import { impliedProb } from "../../game/parimutuel.ts";
 import type { Projection } from "./Projection.ts";
@@ -73,6 +73,28 @@ export interface MatchView {
   score: { home: number; away: number } | null; // final score once resolved
 }
 
+/** Fresh, empty market state from a market definition — shared by MatchOpened
+ *  (new match) and MarketsAdded (backfill onto an open match). */
+function buildMarketState(matchId: MatchId, def: MarketDef): MarketState {
+  return {
+    matchId,
+    marketId: def.marketId,
+    kind: def.kind,
+    label: def.label,
+    buckets: new Map(
+      def.buckets.map((b) => [
+        b.bucket,
+        { label: b.label, stake: 0n, callers: new Set<Wallet>() },
+      ]),
+    ),
+    calls: [],
+    line: def.line,
+    potMatchId: def.potMatchId,
+    status: "OPEN",
+    settled: false,
+  };
+}
+
 export class PotProjection implements Projection {
   readonly name = "pots";
   private readonly matches = new Map<MatchId, MatchState>();
@@ -83,29 +105,25 @@ export class PotProjection implements Projection {
       case "MatchOpened": {
         const markets = new Map<MarketId, MarketState>();
         for (const def of p.markets) {
-          markets.set(def.marketId, {
-            matchId: p.fixture.matchId,
-            marketId: def.marketId,
-            kind: def.kind,
-            label: def.label,
-            buckets: new Map(
-              def.buckets.map((b) => [
-                b.bucket,
-                { label: b.label, stake: 0n, callers: new Set<Wallet>() },
-              ]),
-            ),
-            calls: [],
-            line: def.line,
-            potMatchId: def.potMatchId,
-            status: "OPEN",
-            settled: false,
-          });
+          markets.set(def.marketId, buildMarketState(p.fixture.matchId, def));
         }
         this.matches.set(p.fixture.matchId, {
           fixture: p.fixture,
           status: "OPEN",
           markets,
         });
+        return;
+      }
+      case "MarketsAdded": {
+        // Backfill curated markets onto an already-open match. Only OPEN matches
+        // accept new markets (never mutate a locked/resolved book), and any
+        // market that already exists is left untouched (idempotent).
+        const m = this.matches.get(p.matchId);
+        if (!m || m.status !== "OPEN") return;
+        for (const def of p.markets) {
+          if (m.markets.has(def.marketId)) continue;
+          m.markets.set(def.marketId, buildMarketState(p.matchId, def));
+        }
         return;
       }
       case "MatchLocked": {

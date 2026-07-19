@@ -29,6 +29,20 @@ const INK = "#1A1013";
 const CORAL = "#F2385A";
 const GRAY = "#988990";
 
+// Raw status enums must never reach the UI — map to plain phrases (audit H2).
+const STATUS_PHRASE: Record<string, string> = {
+  OPEN: "Open to join",
+  PENDING: "Match started",
+  LOCKED: "Match started",
+  MATCH_LOCKED: "Match started",
+  VERIFIED: "Confirmed",
+  SETTLED: "Result in",
+  RESOLVED: "Result in",
+  VOID: "Match void — money back",
+  CLAIMABLE: "Winnings ready",
+};
+const statusPhrase = (s: string) => STATUS_PHRASE[s] ?? "In progress";
+
 type FeedMode = "global" | "following";
 
 export default function CallsPage() {
@@ -66,31 +80,38 @@ export default function CallsPage() {
     return (
       <ErrorState
         onRetry={() => void active.refetch()}
-        title="Couldn't load calls"
-        detail="We couldn't load the calls feed just now. Check your connection and try again."
+        title="Couldn't load predictions"
+        detail="We couldn't load the predictions feed just now. Check your connection and try again."
       />
     );
   }
 
+  // M9: let Following switch even when signed out, and say why it's empty.
+  const followingSignedOut = mode === "following" && !wallet;
+
   return (
     <div className="midpad" style={{ maxWidth: 760 }}>
-      <div className="cd" style={{ fontSize: 24 }}>Calls</div>
+      <div className="cd" style={{ fontSize: 24 }}>Predictions</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
-        Every call, copy and settlement across ChumBucket — see who&rsquo;s backing what, live.
+        See what everyone&rsquo;s predicting right now — who picked who, and how it turned out.
       </p>
 
-      <FeedTabs mode={mode} onChange={setMode} followingDisabled={!wallet} />
+      <FeedTabs mode={mode} onChange={setMode} />
 
       <div style={{ marginTop: 18 }}>
-        {active.isLoading ? (
+        {followingSignedOut ? (
+          <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: GRAY, fontWeight: 600 }}>
+            Sign in to see picks from people you follow.
+          </div>
+        ) : active.isLoading ? (
           <div style={{ fontSize: 13, color: GRAY, fontWeight: 600, padding: "34px 0", textAlign: "center" }}>
-            Loading calls…
+            Loading predictions…
           </div>
         ) : calls.length === 0 ? (
           <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: GRAY, fontWeight: 600 }}>
             {mode === "following"
-              ? "Nobody you follow has made a call yet — add friends on the Friends page to fill this feed."
-              : "No calls yet — the first public call will show up here."}
+              ? "Nobody you follow has made a pick yet — add friends on the Friends page to fill this feed."
+              : "No predictions yet — the first public pick will show up here."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -113,11 +134,9 @@ export default function CallsPage() {
 function FeedTabs({
   mode,
   onChange,
-  followingDisabled,
 }: {
   mode: FeedMode;
   onChange: (m: FeedMode) => void;
-  followingDisabled: boolean;
 }) {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     border: "none",
@@ -143,15 +162,7 @@ function FeedTabs({
       <button type="button" onClick={() => onChange("global")} style={tabStyle(mode === "global")}>
         Global
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (!followingDisabled) onChange("following");
-        }}
-        disabled={followingDisabled}
-        title={followingDisabled ? "Sign in to see who you follow" : undefined}
-        style={{ ...tabStyle(mode === "following"), opacity: followingDisabled ? 0.45 : 1, cursor: followingDisabled ? "not-allowed" : "pointer" }}
-      >
+      <button type="button" onClick={() => onChange("following")} style={tabStyle(mode === "following")}>
         Following
       </button>
     </div>
@@ -205,11 +216,11 @@ function CallCard({
               href={`/call/${call.matchId}`}
               style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#fff", background: CORAL, padding: "7px 13px", borderRadius: 20, textDecoration: "none" }}
             >
-              <Target size={12} weight="fill" /> Call too
+              <Target size={12} weight="fill" /> Make this pick
             </Link>
           ) : (
             <span style={{ fontSize: 11, fontWeight: 700, color: call.isSettled ? "#0A7E40" : GRAY }}>
-              {call.isSettled ? "SETTLED" : call.status}
+              {statusPhrase(call.status)}
             </span>
           )}
         </div>
