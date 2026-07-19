@@ -86,6 +86,18 @@ export const appRouter = router({
       return (await provider.liveScore(asMatchId(input.matchId))) ?? null;
     }),
 
+  // Devnet test-USDC faucet — mints the program's pinned mint to a wallet so
+  // anyone (judges included) can fund themselves and place a real bet. Play
+  // money on devnet; the mint has no real value.
+  faucet: publicProcedure
+    .input(z.object({ wallet: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.app.faucet) {
+        throw new Error("The test faucet isn't available right now.");
+      }
+      return ctx.app.faucet.fund(input.wallet);
+    }),
+
   leaderboard: publicProcedure
     .input(z.object({ by: z.enum(["gr", "pnl"]).default("gr"), limit: z.number().min(1).max(200).default(50) }))
     .query(({ ctx, input }) =>

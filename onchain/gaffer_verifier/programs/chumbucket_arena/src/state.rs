@@ -39,7 +39,7 @@ pub const MATCH_WINDOW_SEC: i64 = 6 * 60 * 60; // 6h
 /// stakes are never trapped by a postponed match or a missing root.
 pub const VOID_TIMEOUT_SEC: i64 = 7 * 24 * 60 * 60; // 7 days
 /// Longest a pot may be created ahead of its kickoff (anti-squat / anti-stale).
-pub const MAX_KICKOFF_LEAD_SEC: i64 = 30 * 24 * 60 * 60; // 30 days
+pub const MAX_KICKOFF_LEAD_SEC: i64 = 90 * 24 * 60 * 60; // 90 days (~3 months)
 
 /// PDA seeds (ours).
 pub const CONFIG_SEED: &[u8] = b"config";

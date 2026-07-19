@@ -5,7 +5,10 @@
  * runs anywhere; set keys to light up Walrus, Claude, and real WAL one by one.
  */
 
+import { readFileSync } from "node:fs";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { loadConfig, type AppConfig } from "./config.ts";
+import { Faucet } from "./keeper/Faucet.ts";
 import { InMemoryEventStore } from "./core/eventstore/InMemoryEventStore.ts";
 import { SqliteEventStore } from "./core/eventstore/SqliteEventStore.ts";
 import type { EventStore } from "./core/eventstore/EventStore.ts";
@@ -51,6 +54,8 @@ export interface App {
   social: SocialStore;
   /** Pull-based chain->read-model reconciler (present when social + reconciler configured). */
   reconciler?: ArenaReconciler;
+  /** Devnet test-USDC faucet (present when the on-chain keeper + a USDC mint are configured). */
+  faucet?: Faucet;
   /** Description of which adapters are live — handy for /health and the demo. */
   wiring: Record<string, string>;
 }
@@ -268,5 +273,25 @@ export async function createApp(opts: CreateAppOptions = {}): Promise<App> {
     ...(depositGateway ? { depositGateway } : {}),
   });
 
-  return { config, store, readModel, engine, gaffer, auth, memory, memoryWriter, ledgerMirror, matchData, social, ...(reconciler ? { reconciler } : {}), wiring };
+  // Devnet test-USDC faucet — lets judges/testers self-fund with the program's
+  // pinned mint (Circle's faucet gives a different mint the pots don't accept).
+  // Reuses the on-chain keeper's admin keypair, which is the mint authority.
+  // Off unless the keeper is enabled and a USDC mint is configured.
+  let faucet: Faucet | undefined;
+  const faucetMint = config.onchainKeeper?.usdcMint ?? config.solana.usdcMint;
+  if (config.onchainKeeper?.enabled && faucetMint) {
+    try {
+      const raw = config.onchainKeeper.keypairJson ?? readFileSync(config.onchainKeeper.keypairPath, "utf8");
+      const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw)));
+      faucet = new Faucet(config.onchainKeeper.rpcUrl, authority, new PublicKey(faucetMint));
+      wiring.faucet = "on";
+    } catch (err) {
+      wiring.faucet = "error";
+      console.error("[faucet] failed to init:", (err as Error).message);
+    }
+  } else {
+    wiring.faucet = "off";
+  }
+
+  return { config, store, readModel, engine, gaffer, auth, memory, memoryWriter, ledgerMirror, matchData, social, ...(reconciler ? { reconciler } : {}), ...(faucet ? { faucet } : {}), wiring };
 }
