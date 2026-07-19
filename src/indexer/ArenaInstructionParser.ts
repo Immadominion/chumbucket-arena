@@ -3,14 +3,14 @@ import idl from "../../vendor/chumbucket_arena/chumbucket_arena.json" with { typ
 export const DEFAULT_ARENA_PROGRAM_ID = "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG";
 
 export interface ParsedArenaInstruction {
-  name: "place_call" | "claim" | "settle_pot" | "void_pot";
+  name: "place_call" | "claim" | "settle_pot" | "settle_market" | "void_pot";
   programId: string;
   accounts: string[];
   namedAccounts: Record<string, string>;
   args: Record<string, string | number>;
 }
 
-const TARGET_NAMES = new Set(["place_call", "claim", "settle_pot", "void_pot"]);
+const TARGET_NAMES = new Set(["place_call", "claim", "settle_pot", "settle_market", "void_pot"]);
 
 const SPECS = Object.fromEntries(
   (idl.instructions as Array<{ name: string; discriminator: number[]; accounts?: Array<{ name: string }> }>)
@@ -65,7 +65,7 @@ function parseByDiscriminator(
       args.bucket = data.readUInt8(8);
       args.amount = data.readBigUInt64LE(9).toString();
     }
-    if (spec.name === "settle_pot" && data.length >= 9) {
+    if ((spec.name === "settle_pot" || spec.name === "settle_market") && data.length >= 9) {
       args.winningBucket = data.readUInt8(8);
     }
     return {

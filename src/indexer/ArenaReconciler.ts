@@ -36,6 +36,18 @@ import idl from "../../vendor/chumbucket_arena/chumbucket_arena.json" with { typ
 const CURSOR_SOURCE = "reconciler";
 const CURSOR_KEY = "signatures";
 const BUCKETS = ["HOME", "DRAW", "AWAY"] as const;
+const LINE_BUCKETS = ["OVER", "UNDER"] as const;
+
+/**
+ * Label an on-chain bucket index for the social feed. A line-market pot (its
+ * matchId carries a "#" market tag, e.g. "18202701#OU25") uses OVER/UNDER; the
+ * RESULT pot uses HOME/DRAW/AWAY. Keeps the Supabase mirror from mislabelling an
+ * over/under call as "HOME".
+ */
+function bucketLabelFor(matchId: string, index: number): string {
+  if (matchId.includes("#")) return LINE_BUCKETS[index] ?? "OVER";
+  return BUCKETS[index] ?? "HOME";
+}
 // A signature surfaced by getSignaturesForAddress but unfetchable via
 // getParsedTransaction after this many passes is treated as permanently gone
 // (reorg-dropped) and skipped, so one dead tx can't wedge the cursor forever.
@@ -179,10 +191,11 @@ export class ArenaReconciler {
     for (const ix of tx.instructions) {
       if (ix.name === "place_call") {
         await this.applyPlaceCall(ix, signature, slot, potCache, summary);
-      } else if (ix.name === "settle_pot" || ix.name === "void_pot") {
-        // Both terminate the pot: settle_pot proves a winner (or auto-voids a thin
-        // pool / no-staker bucket), void_pot force-voids a stuck pot. applySettle
-        // reads the fresh Pot; winners_stake == 0 => the void/refund path.
+      } else if (ix.name === "settle_pot" || ix.name === "settle_market" || ix.name === "void_pot") {
+        // All terminate the pot: settle_pot/settle_market prove a winner (or
+        // auto-void a thin pool / no-staker bucket), void_pot force-voids a stuck
+        // pot. applySettle reads the fresh Pot; winners_stake == 0 => void/refund.
+        // settle_market is the line-market (over/under, handicap) equivalent.
         await this.applySettle(ix, signature, slot, potCache, summary);
       } else if (ix.name === "claim") {
         await this.applyClaim(ix, signature, slot, summary);
@@ -220,7 +233,7 @@ export class ArenaReconciler {
       // row (finding [7]). record_prediction_call repairs a mobile row's market_id
       // to this while it is still PENDING/OPEN.
       marketId: pot.matchId,
-      bucket: BUCKETS[Number(ix.args.bucket ?? 0)] ?? "HOME",
+      bucket: bucketLabelFor(pot.matchId, Number(ix.args.bucket ?? 0)),
       stakeBaseUnits: String(ix.args.amount ?? "0"),
       txSignature: signature,
       ...(positionAddr ? { positionAddress: positionAddr } : {}),
@@ -247,7 +260,7 @@ export class ArenaReconciler {
     await this.social.applySettlement({
       marketId: pot.matchId,
       matchId: pot.matchId,
-      winningBucket: BUCKETS[pot.winningBucket] ?? "HOME",
+      winningBucket: bucketLabelFor(pot.matchId, pot.winningBucket),
       settleTxSignature: signature,
       slot,
       distributableBaseUnits: pot.distributable,
