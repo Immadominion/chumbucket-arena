@@ -6,6 +6,20 @@ pub const BUCKET_DRAW: u8 = 1;
 pub const BUCKET_AWAY: u8 = 2;
 pub const N_BUCKETS: usize = 3;
 
+/// Two-outcome line/threshold markets (over/under, handicap) reuse a normal Pot
+/// but stake into buckets 0 and 1 only. Bucket 0 = the "over" side (the stat
+/// expression is GREATER than the line); bucket 1 = the "under" side (LESS).
+pub const BUCKET_OVER: u8 = 0;
+pub const BUCKET_UNDER: u8 = 1;
+
+/// MarketSpec kinds — how settle_market builds its validate_stat predicate.
+pub const MARKET_OVER_UNDER: u8 = 1; // op = Add:  (stat_a + stat_b)  vs line
+pub const MARKET_HANDICAP: u8 = 2; // op = Subtract: (stat_a - stat_b) vs line
+
+/// Binary op the settlement predicate applies to the two stat terms.
+pub const OP_ADD: u8 = 0;
+pub const OP_SUB: u8 = 1;
+
 /// Pot lifecycle.
 pub const STATUS_OPEN: u8 = 0;
 pub const STATUS_LOCKED: u8 = 1;
@@ -32,6 +46,8 @@ pub const CONFIG_SEED: &[u8] = b"config";
 pub const POT_SEED: &[u8] = b"pot";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const POSITION_SEED: &[u8] = b"position";
+/// One MarketSpec per line-market Pot (seed = [MARKET_SPEC_SEED, pot.key()]).
+pub const MARKET_SPEC_SEED: &[u8] = b"market_spec";
 /// txoracle's daily scores-roots PDA seed prefix (external program).
 pub const DAILY_SCORES_ROOTS_SEED: &[u8] = b"daily_scores_roots";
 
@@ -105,5 +121,36 @@ pub struct Position {
     pub bucket: u8,
     pub stake: u64,
     pub claimed: bool,
+    pub bump: u8,
+}
+
+/// The settlement predicate for a two-outcome line/threshold market (over/under,
+/// handicap), bound to its Pot at creation so a *permissionless* settler can
+/// never change the line or the stats it settles against. The Pot stays a normal
+/// Pot (buckets 0 = over, 1 = under); only settle_market differs from settle_pot.
+///
+/// The line is stored as an integer FLOOR and always read as `line_floor + 0.5`,
+/// so every market is a HALF-line: OVER wins iff `(a [op] b) > line_floor`, UNDER
+/// wins iff `(a [op] b) < line_floor + 1`. On integer stats these two are mutually
+/// exclusive and exhaustive — no push is representable — so proving the *claimed*
+/// side is sufficient (the losing side's proof returns false), exactly like the
+/// HOME/DRAW/AWAY invariant in settle_pot.
+#[account]
+#[derive(InitSpace)]
+pub struct MarketSpec {
+    /// The Pot this spec settles (must match SettleMarket.pot).
+    pub pot: Pubkey,
+    /// MARKET_OVER_UNDER | MARKET_HANDICAP (display + backend routing).
+    pub kind: u8,
+    /// OP_ADD (over/under) | OP_SUB (handicap) — applied as stat_a [op] stat_b.
+    pub op: u8,
+    /// Half-line floor: O/U 2.5 -> 2, handicap -1.5 -> 1.
+    pub line_floor: i32,
+    /// The exact stat leaf each term must prove (binds the proof to the right
+    /// stat, e.g. goals vs corners). key/period match txoracle's ScoreStat.
+    pub stat_key_a: u32,
+    pub period_a: i32,
+    pub stat_key_b: u32,
+    pub period_b: i32,
     pub bump: u8,
 }

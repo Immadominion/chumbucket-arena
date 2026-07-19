@@ -7,7 +7,7 @@
 export type ChumbucketArena = {
   "address": "AMFpYiYPCUwiVbYMkhnaCmnSDv226yew17QXLhVWk9CG",
   "metadata": {
-    "name": "gafferVerifier",
+    "name": "chumbucketArena",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
@@ -116,6 +116,130 @@ export type ChumbucketArena = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "createMarketSpec",
+      "docs": [
+        "Attach a line-market (over/under, handicap) settlement spec to a Pot.",
+        "Admin-only, before any calls — fixes the line/stats on-chain up front."
+      ],
+      "discriminator": [
+        69,
+        219,
+        165,
+        42,
+        139,
+        41,
+        62,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot.match_id",
+                "account": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketSpec",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  115,
+                  112,
+                  101,
+                  99
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": "u8"
+        },
+        {
+          "name": "op",
+          "type": "u8"
+        },
+        {
+          "name": "lineFloor",
+          "type": "i32"
+        },
+        {
+          "name": "statKeyA",
+          "type": "u32"
+        },
+        {
+          "name": "periodA",
+          "type": "i32"
+        },
+        {
+          "name": "statKeyB",
+          "type": "u32"
+        },
+        {
+          "name": "periodB",
+          "type": "i32"
+        }
+      ]
     },
     {
       "name": "createPot",
@@ -457,6 +581,152 @@ export type ChumbucketArena = {
         {
           "name": "amount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settleMarket",
+      "docs": [
+        "Settle a line-market Pot (over/under, handicap) by proving its outcome via",
+        "validate_stat, using the predicate stored in the pot's MarketSpec. Does not",
+        "touch the RESULT settle_pot path."
+      ],
+      "discriminator": [
+        193,
+        153,
+        95,
+        216,
+        166,
+        6,
+        144,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot.match_id",
+                "account": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketSpec",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  115,
+                  112,
+                  101,
+                  99
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "txoracleProgram"
+        },
+        {
+          "name": "dailyScoresMerkleRoots"
+        }
+      ],
+      "args": [
+        {
+          "name": "winningBucket",
+          "type": "u8"
+        },
+        {
+          "name": "ts",
+          "type": "i64"
+        },
+        {
+          "name": "fixtureSummary",
+          "type": {
+            "defined": {
+              "name": "scoresBatchSummary"
+            }
+          }
+        },
+        {
+          "name": "fixtureProof",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "proofNode"
+              }
+            }
+          }
+        },
+        {
+          "name": "mainTreeProof",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "proofNode"
+              }
+            }
+          }
+        },
+        {
+          "name": "statA",
+          "type": {
+            "defined": {
+              "name": "statTerm"
+            }
+          }
+        },
+        {
+          "name": "statB",
+          "type": {
+            "defined": {
+              "name": "statTerm"
+            }
+          }
         }
       ]
     },
@@ -861,6 +1131,19 @@ export type ChumbucketArena = {
       ]
     },
     {
+      "name": "marketSpec",
+      "discriminator": [
+        30,
+        100,
+        19,
+        58,
+        38,
+        198,
+        170,
+        226
+      ]
+    },
+    {
       "name": "position",
       "discriminator": [
         170,
@@ -1007,6 +1290,26 @@ export type ChumbucketArena = {
       "code": 6023,
       "name": "sweepToVault",
       "msg": "cannot sweep rake into the pot's own vault"
+    },
+    {
+      "code": 6024,
+      "name": "invalidMarketKind",
+      "msg": "unknown market kind or op for a line market"
+    },
+    {
+      "code": 6025,
+      "name": "wrongMarketSpec",
+      "msg": "market spec does not belong to this pot"
+    },
+    {
+      "code": 6026,
+      "name": "wrongStat",
+      "msg": "a proof stat leaf does not match the market spec's stat key/period"
+    },
+    {
+      "code": 6027,
+      "name": "specAfterCalls",
+      "msg": "a market spec must be set before any calls are placed"
     }
   ],
   "types": [
@@ -1076,6 +1379,79 @@ export type ChumbucketArena = {
               "Below this many distinct positions a Pot voids and refunds (thin-pool guard)."
             ],
             "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketSpec",
+      "docs": [
+        "The settlement predicate for a two-outcome line/threshold market (over/under,",
+        "handicap), bound to its Pot at creation so a *permissionless* settler can",
+        "never change the line or the stats it settles against. The Pot stays a normal",
+        "Pot (buckets 0 = over, 1 = under); only settle_market differs from settle_pot.",
+        "",
+        "The line is stored as an integer FLOOR and always read as `line_floor + 0.5`,",
+        "so every market is a HALF-line: OVER wins iff `(a [op] b) > line_floor`, UNDER",
+        "wins iff `(a [op] b) < line_floor + 1`. On integer stats these two are mutually",
+        "exclusive and exhaustive — no push is representable — so proving the *claimed*",
+        "side is sufficient (the losing side's proof returns false), exactly like the",
+        "HOME/DRAW/AWAY invariant in settle_pot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pot",
+            "docs": [
+              "The Pot this spec settles (must match SettleMarket.pot)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "MARKET_OVER_UNDER | MARKET_HANDICAP (display + backend routing)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "op",
+            "docs": [
+              "OP_ADD (over/under) | OP_SUB (handicap) — applied as stat_a [op] stat_b."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "lineFloor",
+            "docs": [
+              "Half-line floor: O/U 2.5 -> 2, handicap -1.5 -> 1."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "statKeyA",
+            "docs": [
+              "The exact stat leaf each term must prove (binds the proof to the right",
+              "stat, e.g. goals vs corners). key/period match txoracle's ScoreStat."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "periodA",
+            "type": "i32"
+          },
+          {
+            "name": "statKeyB",
+            "type": "u32"
+          },
+          {
+            "name": "periodB",
+            "type": "i32"
           },
           {
             "name": "bump",

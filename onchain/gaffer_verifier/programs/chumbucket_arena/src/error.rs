@@ -50,4 +50,12 @@ pub enum ErrorCode {
     WrongMint,
     #[msg("cannot sweep rake into the pot's own vault")]
     SweepToVault,
+    #[msg("unknown market kind or op for a line market")]
+    InvalidMarketKind,
+    #[msg("market spec does not belong to this pot")]
+    WrongMarketSpec,
+    #[msg("a proof stat leaf does not match the market spec's stat key/period")]
+    WrongStat,
+    #[msg("a market spec must be set before any calls are placed")]
+    SpecAfterCalls,
 }

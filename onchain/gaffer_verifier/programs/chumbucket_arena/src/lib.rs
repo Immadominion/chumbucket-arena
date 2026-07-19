@@ -40,6 +40,22 @@ pub mod chumbucket_arena {
         instructions::create_pot::handler(ctx, match_id, txline_fixture_id, kickoff)
     }
 
+    /// Attach a line-market (over/under, handicap) settlement spec to a Pot.
+    /// Admin-only, before any calls — fixes the line/stats on-chain up front.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_market_spec(
+        ctx: Context<CreateMarketSpec>,
+        kind: u8,
+        op: u8,
+        line_floor: i32,
+        stat_key_a: u32,
+        period_a: i32,
+        stat_key_b: u32,
+        period_b: i32,
+    ) -> Result<()> {
+        instructions::create_market_spec::handler(ctx, kind, op, line_floor, stat_key_a, period_a, stat_key_b, period_b)
+    }
+
     /// Stake USDC on an outcome — funds move into the vault now.
     pub fn place_call(ctx: Context<PlaceCall>, bucket: u8, amount: u64) -> Result<()> {
         instructions::place_call::handler(ctx, bucket, amount)
@@ -63,6 +79,23 @@ pub mod chumbucket_arena {
         stat_away: StatTerm,
     ) -> Result<()> {
         instructions::settle_pot::handler(ctx, winning_bucket, ts, fixture_summary, fixture_proof, main_tree_proof, stat_home, stat_away)
+    }
+
+    /// Settle a line-market Pot (over/under, handicap) by proving its outcome via
+    /// validate_stat, using the predicate stored in the pot's MarketSpec. Does not
+    /// touch the RESULT settle_pot path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn settle_market(
+        ctx: Context<SettleMarket>,
+        winning_bucket: u8,
+        ts: i64,
+        fixture_summary: ScoresBatchSummary,
+        fixture_proof: Vec<ProofNode>,
+        main_tree_proof: Vec<ProofNode>,
+        stat_a: StatTerm,
+        stat_b: StatTerm,
+    ) -> Result<()> {
+        instructions::settle_market::handler(ctx, winning_bucket, ts, fixture_summary, fixture_proof, main_tree_proof, stat_a, stat_b)
     }
 
     /// Rescue: void a stuck locked pot (admin any time; anyone after timeout).

@@ -58,14 +58,14 @@ pub struct StatTerm {
     pub stat_proof: Vec<ProofNode>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Comparison {
     GreaterThan,
     LessThan,
     EqualTo,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BinaryExpression {
     Add,
     Subtract,
