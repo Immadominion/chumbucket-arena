@@ -32,19 +32,40 @@ export interface Fixture {
   txline?: { fixtureId: number; participant1IsHome: boolean };
 }
 
-export type MarketKind = "RESULT" | "BOLD";
+export type MarketKind = "RESULT" | "OVER_UNDER" | "HANDICAP" | "BOLD";
 
 export interface BucketDef {
   bucket: Bucket;
   label: string;
 }
 
+/**
+ * A two-outcome line/threshold market (over/under, handicap). `line` is the
+ * half-line shown to users (e.g. 2.5); on-chain it is stored as its integer
+ * floor (2) and settled via the MarketSpec + settle_market path. `stat` names
+ * which match stat the line runs on (goals today; corners/cards later).
+ */
+export interface LineMarketSpec {
+  op: "ADD" | "SUB"; // ADD = over/under (home+away), SUB = handicap (home-away)
+  line: number; // the half-line, e.g. 2.5
+  stat: "GOALS" | "CORNERS" | "CARDS";
+  period: "FULL" | "H1";
+}
+
 export interface MarketDef {
   marketId: MarketId;
   kind: MarketKind;
-  label: string; // "Full time result", "Exact score", "First scorer"
+  label: string; // "Full time result", "Over/Under 2.5 goals", …
   buckets: BucketDef[];
+  /** Present on line/threshold markets (OVER_UNDER, HANDICAP). */
+  line?: LineMarketSpec;
 }
+
+/** Line-market outcome buckets — index 0/1 map to on-chain BUCKET_OVER/UNDER. */
+export const LINE_BUCKETS = {
+  OVER: "OVER" as Bucket,
+  UNDER: "UNDER" as Bucket,
+};
 
 /** A market resolves to exactly one winning bucket, or VOID (refund all). */
 export const VOID = "VOID" as const;
