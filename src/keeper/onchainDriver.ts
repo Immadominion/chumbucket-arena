@@ -39,12 +39,15 @@ import {
   provenScore,
   type StatValidationResponse,
 } from "../ports/TxlineSettlementVerifier.ts";
+import { resolveLine } from "../game/markets.ts";
+import { LINE_BUCKETS, type LineMarketSpec } from "../domain/model.ts";
 import type { ChumbucketArena } from "../../vendor/chumbucket_arena/chumbucket_arena.ts";
 import idl from "../../vendor/chumbucket_arena/chumbucket_arena.json" with { type: "json" };
 
 const CONFIG_SEED = Buffer.from("config");
 const POT_SEED = Buffer.from("pot");
 const VAULT_SEED = Buffer.from("vault");
+const MARKET_SPEC_SEED = Buffer.from("market_spec");
 const DAILY_SCORES_ROOTS_SEED = Buffer.from("daily_scores_roots");
 
 const STATUS_OPEN = 0;
@@ -54,6 +57,18 @@ const STATUS_SETTLED = 2;
 const BUCKET_HOME = 0;
 const BUCKET_DRAW = 1;
 const BUCKET_AWAY = 2;
+// Line-market buckets (0/1) + on-chain MarketSpec enum values (mirror state.rs).
+const BUCKET_OVER = 0;
+const BUCKET_UNDER = 1;
+const MARKET_OVER_UNDER = 1;
+const MARKET_HANDICAP = 2;
+const OP_ADD = 0;
+const OP_SUB = 1;
+// Full-time goals stat leaves, verified against a real TxLINE proof (ARG 3-2
+// EGY): P1 goals = key 1, P2 goals = key 2, both at period 5.
+const STAT_KEY_P1_GOALS = 1;
+const STAT_KEY_P2_GOALS = 2;
+const FULL_TIME_GOALS_PERIOD = 5;
 
 /**
  * ASCII bytes of `label`, LEFT-padded with zeros to exactly 32 bytes — byte-exact
@@ -176,25 +191,40 @@ export class OnchainKeeper {
     for (const m of matches) {
       const fixtureId = m.fixture.txline!.fixtureId;
       const participant1IsHome = m.fixture.txline!.participant1IsHome;
-      const matchId = matchIdBytes(String(m.fixture.matchId));
-      const { potPda, vaultPda } = derivePdas(this.programId, matchId);
-      const potAcct = await this.connection.getAccountInfo(potPda);
+      // Each market on a fixture (1X2 + line markets) is its own on-chain pot,
+      // keyed by the market's potMatchId. Drive them all.
+      for (const market of m.markets) {
+        const potMatchId = market.potMatchId ?? String(m.fixture.matchId);
+        const matchId = matchIdBytes(potMatchId);
+        const { potPda, vaultPda } = derivePdas(this.programId, matchId);
+        const potAcct = await this.connection.getAccountInfo(potPda);
 
-      if (!potAcct) {
-        if (isAdmin) await this.tryCreatePot(config, matchId, potPda, vaultPda, fixtureId, m.fixture.kickoff);
-        continue;
-      }
+        if (!potAcct) {
+          if (isAdmin) {
+            if (market.line) {
+              await this.tryCreateLinePot(config, matchId, potPda, vaultPda, fixtureId, m.fixture.kickoff, market.line, participant1IsHome);
+            } else {
+              await this.tryCreatePot(config, matchId, potPda, vaultPda, fixtureId, m.fixture.kickoff);
+            }
+          }
+          continue;
+        }
 
-      const pot = await (this.program.account as any).pot.fetch(potPda);
-      const status: number = pot.status;
-      const nowSec = Math.floor(Date.now() / 1000);
+        const pot = await (this.program.account as any).pot.fetch(potPda);
+        const status: number = pot.status;
+        const nowSec = Math.floor(Date.now() / 1000);
 
-      if (status === STATUS_OPEN && nowSec >= pot.kickoff.toNumber()) {
-        await this.tryLockPot(potPda, fixtureId);
-      } else if (status === STATUS_LOCKED) {
-        await this.trySettlePot(config, potPda, fixtureId, participant1IsHome);
-      } else if (status === STATUS_SETTLED && isAdmin) {
-        await this.trySweepRake(config, potPda, vaultPda, fixtureId);
+        if (status === STATUS_OPEN && nowSec >= pot.kickoff.toNumber()) {
+          await this.tryLockPot(potPda, fixtureId);
+        } else if (status === STATUS_LOCKED) {
+          if (market.line) {
+            await this.trySettleMarket(config, potPda, fixtureId, participant1IsHome, market.line);
+          } else {
+            await this.trySettlePot(config, potPda, fixtureId, participant1IsHome);
+          }
+        } else if (status === STATUS_SETTLED && isAdmin) {
+          await this.trySweepRake(config, potPda, vaultPda, fixtureId);
+        }
       }
     }
   }
@@ -342,6 +372,200 @@ export class OnchainKeeper {
       );
     } catch (e: any) {
       console.error(`[keeper] settle_pot FAILED fixture=${fixtureId}:`, e?.message ?? e, e?.logs ?? "");
+    }
+  }
+
+  /**
+   * Fetch + map the TxLINE proof for a finished fixture into the shapes both
+   * settle_pot and settle_market take (identical proof; only the predicate the
+   * program bakes differs). Returns null (with a log) if the match isn't terminal
+   * or the proof root isn't posted yet — the tick just retries next pass. Mirrors
+   * trySettlePot's steps 1-3 exactly.
+   */
+  private async fetchSettlementArgs(
+    fixtureId: number,
+    participant1IsHome: boolean,
+  ): Promise<{
+    ts: BN;
+    fixtureSummary: unknown;
+    fixtureProof: unknown;
+    mainTreeProof: unknown;
+    statHome: unknown;
+    statAway: unknown;
+    dailyScoresPda: PublicKey;
+    proven: { home: number; away: number };
+    seq: number;
+  } | null> {
+    let rows: TxScoresEvent[];
+    try {
+      const res = await fetch(`${this.cfg.txlineApiBaseUrl}/api/scores/snapshot/${fixtureId}?asOf=${Date.now()}`, {
+        headers: this.headers(),
+      });
+      if (!res.ok) {
+        console.log(`[keeper] fixture ${fixtureId}: scores snapshot HTTP ${res.status} — not settling yet`);
+        return null;
+      }
+      const raw = (await res.json()) as TxScoresEvent[] | null;
+      rows = Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      console.error(`[keeper] fixture ${fixtureId}: scores snapshot fetch failed:`, (e as Error).message);
+      return null;
+    }
+    const finalEvent = finalScoresEvent(rows);
+    if (!finalEvent || finalEvent.Seq == null) {
+      console.log(`[keeper] fixture ${fixtureId}: not terminal on TxLINE yet — waiting to settle`);
+      return null;
+    }
+
+    let bundle: StatValidationResponse;
+    try {
+      const url =
+        `${this.cfg.txlineApiBaseUrl}/api/scores/stat-validation` +
+        `?fixtureId=${fixtureId}&seq=${finalEvent.Seq}&statKey=1&statKey2=2`;
+      const res = await fetch(url, { headers: this.headers() });
+      if (!res.ok) {
+        console.log(`[keeper] fixture ${fixtureId}: stat-validation HTTP ${res.status} (seq=${finalEvent.Seq}) — proof not posted yet`);
+        return null;
+      }
+      bundle = (await res.json()) as StatValidationResponse;
+    } catch (e) {
+      console.error(`[keeper] fixture ${fixtureId}: stat-validation fetch failed:`, (e as Error).message);
+      return null;
+    }
+    if (!isCompleteBundle(bundle)) {
+      console.log(`[keeper] fixture ${fixtureId}: proof bundle incomplete (root not posted yet) — waiting`);
+      return null;
+    }
+
+    const proven = provenScore(bundle, participant1IsHome);
+    const { dailyScoresPda, args } = buildValidateStatArgs(
+      bundle,
+      participant1IsHome,
+      proven.home - proven.away,
+      this.cfg.txoracleProgramId,
+    );
+    const [ts, fixtureSummary, fixtureProof, mainTreeProof, , statHome, statAway] = args as [
+      BN,
+      unknown,
+      unknown,
+      unknown,
+      unknown,
+      unknown,
+      unknown,
+    ];
+    return { ts, fixtureSummary, fixtureProof, mainTreeProof, statHome, statAway, dailyScoresPda, proven, seq: finalEvent.Seq };
+  }
+
+  /**
+   * Open a line-market pot AND attach its MarketSpec in ONE atomic transaction,
+   * so a line pot never exists without the spec that lets settle_market run. The
+   * spec fixes the predicate (op, line, stat leaves) on-chain before any calls, so
+   * a permissionless settler can never change the line. Goals/full-time only for
+   * now — that's the stat binding we've verified against a real proof.
+   */
+  private async tryCreateLinePot(
+    config: OnchainConfigInfo,
+    matchId: Buffer,
+    potPda: PublicKey,
+    vaultPda: PublicKey,
+    fixtureId: number,
+    kickoffMs: number,
+    line: LineMarketSpec,
+    participant1IsHome: boolean,
+  ): Promise<void> {
+    const kickoffSec = Math.floor(kickoffMs / 1000);
+    if (kickoffSec <= Math.floor(Date.now() / 1000)) {
+      console.warn(`[keeper] line pot fixture ${fixtureId}: kickoff already passed — skipping (can never get a pot)`);
+      return;
+    }
+    if (line.stat !== "GOALS" || line.period !== "FULL") {
+      console.warn(`[keeper] line market ${line.stat}/${line.period} not settleable yet — skipping pot creation`);
+      return;
+    }
+    const kind = line.op === "ADD" ? MARKET_OVER_UNDER : MARKET_HANDICAP;
+    const op = line.op === "ADD" ? OP_ADD : OP_SUB;
+    const lineFloor = Math.floor(line.line);
+    // stat_a = home goals, stat_b = away goals — which participant is home depends
+    // on the fixture (must match the statHome/statAway the settle path passes).
+    const homeKey = participant1IsHome ? STAT_KEY_P1_GOALS : STAT_KEY_P2_GOALS;
+    const awayKey = participant1IsHome ? STAT_KEY_P2_GOALS : STAT_KEY_P1_GOALS;
+    const [marketSpecPda] = PublicKey.findProgramAddressSync([MARKET_SPEC_SEED, potPda.toBuffer()], this.programId);
+    try {
+      const specIx = await this.program.methods
+        .createMarketSpec(kind, op, lineFloor, homeKey, FULL_TIME_GOALS_PERIOD, awayKey, FULL_TIME_GOALS_PERIOD)
+        .accounts({
+          keeper: this.keeper.publicKey,
+          config: config.configPda,
+          pot: potPda,
+          marketSpec: marketSpecPda,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .instruction();
+      const sig = await this.program.methods
+        .createPot(Array.from(matchId), new BN(fixtureId), new BN(kickoffSec))
+        .accounts({
+          keeper: this.keeper.publicKey,
+          config: config.configPda,
+          pot: potPda,
+          vault: vaultPda,
+          usdcMint: config.usdcMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        } as any)
+        .postInstructions([specIx])
+        .rpc();
+      console.log(
+        `[keeper] create line pot OK fixture=${fixtureId} pot=${potPda.toBase58()} kind=${kind} op=${op} lineFloor=${lineFloor} tx=${sig}`,
+      );
+    } catch (e: any) {
+      console.error(`[keeper] create line pot FAILED fixture=${fixtureId}:`, e?.message ?? e, e?.logs ?? "");
+    }
+  }
+
+  /**
+   * Settle a locked line-market pot via settle_market: same proof as settle_pot,
+   * winning bucket (OVER/UNDER) computed from the proven score by the same
+   * resolveLine the read model uses. The on-chain predicate (from the MarketSpec)
+   * re-proves it — a mismatch would just be rejected, never mis-settle.
+   */
+  private async trySettleMarket(
+    config: OnchainConfigInfo,
+    potPda: PublicKey,
+    fixtureId: number,
+    participant1IsHome: boolean,
+    line: LineMarketSpec,
+  ): Promise<void> {
+    const s = await this.fetchSettlementArgs(fixtureId, participant1IsHome);
+    if (!s) return;
+    const outcome = resolveLine(line, s.proven);
+    if (outcome !== LINE_BUCKETS.OVER && outcome !== LINE_BUCKETS.UNDER) {
+      // Non-goals stat we can't resolve from the score → leave it; the pot voids
+      // via timeout and refunds. (Only goals markets are created today.)
+      console.log(`[keeper] fixture ${fixtureId}: line market (${line.stat}) not score-resolvable — leaving to void`);
+      return;
+    }
+    const winningBucket = outcome === LINE_BUCKETS.OVER ? BUCKET_OVER : BUCKET_UNDER;
+    const [marketSpecPda] = PublicKey.findProgramAddressSync([MARKET_SPEC_SEED, potPda.toBuffer()], this.programId);
+    try {
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 });
+      const sig = await this.program.methods
+        .settleMarket(winningBucket, s.ts, s.fixtureSummary as any, s.fixtureProof as any, s.mainTreeProof as any, s.statHome as any, s.statAway as any)
+        .accounts({
+          config: config.configPda,
+          pot: potPda,
+          marketSpec: marketSpecPda,
+          txoracleProgram: config.txoracleProgram,
+          dailyScoresMerkleRoots: s.dailyScoresPda,
+        } as any)
+        .preInstructions([computeBudgetIx])
+        .rpc();
+      console.log(
+        `[keeper] settle_market OK fixture=${fixtureId} pot=${potPda.toBase58()} winningBucket=${winningBucket} ` +
+          `score=${s.proven.home}-${s.proven.away} line=${line.op}${line.line} seq=${s.seq} tx=${sig}`,
+      );
+    } catch (e: any) {
+      console.error(`[keeper] settle_market FAILED fixture=${fixtureId}:`, e?.message ?? e, e?.logs ?? "");
     }
   }
 
