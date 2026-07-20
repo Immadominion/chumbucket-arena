@@ -1,26 +1,24 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useSession } from "@/lib/session";
 
 /**
- * Connects the journey: you can't be inside the app until you've signed the
- * contract and been through the Trial. Guests go to /signin; signed-but-not-
- * onboarded players go to /trial.
+ * Gate the app behind sign-in. Guests go to /signin; a signed-in player drops
+ * straight onto the dashboard (the spotlight tour handles the welcome — there's
+ * no separate Trial step anymore).
  */
 export default function AppGate({ children }: { children: React.ReactNode }) {
   const { session, ready } = useSession();
   const router = useRouter();
-  const path = usePathname();
 
   useEffect(() => {
     if (!ready) return;
     if (session.status === "guest") router.replace("/signin");
-    else if (!session.onboarded && path !== "/trial") router.replace("/trial");
-  }, [ready, session.status, session.onboarded, path, router]);
+  }, [ready, session.status, router]);
 
-  if (!ready || session.status === "guest" || !session.onboarded) {
+  if (!ready || session.status === "guest") {
     return (
       <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf6f7" }}>
         <div className="cb-float" style={{ display: "flex", alignItems: "center", gap: 10, color: "#988990", fontWeight: 600, fontSize: 14 }}>

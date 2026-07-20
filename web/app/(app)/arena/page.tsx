@@ -126,10 +126,10 @@ export default function ArenaPage() {
         {/* MAIN */}
         <div className="col-main">
           {/* HERO, featured match, two ways to play */}
-          <div data-tour="matches" style={{ background: `linear-gradient(125deg, ${INK} 0%, ${INK2} 58%, #3a0f1c 100%)`, borderRadius: 26, padding: "30px 32px", position: "relative", overflow: "hidden" }}>
-            <div className="glow" style={{ right: -40, top: -60, width: 260, height: 260, background: `radial-gradient(circle, rgba(255,90,118,.28), transparent 70%)` }} />
+          <div data-tour="matches" style={{ background: "linear-gradient(140deg, #FF3355 0%, #D81E4A 55%, #B81540 100%)", borderRadius: 26, padding: "30px 32px", position: "relative", overflow: "hidden" }}>
+            <div className="glow" style={{ right: -40, top: -60, width: 260, height: 260, background: "radial-gradient(circle, rgba(255,255,255,.2), transparent 70%)" }} />
             <div style={{ position: "relative" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: CORAL_BRIGHT, color: "#3a0510", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 20 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", color: CORAL, fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 20 }}>
                 <Fire size={13} weight="fill" /> Featured
               </span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.08)", color: "#D9C3C9", fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 20, marginLeft: 8 }}>
@@ -141,20 +141,20 @@ export default function ArenaPage() {
                 <Flag code={featured.away.code} name={featured.away.name} size={44} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -14 }} />
               </div>
               <h1 className="cd" style={{ fontSize: 38, lineHeight: 1.03, color: "#fff", margin: "14px 0 0", letterSpacing: "-.5px" }}>
-                {featured.home.name} <span style={{ color: "#7c5b64", fontWeight: 600 }}>vs</span> {featured.away.name}
+                {featured.home.name} <span style={{ color: "rgba(255,255,255,.6)", fontWeight: 600 }}>vs</span> {featured.away.name}
               </h1>
-              <p style={{ fontSize: 14.5, lineHeight: 1.45, color: "#D9C3C9", margin: "10px 0 0", maxWidth: 440 }}>
+              <p style={{ fontSize: 14.5, lineHeight: 1.45, color: "rgba(255,255,255,.9)", margin: "10px 0 0", maxWidth: 440 }}>
                 Put your money where your mouth is. The <b style={{ color: "#fff" }}>match</b> ends, TxLINE proves the result, and winners can claim from the pool.
               </p>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, flexWrap: "wrap" }}>
-                <Link href={`/challenge/${featured.matchId}`} className="btnp" style={{ fontSize: 15, padding: "13px 24px", borderRadius: 13, textDecoration: "none" }}>
+                <Link href={`/challenge/${featured.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, background: "#fff", color: CORAL, fontSize: 15, padding: "13px 24px", borderRadius: 13, textDecoration: "none" }}>
                   <Fire size={16} weight="fill" /> Challenge a mate
                 </Link>
                 <Link href={`/bet/${featured.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.1)", padding: "13px 22px", borderRadius: 13, textDecoration: "none" }}>
                   Back the crowd <ArrowRight size={16} weight="bold" />
                 </Link>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.06)", borderRadius: 30, padding: "10px 15px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.14)", borderRadius: 30, padding: "10px 15px" }}>
                   <Trophy size={15} weight="fill" color="#F2B705" />
                   <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>{featured.pot.toLocaleString()} USDC in the pool</span>
                 </div>

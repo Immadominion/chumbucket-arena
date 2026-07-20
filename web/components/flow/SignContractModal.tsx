@@ -24,7 +24,7 @@ export default function SignContractModal({ open, onClose }: { open: boolean; on
     try {
       await signContract(handle.trim() || "Chum");
       onClose();
-      router.push("/trial");
+      router.push("/arena");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't set up your account. Try again.");
     }

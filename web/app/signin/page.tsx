@@ -19,11 +19,11 @@ export default function ContractPage() {
   const router = useRouter();
   const [showHandle, setShowHandle] = useState(false);
 
-  // Fully set up → into the app.
+  // Signed in → straight to the dashboard (the tour handles the welcome).
   useEffect(() => {
     if (!ready || session.status !== "signed") return;
-    router.replace(session.onboarded ? "/arena" : "/trial");
-  }, [ready, session.status, session.onboarded, router]);
+    router.replace("/arena");
+  }, [ready, session.status, router]);
 
   // Authenticated with Privy but no account yet → pick a handle.
   useEffect(() => {
