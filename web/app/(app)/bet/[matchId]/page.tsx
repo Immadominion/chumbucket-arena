@@ -223,7 +223,10 @@ export default function MakeCallPage() {
               signature: proof.signature,
               metadata: { home: fx?.home.name, away: fx?.away.name },
             });
-            // Refresh the player summary so this bet shows in arena "Your bets".
+            // Nudge the player summary to refetch. The pooled on-chain bet
+            // itself surfaces on /results (social-store backed), where the
+            // confirmation screen sends the player; this just keeps any
+            // custodial summary fresh.
             await qc.invalidateQueries({ queryKey: trpc.me.queryKey() });
           } catch {
             /* non-fatal: the reconciler still records this bet from the chain */
@@ -336,7 +339,7 @@ export default function MakeCallPage() {
         {/* LEFT */}
         <div className="col-main">
           <div className="card" style={{ padding: 28, textAlign: "center" }}>
-            {fx.ko && (
+            {isOpen && fx.ko && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#C57A12", background: "#FBF0DC", padding: "5px 13px", borderRadius: 20 }}>
                 <Clock size={13} weight="fill" />
                 Kick-off {fx.ko}{fx.group ? ` · ${fx.group}` : ""}
@@ -498,7 +501,7 @@ export default function MakeCallPage() {
                       <b>{c}</b>
                     </button>
                   ))}
-                  <button onClick={() => setStake(Math.round(max * 100) / 100)} className="mono" style={{ flex: 1, background: "#F9F3F5", border: "none", borderRadius: 11, padding: 10, cursor: "pointer" }}><b>MAX</b></button>
+                  <button onClick={() => setStake(Math.floor(max * 100) / 100)} className="mono" style={{ flex: 1, background: "#F9F3F5", border: "none", borderRadius: 11, padding: 10, cursor: "pointer" }}><b>MAX</b></button>
                 </div>
                 <div style={{ height: 1, background: "#F5EEF1", margin: "20px 0" }} />
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>

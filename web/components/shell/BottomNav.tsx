@@ -21,7 +21,7 @@ export default function BottomNav() {
               style={{ width: "auto", minWidth: 58, height: "auto", padding: "6px 8px", flexDirection: "column", gap: 3 }}
             >
               <Icon size={20} weight={on ? "fill" : "regular"} />
-              <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>{label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1, color: on ? undefined : "#6f6169" }}>{label}</span>
             </Link>
           );
         })}

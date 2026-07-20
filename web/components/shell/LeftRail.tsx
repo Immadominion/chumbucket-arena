@@ -26,7 +26,7 @@ export default function LeftRail() {
               style={{ width: 68, height: "auto", padding: "9px 0", flexDirection: "column", gap: 4 }}
             >
               <Icon size={21} weight={on ? "fill" : "regular"} />
-              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".01em", lineHeight: 1 }}>{label}</span>
+              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".01em", lineHeight: 1, color: on ? "#fff" : "#6f6169" }}>{label}</span>
             </Link>
           );
         })}

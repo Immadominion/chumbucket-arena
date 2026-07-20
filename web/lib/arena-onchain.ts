@@ -294,12 +294,20 @@ export async function fetchPosition(matchId: string, playerWallet: string): Prom
 
 /** The player's own on-chain USDC balance (UI amount, i.e. already /1e6). */
 export async function fetchUsdcBalance(walletAddress: string): Promise<number> {
+  const ata = playerUsdcAta(new PublicKey(walletAddress));
   try {
-    const ata = playerUsdcAta(new PublicKey(walletAddress));
     const bal = await getConnection().getTokenAccountBalance(ata);
     return bal.value.uiAmount ?? 0;
-  } catch {
-    return 0; // ATA doesn't exist yet (no USDC ever received) — zero balance
+  } catch (e) {
+    // A genuinely-missing ATA (no USDC ever received) is a real zero balance.
+    // Anything else (RPC 429/timeout/network) must NOT be reported as 0 — that
+    // would clobber a funded user's balance and shove them into the funding
+    // modal. Rethrow so React Query keeps the last-known-good value instead.
+    const msg = String((e as Error)?.message ?? e);
+    if (/could not find account|does not exist|Invalid param|account not found/i.test(msg)) {
+      return 0;
+    }
+    throw e;
   }
 }
 

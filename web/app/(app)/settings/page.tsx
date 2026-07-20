@@ -117,14 +117,7 @@ export default function SettingsPage() {
       </div>
 
       <Section title="Privacy">
-        <Toggle label="Public profile" desc="Let anyone see your betting record" on={publicDossier} set={setPublicDossier} />
-        <Link href={`/p/${wallet}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>View my public page</div>
-            <div style={{ fontSize: 12, color: "#988990", fontWeight: 600 }}>What visitors see when you share</div>
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#FF3355" }}>Open ↗</span>
-        </Link>
+        <Toggle label="Public profile" desc="Let anyone see your betting record" on={publicDossier} set={setPublicDossier} last />
       </Section>
 
       {/* ownership */}

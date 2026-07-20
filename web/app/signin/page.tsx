@@ -54,7 +54,7 @@ export default function ContractPage() {
     // seconds after the click, say so instead of leaving them staring.
     window.setTimeout(() => {
       if (!authedRef.current) {
-        setLoginErr("The sign-in window didn't open. Check your browser isn't blocking pop-ups, then try again.");
+        setLoginErr("Sign-in didn't open. Refresh and try again — if it keeps happening, your browser may be blocking the pop-up.");
       }
     }, 6000);
   };

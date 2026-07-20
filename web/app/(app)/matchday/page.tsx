@@ -157,12 +157,18 @@ export default function MatchdayPage() {
         </div>
       ) : (
         <>
-          {showOpen && (
-            <Group title="Open to predict" count={open.length}>
-              {open.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
-              {open.length === 0 && <Empty>No matches open to predict right now.</Empty>}
-            </Group>
-          )}
+          {showOpen && (() => {
+            // The featured match is already shown as the hero above (in all/open
+            // views), so drop it from the list to avoid rendering it twice.
+            const heroId = featured?.fixture.matchId;
+            const openRows = open.filter((m) => m.fixture.matchId !== heroId);
+            return (
+              <Group title="Open to predict" count={openRows.length}>
+                {openRows.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
+                {openRows.length === 0 && <Empty>{open.length ? "That's the only match open right now." : "No matches open to predict right now."}</Empty>}
+              </Group>
+            );
+          })()}
 
           {showLive && (
             <Group title="In play" count={live.length}>
