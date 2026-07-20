@@ -11,14 +11,14 @@ import { useSession } from "@/lib/session";
 /* eslint-disable @next/next/no-img-element */
 
 /**
- * Profile edit — full_name/bio + one of the 5 preset avatars, all written to the
+ * Profile edit, full_name/bio + one of the 5 preset avatars, all written to the
  * SAME Supabase `users` row the mobile app reads/writes (see lib/social.ts).
  *
  * Mobile has no free-form photo upload today: its picker
  * (widgets/profile_picture_selection_modal.dart) offers exactly these 5 bundled
  * images and writes `profile_image_id` directly (there's an
  * `update_user_profile_with_pfp` RPC defined server-side, but mobile's own live
- * code never calls it — only a commented-out call site exists). This mirrors
+ * code never calls it, only a commented-out call site exists). This mirrors
  * mobile's REAL behavior: full_name/bio via `update_user_profile`, avatar via a
  * direct `users` table update.
  */

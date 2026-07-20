@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Calls — the live activity feed: every public call, copy, settlement and
+ * Calls, the live activity feed: every public call, copy, settlement and
  * claim across ChumBucket, mirroring the mobile app's Calls tab
  * (chumbucket/lib/features/arena/presentation/screens/calls_screen.dart) 1:1.
  *
  * Global reads trpc.activity (every public row); Following reads
  * trpc.followingFeed (same row shape, pre-filtered server-side to wallets you
- * follow + accepted friends). Both are already-live public procedures — no
+ * follow + accepted friends). Both are already-live public procedures, no
  * backend changes here.
  */
 
@@ -29,7 +29,7 @@ const INK = "#1A1013";
 const CORAL = "#FF3355";
 const GRAY = "#988990";
 
-// Raw status enums must never reach the UI — map to plain phrases (audit H2).
+// Raw status enums must never reach the UI, map to plain phrases (audit H2).
 const STATUS_PHRASE: Record<string, string> = {
   OPEN: "Open to join",
   PENDING: "Match started",
@@ -38,7 +38,7 @@ const STATUS_PHRASE: Record<string, string> = {
   VERIFIED: "Confirmed",
   SETTLED: "Result in",
   RESOLVED: "Result in",
-  VOID: "Match void — money back",
+  VOID: "Match void, money back",
   CLAIMABLE: "Winnings ready",
 };
 const statusPhrase = (s: string) => STATUS_PHRASE[s] ?? "In progress";
@@ -69,11 +69,11 @@ export default function CallsPage() {
   const calls = useMemo(() => (active.data ?? []).map(toActivityCall), [active.data]);
 
   // Batch-resolve every distinct caller's linked X handle in one request, same
-  // pattern as friends/page.tsx — falls back to a shortened wallet per row.
+  // pattern as friends/page.tsx, falls back to a shortened wallet per row.
   const feedWallets = useMemo(() => Array.from(new Set(calls.map((c) => c.wallet))), [calls]);
   const profiles = useWalletProfiles(feedWallets);
 
-  // A failed fetch must not masquerade as "no calls" — show the real error,
+  // A failed fetch must not masquerade as "no calls", show the real error,
   // as a top-level replacement (ErrorState carries its own midpad/60vh
   // treatment), matching matchday/results/arena's convention.
   if (active.isError && calls.length === 0) {
@@ -93,7 +93,7 @@ export default function CallsPage() {
     <div className="midpad" style={{ maxWidth: 760 }}>
       <div className="cd" style={{ fontSize: 24 }}>Predictions</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
-        See what everyone&rsquo;s predicting right now — who picked who, and how it turned out.
+        See what everyone&rsquo;s predicting right now, who picked who, and how it turned out.
       </p>
 
       <FeedTabs mode={mode} onChange={setMode} />
@@ -110,8 +110,8 @@ export default function CallsPage() {
         ) : calls.length === 0 ? (
           <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: GRAY, fontWeight: 600 }}>
             {mode === "following"
-              ? "Nobody you follow has made a pick yet — add friends on the Friends page to fill this feed."
-              : "No predictions yet — the first public pick will show up here."}
+              ? "Nobody you follow has made a pick yet, add friends on the Friends page to fill this feed."
+              : "No predictions yet, the first public pick will show up here."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

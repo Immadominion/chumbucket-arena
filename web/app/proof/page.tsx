@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * How a result settles — a real on-chain settlement, shown end to end. When a
+ * How a result settles, a real on-chain settlement, shown end to end. When a
  * ChumBucket match ends, the final score is proven against TxLINE's Merkle-
  * committed data on Solana before a payout becomes claimable. This page shows a real one
  * and lets you re-run the exact on-chain check yourself.
@@ -38,7 +38,7 @@ export default function ProofPage() {
         </h1>
         <p className="proof-copy" style={{ fontSize: 15.5, lineHeight: 1.5, color: "#D9C3C9", margin: "14px 0 0", maxWidth: 560 }}>
           When a match ends, ChumBucket proves the final score against{" "}
-          <b style={{ color: "#F7EEF0" }}>TxLINE&rsquo;s Merkle-committed data on Solana</b> — and only then makes the winning position claimable. No
+          <b style={{ color: "#F7EEF0" }}>TxLINE&rsquo;s Merkle-committed data on Solana</b>, and only then makes the winning position claimable. No
           human decides. Here&rsquo;s a real settlement and the exact on-chain check that authorized the claim.
         </p>
 
@@ -56,9 +56,9 @@ export default function ProofPage() {
         <div style={{ marginTop: 36 }}>
           <div className="cd" style={{ fontSize: 15, color: "#FFB0C0", letterSpacing: ".4px", marginBottom: 16 }}>HOW SETTLEMENT WORKS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Step icon={<Brain size={18} weight="fill" color="#FFB0C0" />} title="TxLINE commits the score on-chain" body="Every score update is hashed into a Merkle tree whose root is posted to a Solana account by TxLINE's oracle — tamper-evident and public." />
-            <Step icon={<LockSimple size={18} weight="fill" color="#FFB0C0" />} title="The proof unlocks the claim" body="Settlement runs a Merkle proof of the final score through TxLINE's oracle on-chain. No valid proof, no claim — and no human chooses the result." />
-            <Step icon={<ShieldCheck size={18} weight="fill" color="#FFB0C0" />} title="Same check, anytime" body="The verdict is computed by TxLINE's program on Solana. The button above re-runs that exact check against a public RPC — the same one that settled the pot." />
+            <Step icon={<Brain size={18} weight="fill" color="#FFB0C0" />} title="TxLINE commits the score on-chain" body="Every score update is hashed into a Merkle tree whose root is posted to a Solana account by TxLINE's oracle, tamper-evident and public." />
+            <Step icon={<LockSimple size={18} weight="fill" color="#FFB0C0" />} title="The proof unlocks the claim" body="Settlement runs a Merkle proof of the final score through TxLINE's oracle on-chain. No valid proof, no claim, and no human chooses the result." />
+            <Step icon={<ShieldCheck size={18} weight="fill" color="#FFB0C0" />} title="Same check, anytime" body="The verdict is computed by TxLINE's program on Solana. The button above re-runs that exact check against a public RPC, the same one that settled the pool." />
           </div>
         </div>
       </div>

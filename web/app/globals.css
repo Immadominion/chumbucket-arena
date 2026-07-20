@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* PP Neue Machina — the brand display face, served locally (same files the
+/* PP Neue Machina, the brand display face, served locally (same files the
    landing uses) so the app matches the landing judges arrive from. */
 @font-face {
   font-family: "PP Neue Machina";
@@ -22,7 +22,7 @@
 }
 
 /* ============================================================
-   CHUMBUCKET — design tokens (coral; legacy green-/mint- token names)
+   CHUMBUCKET, design tokens (coral; legacy green-/mint- token names)
    ============================================================ */
 @theme {
   --font-display: "PP Neue Machina", system-ui, sans-serif;
@@ -153,7 +153,7 @@ body {
 }
 
 /* ============================================================
-   APP SHELL — full-bleed (not a floating card)
+   APP SHELL, full-bleed (not a floating card)
    Desktop: left rail · content · right squad rail, edge to edge.
    Mobile:  content + floating bottom nav.
    ============================================================ */
@@ -164,7 +164,7 @@ body {
   background: #faf6f7;
 }
 
-/* left icon rail — sticky, full height */
+/* left icon rail, sticky, full height */
 .lrail {
   width: 84px;
   flex: none;
@@ -226,7 +226,7 @@ body {
   margin: 0 auto;
 }
 
-/* right squad rail — sticky, full height */
+/* right squad rail, sticky, full height */
 .arail {
   width: 88px;
   flex: none;
@@ -337,7 +337,7 @@ body {
 }
 
 /* ============================================================
-   LANDING — Troof-inspired layout, Chumbucket theme
+   LANDING, Troof-inspired layout, Chumbucket theme
    (phone mockups · soft glows · geometric rings · blank screens)
    ============================================================ */
 .troof {
@@ -571,7 +571,7 @@ body {
   height: 18px;
 }
 
-/* phone mock — blank screen placeholder */
+/* phone mock, blank screen placeholder */
 .troof-phone {
   position: relative;
   z-index: 2;
@@ -897,7 +897,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* sign-in hero — desktop: content left, artwork grounded on the right */
+/* sign-in hero, desktop: content left, artwork grounded on the right */
 .signin {
   min-height: 100dvh;
   display: flex;
@@ -1004,7 +1004,7 @@ body {
   }
 }
 
-/* "typing" indicator — three dots bouncing in sequence */
+/* "typing" indicator, three dots bouncing in sequence */
 @keyframes typing-bounce {
   0%,
   60%,
@@ -1153,7 +1153,7 @@ model-viewer {
 }
 
 /* ============================================================
-   Verdict — full-screen focus overlay (appears over any screen)
+   Verdict, full-screen focus overlay (appears over any screen)
    ============================================================ */
 .verdict-overlay {
   position: fixed;

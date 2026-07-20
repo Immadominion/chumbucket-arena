@@ -11,7 +11,7 @@ import { useSession } from "@/lib/session";
 /**
  * The pick-your-handle step, shown AFTER Privy authentication. Privy's own modal
  * handles method selection (Google / X / email / wallet), so there's no custom
- * provider UI here — just the handle, then trpc.signContract.
+ * provider UI here, just the handle, then trpc.signContract.
  */
 export default function SignContractModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signContract, busy } = useSession();
@@ -55,7 +55,7 @@ export default function SignContractModal({ open, onClose }: { open: boolean; on
         </form>
         {error && <p style={{ fontSize: 12, color: "#C2373B", textAlign: "center", marginTop: 12, fontWeight: 600 }}>{error}</p>}
         <p style={{ fontSize: 11.5, color: "#B3A6AB", textAlign: "center", marginTop: 14, lineHeight: 1.4 }}>
-          Your wallet is created for you — no seed phrases. Owned by you, verifiable on-chain.
+          Your wallet is created for you, no seed phrases. Owned by you, verifiable on-chain.
         </p>
       </div>
     </Modal>

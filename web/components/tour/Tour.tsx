@@ -17,7 +17,7 @@ const NOTE_W = 308;
 /**
  * Spotlight coach-tour. Dims the whole screen, punches a hole around the current
  * reference element, and shows a numbered note + a pointing cursor. Everything
- * else is inert — only the note's button advances the tour.
+ * else is inert, only the note's button advances the tour.
  */
 export default function Tour({ steps, onDone }: { steps: TourStep[]; onDone: () => void }) {
   const [i, setI] = useState(0);

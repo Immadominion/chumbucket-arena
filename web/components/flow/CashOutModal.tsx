@@ -6,7 +6,7 @@ import { ArrowUp, ShieldCheck } from "@/components/icons";
 import { useSession } from "@/lib/session";
 import { useWalPrice } from "@/lib/useWalPrice";
 
-/** "Cash out" — no-crypto withdraw. Live: trpc.withdraw.mutate({ amount }). */
+/** "Cash out", no-crypto withdraw. Live: trpc.withdraw.mutate({ amount }). */
 export default function CashOutModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { session, withdraw, busy } = useSession();
   const price = useWalPrice();
@@ -27,7 +27,7 @@ export default function CashOutModal({ open, onClose }: { open: boolean; onClose
       await withdraw(Math.min(amount, max));
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Withdrawal failed — try again.");
+      setError(e instanceof Error ? e.message : "Withdrawal failed, try again.");
     }
   };
 

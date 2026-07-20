@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Peer-to-peer SOL — send native SOL to any wallet address, or show your own
+ * Peer-to-peer SOL, send native SOL to any wallet address, or show your own
  * address as a QR code to receive. This is separate from the in-game USDC
- * balance (the /wallet page's add-funds/cash-out flow) — real SOL, signed with
+ * balance (the /wallet page's add-funds/cash-out flow), real SOL, signed with
  * the Privy embedded Solana wallet, same wallet the backend already resolves
  * for this account (see components/Providers.tsx).
  */
@@ -48,7 +48,7 @@ function SendPageInner() {
     <div className="midpad" style={{ maxWidth: 560 }}>
       <div className="cd" style={{ fontSize: 24 }}>Send &amp; receive SOL</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
-        Peer-to-peer, straight from your wallet — separate from your ChumBucket balance.
+        Peer-to-peer, straight from your wallet, separate from your ChumBucket balance.
       </p>
 
       <div style={{ display: "flex", gap: 6, marginTop: 18, background: "#F5EEF1", borderRadius: 14, padding: 4 }}>
@@ -113,7 +113,7 @@ function ReceivePanel() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      /* clipboard blocked — address is still visible to select manually */
+      /* clipboard blocked, address is still visible to select manually */
     }
   };
 
@@ -125,7 +125,7 @@ function ReceivePanel() {
         </div>
       ) : (
         <div style={{ fontSize: 13, color: "#988990", fontWeight: 600, padding: "40px 0" }}>
-          No wallet address yet — finish setting up your account first.
+          No wallet address yet, finish setting up your account first.
         </div>
       )}
       {wallet && (

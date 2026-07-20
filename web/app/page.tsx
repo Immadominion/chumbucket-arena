@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import TroofLanding from "@/components/troof/TroofLanding";
 
 /**
- * Arena product entry — literal Troof Figma template (assets + layout),
+ * Arena product entry, literal Troof Figma template (assets + layout),
  * Chumbucket wording. Marketing home for the brand remains chum-bucket/.
  * Phone screens are blank until product shots are dropped in.
  */

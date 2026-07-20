@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * ChumBucket — the hub. Every live World Cup match is a bucket you can put money
+ * ChumBucket, the hub. Every live World Cup match is a bucket you can put money
  * on two ways: CHALLENGE a mate head-to-head, or BACK the crowd in the pooled
  * market. What makes it ChumBucket and not a bookie: nobody here decides who won.
  * When the match ends, settlement is a pure function of a TxLINE Merkle proof on
- * Solana — the creator can't rig it, and neither can we.
+ * Solana, the creator can't rig it, and neither can we.
  */
 
 import Link from "next/link";
@@ -29,7 +29,7 @@ import { useSession } from "@/lib/session";
 
 /* eslint-disable @next/next/no-img-element */
 
-// ChumBucket brand — coral, distinct from the semantic win/loss greens & reds.
+// ChumBucket brand, coral, distinct from the semantic win/loss greens & reds.
 const CORAL = "#FF3355";
 const CORAL_BRIGHT = "#FF5A76";
 const INK = "#1A1013";
@@ -47,7 +47,7 @@ export default function ArenaPage() {
   const matchday = g.matchday;
   const openCalls = g.openCalls;
   const handle = session.handle || "there";
-  // Show the ON-CHAIN wallet balance — the exact USDC a bet spends — not the
+  // Show the ON-CHAIN wallet balance, the exact USDC a bet spends, not the
   // custodial float. Funding the float never moved this number, so a judge who
   // topped up the old way saw a balance they couldn't bet with (the dead loop).
   const qc = useQueryClient();
@@ -65,7 +65,7 @@ export default function ArenaPage() {
   if (!featured) {
     return (
       <div className="midpad" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", color: GRAY, fontWeight: 600, fontSize: 14 }}>
-        {g.loading ? "Loading live matches…" : "No matches are open right now — check back at kick-off."}
+        {g.loading ? "Loading live matches…" : "No matches are open right now, check back at kick-off."}
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function ArenaPage() {
       <div className="row row-26" style={{ marginTop: 22 }}>
         {/* MAIN */}
         <div className="col-main">
-          {/* HERO — featured match, two ways to play */}
+          {/* HERO, featured match, two ways to play */}
           <div style={{ background: `linear-gradient(125deg, ${INK} 0%, ${INK2} 58%, #3a0f1c 100%)`, borderRadius: 26, padding: "30px 32px", position: "relative", overflow: "hidden" }}>
             <div className="glow" style={{ right: -40, top: -60, width: 260, height: 260, background: `radial-gradient(circle, rgba(255,90,118,.28), transparent 70%)` }} />
             <div style={{ position: "relative" }}>
@@ -130,7 +130,7 @@ export default function ArenaPage() {
             </div>
           </div>
 
-          {/* TRUST STRIP — the whole pitch, in three beats */}
+          {/* TRUST STRIP, the whole pitch, in three beats */}
           <div className="grid3" style={{ gap: 12, marginTop: 16 }}>
             {[
               { icon: <Fire size={16} weight="fill" color={CORAL} />, t: "1. Pick your side", s: "Challenge a mate 1-v-1, or back an outcome in the pool." },
@@ -197,7 +197,7 @@ export default function ArenaPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5, color: INK }}>{oc.pick}</div>
                     <div style={{ fontSize: 11.5, color: GRAY, fontWeight: 600, marginTop: 1 }}>
-                      <span className="mono">{oc.staked.toFixed(1)}</span> staked · locks {oc.lock}
+                      <span className="mono">{oc.staked.toFixed(1)}</span> backed · locks {oc.lock}
                     </div>
                   </div>
                   <LockSimple size={14} weight="fill" color={CORAL} />
@@ -206,7 +206,7 @@ export default function ArenaPage() {
             </div>
           )}
 
-          {/* how settlement works — the differentiator, always visible */}
+          {/* how settlement works, the differentiator, always visible */}
           <Link href="/proof" className="ink" style={{ display: "block", padding: 22, textDecoration: "none", marginTop: 20 }}>
             <div className="glow" style={{ right: -30, top: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255,90,118,.3),transparent 70%)" }} />
             <div style={{ position: "relative" }}>

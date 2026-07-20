@@ -46,7 +46,7 @@ export default function WalletPage() {
     const away = m?.fixture.away ?? "Away";
     return {
       kind: "stake",
-      title: `Staked · ${pickLabel(c.bucket, home, away)}`,
+      title: `Backed · ${pickLabel(c.bucket, home, away)}`,
       sub: `${home} v ${away}`,
       amount: `−${frostToWal(c.stake).toFixed(1)}`,
       amountTone: "neutral",
@@ -72,7 +72,7 @@ export default function WalletPage() {
             </div>
             {staked > 0 && (
               <div className="mono" style={{ fontSize: 11, color: "#B8C6BD", marginTop: 4, position: "relative" }}>
-                {staked.toFixed(1)} USDC staked in open bets — locked in escrow, not spendable here
+                {staked.toFixed(1)} USDC staked in open bets, locked in escrow, not spendable here
               </div>
             )}
             {session.bonus > 0 && (
@@ -101,7 +101,7 @@ export default function WalletPage() {
             <div style={{ height: 1, background: "#F5EEF1", margin: "0 18px" }} />
             {activity.length === 0 && (
               <div style={{ padding: "22px 18px", textAlign: "center", fontSize: 13, fontWeight: 600, color: "#988990" }}>
-                No activity yet — place a bet and your stakes show up here.
+                No activity yet, place a bet and your stakes show up here.
               </div>
             )}
             {activity.map((e, i) => (
@@ -128,7 +128,7 @@ export default function WalletPage() {
               <div className="mono" style={{ fontWeight: 700, fontSize: 20, marginTop: 5 }}>{total.toFixed(1)}</div>
             </div>
             <div className="card" style={{ flex: 1, padding: 18 }}>
-              <div className="lbl">STAKED</div>
+              <div className="lbl">IN PLAY</div>
               <div className="mono" style={{ fontWeight: 700, fontSize: 20, color: "#FF3355", marginTop: 5 }}>{staked.toFixed(1)}</div>
             </div>
           </div>

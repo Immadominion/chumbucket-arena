@@ -41,7 +41,7 @@ export default function ResultsPage() {
           {!g.loading && (
             <>
               <p style={{ fontSize: 14, color: "#7C6D72", margin: "10px 0 18px" }}>
-                Place a bet and the match settles it the moment the final whistle blows — win or lose, it goes on your record.
+                Place a bet and the match settles it the moment the final whistle blows, win or lose, it goes on your record.
               </p>
               <Link href="/matchday" className="btnp" style={{ padding: "12px 22px", borderRadius: 13, textDecoration: "none" }}>
                 Find a match <ArrowRight size={15} weight="bold" />

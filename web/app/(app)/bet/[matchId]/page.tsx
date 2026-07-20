@@ -20,24 +20,24 @@ import { explorerTxUrl } from "@/lib/solana";
 
 /* eslint-disable @next/next/no-img-element */
 
-const RAKE_BPS = 250; // 2.5% — taken from the losers' pool only (must match backend)
+const RAKE_BPS = 250; // 2.5%, taken from the losers' pool only (must match backend)
 
 /**
  * Map a raw place-bet exception to one plain sentence a newcomer understands.
- * The real error only ever goes to the console — never to the screen.
+ * The real error only ever goes to the console, never to the screen.
  */
 function betErrorMessage(e: unknown): string {
   console.error("[chumbucket] place bet failed:", e);
   const raw = (e instanceof Error ? e.message : String(e)).toLowerCase();
   if (/reject|declin|cancel|denied|user did not|dismiss/.test(raw))
-    return "You cancelled in your wallet — nothing was taken.";
+    return "You cancelled in your wallet, nothing was taken.";
   if (/insufficient|not enough|debit an account|exceeds balance/.test(raw))
     return "Not enough USDC to cover this bet.";
   if (/lock|closed|kicked off|not open|already started/.test(raw))
-    return "This match already kicked off — bets are closed.";
+    return "This match already kicked off, bets are closed.";
   if (/blockhash|network|fetch|timeout|timed out|connection|rpc|econn|failed to send/.test(raw))
-    return "Couldn't reach the network — please try again.";
-  return "Something went wrong placing your bet — please try again.";
+    return "Couldn't reach the network, please try again.";
+  return "Something went wrong placing your bet, please try again.";
 }
 
 export default function MakeCallPage() {
@@ -48,7 +48,7 @@ export default function MakeCallPage() {
   const qc = useQueryClient();
 
   // The money side is real, non-custodial on-chain USDC now (chumbucket_arena's
-  // place_call) — same Privy wallet + signing pattern as the Send screen
+  // place_call), same Privy wallet + signing pattern as the Send screen
   // (lib/solana.ts / app/(app)/send/page.tsx). No more off-chain ledger mutation.
   const { wallets, ready: walletsReady } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
@@ -67,7 +67,7 @@ export default function MakeCallPage() {
     // is that market's on-chain slot. Both come from the selected market below —
     // never the fixture matchId for a line market.
     mutationFn: async (opts: { potMatchId: string; bucketIndex: number; amountUsdc: number }) => {
-      if (!myWallet) throw new Error("Wallet isn't ready yet — try again in a moment.");
+      if (!myWallet) throw new Error("Wallet isn't ready yet, try again in a moment.");
       return placeCall({
         potMatchId: opts.potMatchId,
         bucketIndex: opts.bucketIndex,
@@ -78,18 +78,18 @@ export default function MakeCallPage() {
     },
   });
 
-  // Live match state — subscribe so pool, odds and status update in real time.
+  // Live match state, subscribe so pool, odds and status update in real time.
   // Fall back to the cached list on first paint. matchById is unfiltered, so a
   // match that has already kicked off still resolves (instead of vanishing to a
   // placeholder), which is what lets us show a proper "bets closed" state.
-  // NOTE: this stays the off-chain read-model (fine for LISTING/DISPLAY — real
-  // TxLINE-backed fixtures) — it does not reflect on-chain stake totals from
+  // NOTE: this stays the off-chain read-model (fine for LISTING/DISPLAY, real
+  // TxLINE-backed fixtures), it does not reflect on-chain stake totals from
   // placeCall below, since that path never emits the custodial engine's events.
   const matchSub = useSubscription(trpc.onMatch.subscriptionOptions({ matchId: params.matchId }));
   const match = matchSub.data ?? g.matchById(params.matchId);
   const isOpen = match?.status === "OPEN";
 
-  // Real on-chain USDC balance — what the player can actually bet, straight
+  // Real on-chain USDC balance, what the player can actually bet, straight
   // from their own wallet (not the custodial off-chain ledger's balance).
   const balanceQ = useQuery({
     queryKey: ["usdc-balance", session.wallet],
@@ -102,7 +102,7 @@ export default function MakeCallPage() {
   const balanceLoading = balanceQ.isLoading && !!session.wallet;
 
   // Every backable market on this fixture (Result 1X2, Over/Under, Handicap).
-  // Result is always first — the default tab.
+  // Result is always first, the default tab.
   const markets = useMemo<CallMarket[]>(() => (match ? toCallMarkets(match) : []), [match]);
   const [marketIdx, setMarketIdx] = useState(0);
   const [pick, setPick] = useState<string>("HOME");
@@ -130,7 +130,7 @@ export default function MakeCallPage() {
   const returnMult = stake > 0 ? (stake + profit) / stake : 1;
 
   const max = Math.max(balance, 0);
-  // M4: an empty amount and "not enough money" are DIFFERENT states — never
+  // M4: an empty amount and "not enough money" are DIFFERENT states, never
   // collapse them into one button that shoves a funded user at Add funds.
   const amountEmpty = stake <= 0;
   const notEnough = !amountEmpty && stake > balance;
@@ -139,10 +139,10 @@ export default function MakeCallPage() {
   const pct = sel?.pct ?? 0;
   const read =
     totalPool === 0
-      ? `Nobody's in yet — back ${subject} and you're the first in this pool.`
+      ? `Nobody's in yet, back ${subject} and you're the first in this pool.`
       : pct > 45
-        ? `The crowd's ${pct}% on ${subject} — a safe pick with a thinner payout.`
-        : `Only ${pct}% are on ${subject} — you'd be going against the crowd. If it lands, you take a big share of the pool.`;
+        ? `The crowd's ${pct}% on ${subject}, a safe pick with a thinner payout.`
+        : `Only ${pct}% are on ${subject}, you'd be going against the crowd. If it lands, you take a big share of the pool.`;
 
   const switchMarket = (i: number) => {
     setMarketIdx(i);
@@ -152,11 +152,11 @@ export default function MakeCallPage() {
 
   const lock = async () => {
     if (!isOpen) {
-      setError("This match already kicked off — bets are closed.");
+      setError("This match already kicked off, bets are closed.");
       return;
     }
     if (!selectedMarket || !sel) {
-      setError("Still loading this match — try again in a moment.");
+      setError("Still loading this match, try again in a moment.");
       return;
     }
     if (amountEmpty) return; // button is disabled in this state; never open the modal
@@ -165,7 +165,7 @@ export default function MakeCallPage() {
       return;
     }
     if (!myWallet) {
-      setError("Wallet isn't ready yet — try again in a moment.");
+      setError("Wallet isn't ready yet, try again in a moment.");
       return;
     }
     // The on-chain pot for THIS market: Result falls back to the fixture matchId
@@ -174,7 +174,7 @@ export default function MakeCallPage() {
     const potMatchId =
       selectedMarket.kind === "RESULT" ? selectedMarket.potMatchId ?? params.matchId : selectedMarket.potMatchId;
     if (!potMatchId) {
-      setError("This bet type isn't available yet — try the Match result bet.");
+      setError("This bet type isn't available yet, try the Match result bet.");
       return;
     }
     setError(null);
@@ -185,7 +185,7 @@ export default function MakeCallPage() {
         amountUsdc: stake,
       });
       setTxSignature(signature);
-      // Scoped: just the on-chain USDC balance this screen itself reads — the
+      // Scoped: just the on-chain USDC balance this screen itself reads, the
       // match pool totals below are the off-chain read-model and never move
       // from an on-chain placeCall (see the note above), so there's nothing
       // else here worth invalidating.
@@ -194,8 +194,8 @@ export default function MakeCallPage() {
       // Best-effort optimistic mirror so this bet appears immediately in "Your
       // bets" / the feed (mobile does the same via signAndRecordCallProof). A
       // second lightweight signature, NOT another money tx. Any failure or a
-      // user-cancelled signature is harmless — the indexer reconciles by tx
-      // signature — so it must never surface as a failed bet. Scoped to Result
+      // user-cancelled signature is harmless, the indexer reconciles by tx
+      // signature, so it must never surface as a failed bet. Scoped to Result
       // markets, whose HOME/DRAW/AWAY buckets match the recordPredictionCall
       // contract; line-market (Over/Under, Handicap) bets appear via the
       // on-chain reconciler instead.
@@ -230,7 +230,7 @@ export default function MakeCallPage() {
           }
         })();
       }
-      // M3: no 1.4s bounce to /arena — the player stays on a confirmation they
+      // M3: no 1.4s bounce to /arena, the player stays on a confirmation they
       // can actually read (and reach the Explorer link + their bets from).
     } catch (e) {
       setError(betErrorMessage(e));
@@ -241,7 +241,7 @@ export default function MakeCallPage() {
 
   // ── H4: honest loading / not-found states, before any interactive form ──────
   // The public list has resolved but this match isn't in it (or the fetch
-  // errored) — don't sit on a fake "…" fixture forever.
+  // errored), don't sit on a fake "…" fixture forever.
   if (!match && !g.loading) {
     return (
       <div className="midpad">
@@ -267,7 +267,7 @@ export default function MakeCallPage() {
     );
   }
 
-  // Still fetching — skeleton tiles, no fake fixture and no live controls.
+  // Still fetching, skeleton tiles, no fake fixture and no live controls.
   if (!match || !fx) {
     return (
       <div className="midpad">
@@ -356,7 +356,7 @@ export default function MakeCallPage() {
             <LiveScoreStrip matchId={params.matchId} />
           </div>
 
-          {/* Bet-type switcher — only when this fixture has more than the Result market. */}
+          {/* Bet-type switcher, only when this fixture has more than the Result market. */}
           {markets.length > 1 && (
             <>
               <div className="lbl" style={{ margin: "24px 0 12px" }}>WHAT TO PREDICT</div>
@@ -414,23 +414,23 @@ export default function MakeCallPage() {
             })}
           </div>
           <div style={{ fontSize: 11.5, color: "#B3A6AB", fontWeight: 500, marginTop: 8 }}>
-            {totalPool > 0 ? "% = the share of the pool backing each outcome (how the crowd is leaning)." : "No bets yet — back an outcome and you're the first in this pool."}
+            {totalPool > 0 ? "% = the share of the pool backing each outcome (how the crowd is leaning)." : "No bets yet, back an outcome and you're the first in this pool."}
           </div>
 
           <div className="ink" style={{ marginTop: 18, padding: "16px 18px" }}>
             <span style={{ fontSize: 14, fontWeight: 500, color: "#F7EEF0", lineHeight: 1.42 }}>{read}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.08)" }}>
               <ShieldCheck size={15} weight="fill" color="#FF5A76" />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0" }}>The real match result is checked automatically before anyone gets paid — no one can fake it.</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0" }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
             </div>
           </div>
         </div>
 
-        {/* RIGHT — YOUR BET */}
+        {/* RIGHT, YOUR BET */}
         <div className="col-side w360">
           <div className="card" style={{ padding: 24 }}>
             {done ? (
-              /* M3: dismissible post-bet confirmation — no bounce, real summary. */
+              /* M3: dismissible post-bet confirmation, no bounce, real summary. */
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FF3355", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
@@ -444,7 +444,7 @@ export default function MakeCallPage() {
                   result after the match and pay winners.
                 </p>
                 <p style={{ fontSize: 11.5, color: "#B3A6AB", fontWeight: 500, marginTop: 8 }}>
-                  Your bet is in — the pool figures on this page update shortly.
+                  Your bet is in, the pool figures on this page update shortly.
                 </p>
                 {txSignature && (
                   <a
@@ -487,7 +487,7 @@ export default function MakeCallPage() {
                   <span style={{ fontSize: 16, fontWeight: 700, color: "#988990" }}>USDC</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#B3A6AB", fontWeight: 500, textAlign: "center", marginTop: -8, marginBottom: 14 }}>
-                  USDC — digital US dollars, 1 USDC ≈ $1
+                  USDC, digital US dollars, 1 USDC ≈ $1
                 </div>
                 <div style={{ height: 6, background: "#F5EEF1", borderRadius: 6, position: "relative", marginBottom: 16 }}>
                   <div style={{ position: "absolute", left: 0, top: 0, height: 6, width: `${Math.min(100, max ? (stake / max) * 100 : 0)}%`, background: "linear-gradient(90deg,#FF5A76,#D81E4A)", borderRadius: 6 }} />
@@ -513,12 +513,12 @@ export default function MakeCallPage() {
                 </div>
                 <p style={{ fontSize: 11, color: "#B3A6AB", fontWeight: 500, lineHeight: 1.4, margin: "0 0 12px" }}>
                   {losersPool > 0
-                    ? `≈ ${returnMult.toFixed(2)}× if it lands. You'd get a share of the ${losersPool.toFixed(1)} USDC bet on the other outcomes — split by how much you put in — minus a 2.5% fee. The more people bet against you, the bigger it gets.`
-                    : "Your winnings come from people who bet the other way — nobody has yet."}
+                    ? `≈ ${returnMult.toFixed(2)}× if it lands. You'd get a share of the ${losersPool.toFixed(1)} USDC bet on the other outcomes, split by how much you put in, minus a 2.5% fee. The more people bet against you, the bigger it gets.`
+                    : "Your winnings come from people who bet the other way, nobody has yet."}
                 </p>
                 {/* M6: the refund rule always shows near the confirm button. */}
                 <p style={{ fontSize: 11.5, color: "#7C6D72", fontWeight: 600, lineHeight: 1.4, margin: "0 0 12px", padding: "9px 11px", background: "#F9F3F5", borderRadius: 10 }}>
-                  If fewer than 3 people join this pool, everyone gets their money back — you risk nothing.
+                  If fewer than 3 people join this pool, everyone gets their money back, you risk nothing.
                 </p>
                 <button onClick={() => void lock()} disabled={btnDisabled} className="btnp" style={{ width: "100%", fontSize: 15, padding: 15, borderRadius: 14, opacity: btnDisabled ? 0.7 : 1 }}>
                   <LockSimple size={16} weight="fill" />
@@ -526,11 +526,11 @@ export default function MakeCallPage() {
                 </button>
                 {/* H5: state plainly, at the moment of betting, that it's play money. */}
                 <p style={{ fontSize: 11, color: "#B3A6AB", textAlign: "center", marginTop: 10, fontWeight: 500, lineHeight: 1.4 }}>
-                  This is play money on a practice network — nothing here costs real cash.
+                  This is play money on a practice network, nothing here costs real cash.
                 </p>
                 {placeCallM.isPending && (
                   <p style={{ fontSize: 11.5, color: "#B3A6AB", textAlign: "center", marginTop: 8, fontWeight: 600 }}>
-                    Approve in your wallet, then sit tight — this can take a few seconds.
+                    Approve in your wallet, then sit tight, this can take a few seconds.
                   </p>
                 )}
                 {error && <p style={{ fontSize: 12, color: "#C2373B", textAlign: "center", marginTop: 10, fontWeight: 600 }}>{error}</p>}
@@ -540,7 +540,7 @@ export default function MakeCallPage() {
         </div>
       </div>
 
-      {/* H1: fund the EXACT on-chain wallet the bet spends from — no custodial
+      {/* H1: fund the EXACT on-chain wallet the bet spends from, no custodial
           float sweep, so a deposit actually raises the balance checked above. */}
       <AddFundsModal
         open={funds}

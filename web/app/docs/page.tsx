@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Technical documentation — architecture, on-chain program, and the TxLINE
+ * Technical documentation, architecture, on-chain program, and the TxLINE
  * settlement flow, for judges/engineers who want the real shape of the
  * system rather than the pitch. Mirrors /proof's visual language.
  */
@@ -75,7 +75,7 @@ export default function DocsPage() {
         </h1>
         <p style={{ fontSize: 15.5, lineHeight: 1.5, color: "#D9C3C9", margin: "14px 0 0", maxWidth: 580 }}>
           A social prediction market for football: predict a match, challenge a friend, and let the real result settle
-          it on-chain via TxLINE. This page is the architecture, not the pitch — see{" "}
+          it on-chain via TxLINE. This page is the architecture, not the pitch, see{" "}
           <Link href="/proof" style={{ color: "#FFB0C0" }}>
             /proof
           </Link>{" "}
@@ -84,16 +84,16 @@ export default function DocsPage() {
 
         {/* stack */}
         <Section title="STACK" icon={<Stack size={14} weight="fill" color="#FFB0C0" />}>
-          <Row title="Mobile" body="Flutter, connects via Mobile Wallet Adapter (MWA) — Android/Solana Mobile native." />
-          <Row title="Web" body="Next.js (App Router) at chumbucket.fun — the same markets, wallet flow, and settlement, browser-side." />
+          <Row title="Mobile" body="Flutter, connects via Mobile Wallet Adapter (MWA), Android/Solana Mobile native." />
+          <Row title="Web" body="Next.js (App Router) at chumbucket.fun, the same markets, wallet flow, and settlement, browser-side." />
           <Row title="Backend" body="Bun + tRPC. Event-sourced read model (matches, pools, positions) driven off on-chain + TxLINE data." />
-          <Row title="On-chain" body="An Anchor program on Solana devnet — parimutuel pools, per-market settlement, no custody of the settlement decision itself." />
+          <Row title="On-chain" body="An Anchor program on Solana devnet, parimutuel pools, per-market settlement, no custody of the settlement decision itself." />
         </Section>
 
         {/* markets */}
         <Section title="MARKETS" icon={<SoccerBall size={14} weight="fill" color="#FFB0C0" />}>
           <p style={{ fontSize: 13.5, color: "#B3A6AB", lineHeight: 1.6, margin: 0 }}>
-            Every fixture opens with a full book — Result (home / draw / away), Total Goals (Over/Under 1.5, 2.5,
+            Every fixture opens with a full book, Result (home / draw / away), Total Goals (Over/Under 1.5, 2.5,
             3.5), and Winning Margin (handicap 1.5, 2.5). Every market settles from the same source: the verified
             final score, so nothing here is a market TxLINE can&rsquo;t actually prove.
           </p>
@@ -107,7 +107,7 @@ export default function DocsPage() {
           />
           <Row
             title="2. A Solana program CPIs into TxLINE's validate_stat"
-            body="Our program derives a predicate from the market (e.g. total goals > 2) and proves it against TxLINE's on-chain data before any position can be paid — no human decides the winner."
+            body="Our program derives a predicate from the market (e.g. total goals > 2) and proves it against TxLINE's on-chain data before any position can be paid, no human decides the winner."
           />
           <Row
             title="3. Anyone can re-check it"
@@ -118,7 +118,7 @@ export default function DocsPage() {
         {/* wallet + money */}
         <Section title="MONEY" icon={<Wallet size={14} weight="fill" color="#FFB0C0" />}>
           <p style={{ fontSize: 13.5, color: "#B3A6AB", lineHeight: 1.6, margin: 0 }}>
-            Bets are parimutuel — your stake moves into a shared, on-chain pool for that market, never into another
+            Bets are parimutuel, your stake moves into a shared, on-chain pool for that market, never into another
             player&rsquo;s wallet. Winners split the losing side&rsquo;s pool (minus a small platform fee) in proportion to
             their stake. Fewer than 3 entrants in a pool and everyone gets a full refund. This build runs on Solana
             devnet with test USDC; the original ChumBucket challenge product has live mainnet history (see links

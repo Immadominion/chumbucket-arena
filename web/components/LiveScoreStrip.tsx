@@ -4,7 +4,7 @@
  * Live score for a fixture, polled from the same TxLINE snapshot the mobile app
  * reads (trpc.liveScore). Renders nothing until the match has actually kicked off
  * (null snapshot), then shows the running score with a pulsing LIVE badge, and a
- * FULL-TIME badge once a terminal event exists. Purely additive — the bet screen
+ * FULL-TIME badge once a terminal event exists. Purely additive, the bet screen
  * keeps its kick-off pill for not-yet-started matches.
  */
 

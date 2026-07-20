@@ -3,7 +3,7 @@
 /**
  * Create a 1-v-1 Challenge on a match. You back one side; your mate gets the
  * other. Both stakes lock in escrow and pay out to whoever the MATCH proves
- * right — settled on-chain by TxLINE, no one picks the winner. Creating returns
+ * right, settled on-chain by TxLINE, no one picks the winner. Creating returns
  * a shareable link your mate opens to accept and fund.
  */
 
@@ -75,7 +75,7 @@ export default function CreateChallengePage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      /* clipboard blocked — the field is selectable */
+      /* clipboard blocked, the field is selectable */
     }
   };
 
@@ -167,7 +167,7 @@ export default function CreateChallengePage() {
               <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: "#FF3355" }}>{winnerTakes.toFixed(1)} USDC total</span>
             </div>
             <p style={{ fontSize: 11, color: "#B3A6AB", fontWeight: 500, lineHeight: 1.4, margin: "6px 0 16px" }}>
-              You each bet {stake} USDC. Win and you get {winnerTakes.toFixed(1)} USDC total — your {stake} back plus {(winnerTakes - stake).toFixed(1)} profit, after a 2.5% fee. A level match refunds you both.
+              You each bet {stake} USDC. Win and you get {winnerTakes.toFixed(1)} USDC total, your {stake} back plus {(winnerTakes - stake).toFixed(1)} profit, after a 2.5% fee. A level match refunds you both.
             </p>
             <button onClick={() => void create()} disabled={createM.isPending} className="btnp" style={{ width: "100%", fontSize: 15, padding: 15, borderRadius: 14, opacity: createM.isPending ? 0.7 : 1 }}>
               <Fire size={16} weight="fill" />
@@ -180,7 +180,7 @@ export default function CreateChallengePage() {
 
       <div className="ink" style={{ marginTop: 16, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
         <ShieldCheck size={16} weight="fill" color="#FF5A76" style={{ flex: "none" }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>The real match result is checked automatically before anyone gets paid — no one can fake it.</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
       </div>
 
       <AddFundsModal open={funds} onClose={() => setFunds(false)} />

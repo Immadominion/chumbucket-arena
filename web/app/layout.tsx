@@ -32,10 +32,10 @@ export default function RootLayout({
     <html lang="en">
       <head>
         {/* Warm every font origin in parallel before the render-blocking CSS
-            requests them — the stylesheet host AND the woff2 file host each need
+            requests them, the stylesheet host AND the woff2 file host each need
             their own connection (fonts are always fetched with CORS). */}
         {/* PP Neue Machina (display) is served locally from /public/fonts via
-            @font-face in globals.css — matches the landing. Inter (body) + mono
+            @font-face in globals.css, matches the landing. Inter (body) + mono
             from Google. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

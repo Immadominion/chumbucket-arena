@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The shared Challenge link. Public — anyone with the link sees the wager and can
+ * The shared Challenge link. Public, anyone with the link sees the wager and can
  * sign in to accept. You take the side the creator DIDN'T; both stakes lock in
  * escrow and pay out to whoever the match proves right, settled on-chain by
  * TxLINE. Standalone (outside the app shell) so it's a clean, forwardable page.
@@ -73,7 +73,7 @@ export default function ChallengeLinkPage() {
               <div className="cd" style={{ fontSize: 25, color: INK, margin: "12px 0 4px", letterSpacing: "-.4px" }}>
                 {ch.fixture ? `${ch.fixture.home} vs ${ch.fixture.away}` : "Match"}
               </div>
-              <div style={{ fontSize: 13, color: GRAY, fontWeight: 600 }}>Stake · <span className="mono" style={{ color: INK }}>{frostToWal(ch.stake).toFixed(1)} USDC</span> each · winner takes the pot</div>
+              <div style={{ fontSize: 13, color: GRAY, fontWeight: 600 }}>Bet · <span className="mono" style={{ color: INK }}>{frostToWal(ch.stake).toFixed(1)} USDC</span> each · winner takes the pool</div>
 
               <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
                 <SideCard label="They backed" team={sideTeam(ch.creatorSide)} code={ch.fixture ? (flagCode(sideTeam(ch.creatorSide)) ?? "") : ""} muted />
@@ -87,7 +87,7 @@ export default function ChallengeLinkPage() {
                 <>
                   <button onClick={() => void accept()} disabled={acceptM.isPending} className="btnp" style={{ width: "100%", fontSize: 15.5, padding: 16, borderRadius: 14, opacity: acceptM.isPending ? 0.7 : 1 }}>
                     <LockSimple size={17} weight="fill" />
-                    {acceptM.isPending ? "Locking your stake…" : !authenticated ? "Sign in to accept" : `Accept · stake ${frostToWal(ch.stake).toFixed(1)} USDC`}
+                    {acceptM.isPending ? "Locking your bet…" : !authenticated ? "Sign in to accept" : `Accept · bet ${frostToWal(ch.stake).toFixed(1)} USDC`}
                   </button>
                   <p style={{ fontSize: 12, color: GRAY, textAlign: "center", fontWeight: 500, margin: "12px 0 0" }}>
                     You back {sideTeam(yourSide)}. Both stakes lock until the match ends.
@@ -105,8 +105,8 @@ export default function ChallengeLinkPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 11, justifyContent: "center" }}>
                   <LockSimple size={20} weight="fill" color={CORAL} />
                   <div>
-                    <div className="cd" style={{ fontSize: 15.5, color: INK }}>Locked — game on</div>
-                    <div style={{ fontSize: 12.5, color: GRAY, fontWeight: 600 }}>Both staked. Settles the second the match is proven on-chain.</div>
+                    <div className="cd" style={{ fontSize: 15.5, color: INK }}>Locked, game on</div>
+                    <div style={{ fontSize: 12.5, color: GRAY, fontWeight: 600 }}>Both in. Settles the second the match is proven on-chain.</div>
                   </div>
                 </div>
               )}
@@ -115,10 +115,10 @@ export default function ChallengeLinkPage() {
                   <CheckCircle size={22} weight="fill" color={ch.status === "VOID" ? GRAY : CORAL} />
                   <div>
                     <div className="cd" style={{ fontSize: 15.5, color: INK }}>
-                      {ch.status === "VOID" ? "Refunded — no winner" : `${sideTeam(ch.winningBucket)} won it`}
+                      {ch.status === "VOID" ? "Refunded, no winner" : `${sideTeam(ch.winningBucket)} won it`}
                     </div>
                     <div style={{ fontSize: 12.5, color: GRAY, fontWeight: 600 }}>
-                      {ch.status === "VOID" ? "The match didn't land either side — both stakes returned." : "Settled by a TxLINE proof on Solana."}
+                      {ch.status === "VOID" ? "The match didn't land either side, both stakes returned." : "Settled by a TxLINE proof on Solana."}
                     </div>
                   </div>
                 </div>
@@ -130,7 +130,7 @@ export default function ChallengeLinkPage() {
 
             <div className="ink" style={{ marginTop: 14, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
               <ShieldCheck size={16} weight="fill" color={CORAL_BRIGHT} style={{ flex: "none" }} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>Neither player — and not ChumBucket — can decide who won. The match settles it, proven on-chain by TxLINE.</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>Neither player, and not ChumBucket, can decide who won. The match settles it, proven on-chain by TxLINE.</span>
             </div>
           </>
         )}

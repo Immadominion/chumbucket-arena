@@ -51,7 +51,7 @@ export default function MatchdayPage() {
     { key: "finished", label: "Finished", count: played.length },
   ];
 
-  // A failed fetch must not masquerade as "no fixtures open" — show the real error.
+  // A failed fetch must not masquerade as "no fixtures open", show the real error.
   if (g.isError && all.length === 0) {
     return <ErrorState onRetry={g.refetch} />;
   }
@@ -122,7 +122,7 @@ export default function MatchdayPage() {
       </div>
       <style>{`@keyframes cbLivePulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
 
-      {/* featured (first open) — only in All/Open views */}
+      {/* featured (first open), only in All/Open views */}
       {(filter === "all" || filter === "open") && featured && (
         <Link href={`/bet/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
           <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
@@ -153,7 +153,7 @@ export default function MatchdayPage() {
 
       {open.length === 0 && live.length === 0 && played.length === 0 ? (
         <div className="card" style={{ marginTop: 26, padding: "40px 24px", textAlign: "center", fontSize: 14, fontWeight: 600, color: "#988990" }}>
-          No matches scheduled yet — check back before the next round.
+          No matches scheduled yet, check back before the next round.
         </div>
       ) : (
         <>

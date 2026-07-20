@@ -2,7 +2,7 @@
 
 /**
  * Shown when public game data genuinely failed to load (not just empty). Keeps a
- * failed fetch from masquerading as a truthful "you have nothing here" — the
+ * failed fetch from masquerading as a truthful "you have nothing here", the
  * player sees the real problem and can retry without a full page reload.
  */
 

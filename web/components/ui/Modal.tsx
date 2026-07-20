@@ -35,7 +35,7 @@ export default function Modal({
     restoreRef.current = document.activeElement as HTMLElement | null;
 
     const dialog = dialogRef.current;
-    // Move focus into the dialog — unless a child already claimed it (autoFocus).
+    // Move focus into the dialog, unless a child already claimed it (autoFocus).
     if (dialog && !dialog.contains(document.activeElement)) {
       const first = dialog.querySelector<HTMLElement>(FOCUSABLE);
       (first ?? dialog).focus();

@@ -32,7 +32,7 @@ export default function ContractPage() {
 
   // One action: not logged in → Privy modal; logged in but no handle → name step.
   // Privy only allows listed origins (dashboard → this app). Local dev must be on
-  // http://localhost:3000 — other ports look like a dead button.
+  // http://localhost:3000, other ports look like a dead button.
   const [loginErr, setLoginErr] = useState<string | null>(null);
   const authedRef = useRef(authenticated);
   authedRef.current = authenticated;
@@ -50,7 +50,7 @@ export default function ContractPage() {
       return;
     }
     // A blocked pop-up or an unauthorized origin makes Privy open nothing and
-    // never throw — the button looks dead. If we're still signed out a few
+    // never throw, the button looks dead. If we're still signed out a few
     // seconds after the click, say so instead of leaving them staring.
     window.setTimeout(() => {
       if (!authedRef.current) {
@@ -118,7 +118,7 @@ export default function ContractPage() {
             <ShieldCheck size={26} weight="fill" color="#FF5A76" />
             <div className="cd" style={{ fontSize: 24, marginTop: 14, lineHeight: 1.15 }}>The match decides. Not the house.</div>
             <p style={{ fontSize: 14, lineHeight: 1.5, color: "#D9C3C9", marginTop: 12 }}>
-              Every stake locks in a Solana escrow. A TxLINE Merkle proof decides the result, and the pot&rsquo;s configured fee is enforced on-chain.
+              Every bet locks in a Solana escrow. A TxLINE Merkle proof decides the result, and the pool&rsquo;s configured fee is enforced on-chain.
             </p>
           </div>
         </div>

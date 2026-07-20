@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Unclaimed on-chain positions — chumbucket_arena's claim() is pull-based (the
+ * Unclaimed on-chain positions, chumbucket_arena's claim() is pull-based (the
  * program never pushes a payout to you), so once a Pot settles or voids, the
  * player has to sign one more transaction to actually pull their USDC out of
  * the vault. Shown on both Wallet and Results, same card, same claim flow.
@@ -38,7 +38,7 @@ export default function ClaimableWinnings() {
 
   const claimM = useMutation({
     mutationFn: async (matchId: string) => {
-      if (!myWallet) throw new Error("Wallet isn't ready yet — try again in a moment.");
+      if (!myWallet) throw new Error("Wallet isn't ready yet, try again in a moment.");
       return claim({ matchId, wallet: myWallet, signAndSendTransaction });
     },
   });
@@ -56,7 +56,7 @@ export default function ClaimableWinnings() {
         refetch(),
       ]);
     } catch (e) {
-      setErrByMatch((m) => ({ ...m, [p.matchId]: e instanceof Error ? e.message : "Couldn't claim just now — try again." }));
+      setErrByMatch((m) => ({ ...m, [p.matchId]: e instanceof Error ? e.message : "Couldn't claim just now, try again." }));
     } finally {
       setPending(null);
     }
@@ -69,7 +69,7 @@ export default function ClaimableWinnings() {
         <div>
           <div className="cd" style={{ fontSize: 16 }}>Winnings to collect</div>
           <div style={{ fontSize: 11.5, color: "#988990", fontWeight: 600, marginTop: 1 }}>
-            You won — tap Claim to send it to your balance.
+            You won, tap Claim to send it to your balance.
           </div>
         </div>
       </div>

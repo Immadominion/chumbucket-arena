@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Friends — same `friends` table the mobile app reads/writes (see lib/social.ts
+ * Friends, same `friends` table the mobile app reads/writes (see lib/social.ts
  * for the exact query mirror of chumbucket/lib/shared/services/unified_database_service.dart).
  * Adding a friend here shows up in the mobile app's friends list too, and vice versa.
  *
  * Also supports adding by @handle when that X account hasn't joined ChumBucket
- * yet — the same "send to a number that isn't registered yet" pending-target
+ * yet, the same "send to a number that isn't registered yet" pending-target
  * pattern already live on the backend (pending_identity_targets) and wired
  * into mobile in parallel. That path is wallet-signature authed (see
  * lib/walletSign.ts) rather than a plain Supabase write, since anyone could
@@ -59,7 +59,7 @@ export default function FriendsPage() {
     staleTime: 15_000,
   });
 
-  // Pending @handle targets this wallet asked to be notified about — only the
+  // Pending @handle targets this wallet asked to be notified about, only the
   // still-unresolved ones (a resolved one is folded straight into the normal
   // friends flow the moment it's added, see addM below).
   const pendingQ = useQuery({
@@ -87,7 +87,7 @@ export default function FriendsPage() {
       }
 
       // Route explicitly on a leading '@': that's an X handle. Anything else is
-      // treated as a wallet address and must parse as one — we never guess a
+      // treated as a wallet address and must parse as one, we never guess a
       // malformed/typo'd address into the handle path (which would trigger a
       // pointless signature prompt or store an unresolvable pending row).
       const isHandle = trimmedInput.startsWith("@");
@@ -96,10 +96,10 @@ export default function FriendsPage() {
         if (!normalized) throw new Error("Enter a valid @handle.");
         if (!wallet) throw new Error("Sign in first.");
         // Must be the exact session wallet, never a silent fallback to
-        // wallets[0] — this proof durably writes created_by_wallet, so
+        // wallets[0], this proof durably writes created_by_wallet, so
         // signing with the wrong connected wallet would misattribute it.
         const myWallet = wallets.find((w) => w.address === wallet);
-        if (!myWallet) throw new Error("Your wallet isn't connected — reconnect and try again.");
+        if (!myWallet) throw new Error("Your wallet isn't connected, reconnect and try again.");
 
         const proof = await signSocialAction({
           action: "add_pending_target",
@@ -139,7 +139,7 @@ export default function FriendsPage() {
     },
     onSuccess: (r) => {
       if (r.kind === "handle-pending") {
-        setNotice(`@${r.normalized} hasn't joined ChumBucket yet — you'll be notified the moment they do.`);
+        setNotice(`@${r.normalized} hasn't joined ChumBucket yet, you'll be notified the moment they do.`);
         void qc.invalidateQueries({ queryKey: trpc.pendingTargets.queryKey({ wallet, limit: 50 }) });
       } else {
         setNotice(r.alreadyFriends ? "You're already friends." : `Added ${name.trim()}.`);
@@ -168,7 +168,7 @@ export default function FriendsPage() {
       <div className="cd" style={{ fontSize: 24 }}>Friends</div>
       <p style={{ fontSize: 13, color: "#7C6D72", marginTop: 4, lineHeight: 1.5 }}>
         Add friends to challenge them and follow their predictions. They&rsquo;ll appear in the ChumBucket mobile
-        app too. Add someone by wallet address or @handle — if they haven&rsquo;t joined yet, we&rsquo;ll let you know
+        app too. Add someone by wallet address or @handle, if they haven&rsquo;t joined yet, we&rsquo;ll let you know
         the moment they do.
       </p>
 
@@ -220,7 +220,7 @@ export default function FriendsPage() {
         <div style={{ fontSize: 13, color: "#988990", fontWeight: 600 }}>Loading your friends…</div>
       ) : friendsQ.isError ? (
         <div className="card" style={{ padding: 22, textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "#C2373B", fontWeight: 600 }}>Couldn&rsquo;t load your friends — check your connection.</div>
+          <div style={{ fontSize: 13, color: "#C2373B", fontWeight: 600 }}>Couldn&rsquo;t load your friends, check your connection.</div>
           <button
             onClick={() => void friendsQ.refetch()}
             className="btnp"
@@ -231,7 +231,7 @@ export default function FriendsPage() {
         </div>
       ) : !friendsQ.data || friendsQ.data.length === 0 ? (
         <div className="card" style={{ padding: 22, textAlign: "center", fontSize: 13, color: "#988990", fontWeight: 600 }}>
-          No friends yet — add one by wallet address or @handle above.
+          No friends yet, add one by wallet address or @handle above.
         </div>
       ) : (
         <div className="card" style={{ padding: 6 }}>

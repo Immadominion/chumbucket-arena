@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The "verify this payout yourself" receipt — the trust centerpiece.
+ * The "verify this payout yourself" receipt, the trust centerpiece.
  *
  * The settle transaction already ran on-chain: TxLINE's oracle program proved
  * the final score against its own Merkle root before any payout became claimable.
@@ -57,7 +57,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
       const val = json?.result?.value;
       const rd: string | undefined = val?.returnData?.data?.[0];
       const ms = Math.round(performance.now() - started);
-      // 'AQ==' is base64 for a single 0x01 byte — the program's `true`.
+      // 'AQ==' is base64 for a single 0x01 byte, the program's `true`.
       if (val?.err == null && rd === "AQ==") setState({ k: "ok", ms, returnData: rd });
       else setState({ k: "fail", reason: val?.err ? `oracle rejected: ${JSON.stringify(val.err)}` : "unexpected return data" });
     } catch (e) {
@@ -110,7 +110,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
             </div>
             {state.k === "fail" && (
               <div role="alert" style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 12, fontSize: 12.5, fontWeight: 600, color: "#F0A6A6" }}>
-                <XCircle size={15} weight="fill" /> {state.reason} — <button onClick={() => void verify()} style={{ background: "none", border: "none", color: "#FFB0C0", cursor: "pointer", padding: 0, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><ArrowCounterClockwise size={12} weight="bold" /> retry</button>
+                <XCircle size={15} weight="fill" /> {state.reason}, <button onClick={() => void verify()} style={{ background: "none", border: "none", color: "#FFB0C0", cursor: "pointer", padding: 0, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><ArrowCounterClockwise size={12} weight="bold" /> retry</button>
               </div>
             )}
           </>
@@ -149,7 +149,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
         {showRaw && (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11.5, color: "#93A69B", marginBottom: 6, lineHeight: 1.45 }}>
-              POST this to <span className="mono" style={{ color: "#B8C6BD" }}>{receipt.rpcUrl}</span> yourself — {receipt.cluster} is public. A <span className="mono">returnData</span> of <span className="mono" style={{ color: "#FFB0C0" }}>AQ==</span> is the program&rsquo;s <span className="mono">true</span>.
+              POST this to <span className="mono" style={{ color: "#B8C6BD" }}>{receipt.rpcUrl}</span> yourself, {receipt.cluster} is public. A <span className="mono">returnData</span> of <span className="mono" style={{ color: "#FFB0C0" }}>AQ==</span> is the program&rsquo;s <span className="mono">true</span>.
             </div>
             <pre className="mono" style={{ margin: 0, padding: 12, background: "rgba(0,0,0,.35)", borderRadius: 10, fontSize: 10.5, color: "#B8C6BD", overflowX: "auto", lineHeight: 1.4, maxHeight: 220 }}>
               {JSON.stringify(receipt.rpcRequest, null, 2)}

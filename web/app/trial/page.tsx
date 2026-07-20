@@ -34,7 +34,7 @@ export default function TrialPage() {
       </div>
 
       <div style={{ width: "100%", maxWidth: 480, display: "flex", flexDirection: "column", alignItems: "center" }}>
-        {/* brand badge — clean, illustration-free */}
+        {/* brand badge, clean, illustration-free */}
         <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,#FF5A76,#D81E4A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 14px 30px rgba(255, 51, 85,.35)" }}>
           <Fire size={30} weight="fill" color="#fff" />
         </div>
@@ -45,10 +45,10 @@ export default function TrialPage() {
             <div className="card" style={{ padding: 24, textAlign: "center" }}>
               <div className="cd" style={{ fontSize: 24 }}>Welcome to ChumBucket</div>
               <p style={{ fontSize: 14, color: "#7C6D72", lineHeight: 1.5, margin: "10px 0 20px" }}>
-                Bet your mates on the World Cup. Two ways to play — the match settles every bet, on-chain.
+                Bet your mates on the World Cup. Two ways to play, the match settles every bet, on-chain.
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
-                <Way icon={<Fire size={18} weight="fill" color="#FF3355" />} title="Challenge a mate" body="1-v-1. Pick a side, they take the other. Winner takes the pot." />
+                <Way icon={<Fire size={18} weight="fill" color="#FF3355" />} title="Challenge a mate" body="1-v-1. Pick a side, they take the other. Winner takes the pool." />
                 <Way icon={<Trophy size={18} weight="fill" color="#F2B705" />} title="Back the crowd" body="Join the pooled market and share the winnings with everyone on your side." />
               </div>
             </div>
@@ -82,7 +82,7 @@ export default function TrialPage() {
               </div>
               <div className="cd" style={{ fontSize: 22, marginTop: 8 }}>You&rsquo;re in.</div>
               <p style={{ fontSize: 13.5, color: "#7C6D72", lineHeight: 1.5, margin: "8px 0 0" }}>
-                Balance ready. Pick a match, challenge a mate or back the crowd — the result does the talking.
+                Balance ready. Pick a match, challenge a mate or back the crowd, the result does the talking.
               </p>
             </div>
           )}
