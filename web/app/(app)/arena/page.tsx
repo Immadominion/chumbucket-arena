@@ -10,10 +10,11 @@
 
 import Link from "next/link";
 import { Flag } from "@/components/Flag";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchUsdcBalance } from "@/lib/arena-onchain";
 import AddFundsModal from "@/components/flow/AddFundsModal";
+import Tour, { type TourStep } from "@/components/tour/Tour";
 import ErrorState from "@/components/ErrorState";
 import {
   ArrowRight,
@@ -38,10 +39,19 @@ const BLUSH_SOFT = "#FFE7EC";
 const GRAY = "#988990";
 const SOFT = "#8C7D82";
 
+// First-run spotlight tour, points at real elements on this page.
+const TOUR_KEY = "cb_tour_v1";
+const TOUR_STEPS: TourStep[] = [
+  { sel: '[data-tour="balance"]', title: "Your balance", body: "Tap the + to grab free test USDC. That's what you bet with, no real money on the practice network." },
+  { sel: '[data-tour="matches"]', title: "Back a match", body: "Pick any fixture and choose an outcome, who wins, over/under goals, or a winning margin, then put something on it." },
+  { sel: '[data-tour="mybets"]', title: "Track your bets", body: "Every bet you place shows up here and settles the moment the match ends, decided by the real score and proven on-chain." },
+];
+
 export default function ArenaPage() {
   const { session } = useSession();
   const g = useGameData();
   const [funds, setFunds] = useState(false);
+  const [tour, setTour] = useState(false);
 
   const featured = g.featured;
   const matchday = g.matchday;
@@ -58,6 +68,27 @@ export default function ArenaPage() {
     staleTime: 15_000,
   });
   const balance = balanceQ.data ?? 0;
+
+  // Run the spotlight tour once, on the first visit that actually has matches to
+  // point at (so the targets exist). A localStorage flag keeps it one-and-done.
+  useEffect(() => {
+    if (!featured) return;
+    try {
+      if (localStorage.getItem(TOUR_KEY)) return;
+    } catch {
+      return;
+    }
+    const t = setTimeout(() => setTour(true), 500);
+    return () => clearTimeout(t);
+  }, [featured]);
+  const finishTour = () => {
+    setTour(false);
+    try {
+      localStorage.setItem(TOUR_KEY, "1");
+    } catch {
+      /* private mode, tour just won't persist */
+    }
+  };
 
   if (!featured && g.isError) {
     return <ErrorState onRetry={g.refetch} title="Couldn't load ChumBucket" />;
@@ -81,6 +112,7 @@ export default function ArenaPage() {
           </div>
         </div>
         <button
+          data-tour="balance"
           onClick={() => setFunds(true)}
           style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 30, padding: "9px 15px", boxShadow: "0 2px 8px rgba(40,16,24,.06)", border: "none", cursor: "pointer" }}
         >
@@ -94,7 +126,7 @@ export default function ArenaPage() {
         {/* MAIN */}
         <div className="col-main">
           {/* HERO, featured match, two ways to play */}
-          <div style={{ background: `linear-gradient(125deg, ${INK} 0%, ${INK2} 58%, #3a0f1c 100%)`, borderRadius: 26, padding: "30px 32px", position: "relative", overflow: "hidden" }}>
+          <div data-tour="matches" style={{ background: `linear-gradient(125deg, ${INK} 0%, ${INK2} 58%, #3a0f1c 100%)`, borderRadius: 26, padding: "30px 32px", position: "relative", overflow: "hidden" }}>
             <div className="glow" style={{ right: -40, top: -60, width: 260, height: 260, background: `radial-gradient(circle, rgba(255,90,118,.28), transparent 70%)` }} />
             <div style={{ position: "relative" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: CORAL_BRIGHT, color: "#3a0510", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 20 }}>
@@ -177,7 +209,7 @@ export default function ArenaPage() {
         </div>
 
         {/* RIGHT */}
-        <div className="col-side w320">
+        <div className="col-side w320" data-tour="mybets">
           {/* your open stakes */}
           <div className="cd" style={{ fontSize: 20, color: INK, marginBottom: 14 }}>Your bets</div>
           {openCalls.length === 0 ? (
@@ -234,6 +266,8 @@ export default function ArenaPage() {
           await balanceQ.refetch();
         }}
       />
+
+      {tour && <Tour steps={TOUR_STEPS} onDone={finishTour} />}
     </div>
   );
 }

@@ -58,7 +58,7 @@ export default function ProofPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Step icon={<Brain size={18} weight="fill" color="#FFB0C0" />} title="TxLINE commits the score on-chain" body="Every score update is hashed into a Merkle tree whose root is posted to a Solana account by TxLINE's oracle, tamper-evident and public." />
             <Step icon={<LockSimple size={18} weight="fill" color="#FFB0C0" />} title="The proof unlocks the claim" body="Settlement runs a Merkle proof of the final score through TxLINE's oracle on-chain. No valid proof, no claim, and no human chooses the result." />
-            <Step icon={<ShieldCheck size={18} weight="fill" color="#FFB0C0" />} title="Same check, anytime" body="The verdict is computed by TxLINE's program on Solana. The button above re-runs that exact check against a public RPC, the same one that settled the pool." />
+            <Step icon={<ShieldCheck size={18} weight="fill" color="#FFB0C0" />} title="Same check, anytime" body="The result is computed by TxLINE's program on Solana. The button above re-runs that exact check against a public RPC, the same one that settled the pool." />
           </div>
         </div>
       </div>
