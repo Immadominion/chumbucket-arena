@@ -28,7 +28,7 @@ export function fixturesToIcs(matches: MatchView[]): string {
       "END:VEVENT",
     ];
   });
-  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Chumbucket//Matchday//EN", "CALSCALE:GREGORIAN", ...events, "END:VCALENDAR"].join("\r\n");
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ChumBucket//Matchday//EN", "CALSCALE:GREGORIAN", ...events, "END:VCALENDAR"].join("\r\n");
 }
 
 export function downloadIcs(matches: MatchView[]): void {

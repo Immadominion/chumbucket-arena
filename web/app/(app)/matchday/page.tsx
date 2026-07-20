@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CaretRight, CheckCircle, Clock, DownloadSimple, Fire, LockSimple, Trophy } from "@/components/icons";
 import ErrorState from "@/components/ErrorState";
 import { flag } from "@/lib/data";
 import { useGameData } from "@/lib/useGameData";
+import { useTRPC } from "@/lib/trpc";
 import type { MatchView } from "@/lib/adapters";
 import { flagCode, frostToWal, kickoffLabel } from "@/lib/format";
 import { downloadIcs } from "@/lib/ics";
@@ -23,6 +26,8 @@ const winnerOf = (m: MatchView): string | null => {
 // How many markets you can back on this fixture (Result + any line markets).
 const marketCount = (m: MatchView) => m.markets.length;
 
+type MatchFilter = "all" | "open" | "live" | "finished";
+
 export default function MatchdayPage() {
   const g = useGameData();
   const all = g.matches;
@@ -31,6 +36,20 @@ export default function MatchdayPage() {
   const played = all.filter((m) => m.status === "RESOLVED");
   const featured = open[0];
   const called = g.calledMatchIds;
+
+  // Live / Open / Finished filter chips (mirrors mobile). "All" shows every
+  // group; a specific filter narrows to one so a judge can jump straight to
+  // whatever's in play.
+  const [filter, setFilter] = useState<MatchFilter>("all");
+  const showOpen = filter === "all" || filter === "open";
+  const showLive = filter === "all" || filter === "live";
+  const showPlayed = filter === "all" || filter === "finished";
+  const chips: { key: MatchFilter; label: string; count: number }[] = [
+    { key: "all", label: "All", count: all.length },
+    { key: "open", label: "Open", count: open.length },
+    { key: "live", label: "Live", count: live.length },
+    { key: "finished", label: "Finished", count: played.length },
+  ];
 
   // A failed fetch must not masquerade as "no fixtures open" — show the real error.
   if (g.isError && all.length === 0) {
@@ -68,8 +87,43 @@ export default function MatchdayPage() {
         </div>
       </div>
 
-      {/* featured (first open) */}
-      {featured && (
+      {/* Live / Open / Finished filter chips */}
+      <div style={{ display: "flex", gap: 8, marginTop: 18, overflowX: "auto" }}>
+        {chips.map((c) => {
+          const on = filter === c.key;
+          const isLive = c.key === "live" && c.count > 0;
+          return (
+            <button
+              key={c.key}
+              onClick={() => setFilter(c.key)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                flexShrink: 0,
+                border: "none",
+                cursor: "pointer",
+                borderRadius: 20,
+                padding: "8px 15px",
+                fontSize: 13,
+                fontWeight: 700,
+                background: on ? "#221217" : "#F5EEF1",
+                color: on ? "#fff" : "#6A5A60",
+              }}
+            >
+              {isLive && (
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#E01243", animation: "cbLivePulse 1.1s ease-in-out infinite" }} />
+              )}
+              {c.label}
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: on ? "#B3A6AB" : "#B3A6AB" }}>{c.count}</span>
+            </button>
+          );
+        })}
+      </div>
+      <style>{`@keyframes cbLivePulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
+
+      {/* featured (first open) — only in All/Open views */}
+      {(filter === "all" || filter === "open") && featured && (
         <Link href={`/call/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
           <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255, 51, 85,.25),transparent 70%)" }} />
@@ -103,20 +157,24 @@ export default function MatchdayPage() {
         </div>
       ) : (
         <>
-          <Group title="Open to predict" count={open.length}>
-            {open.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
-            {open.length === 0 && <Empty>No matches open to predict right now.</Empty>}
-          </Group>
-
-          {live.length > 0 && (
-            <Group title="In play" count={live.length}>
-              {live.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="live" />)}
+          {showOpen && (
+            <Group title="Open to predict" count={open.length}>
+              {open.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="open" />)}
+              {open.length === 0 && <Empty>No matches open to predict right now.</Empty>}
             </Group>
           )}
 
-          {played.length > 0 && (
+          {showLive && (
+            <Group title="In play" count={live.length}>
+              {live.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="live" />)}
+              {live.length === 0 && <Empty>Nothing in play right now.</Empty>}
+            </Group>
+          )}
+
+          {showPlayed && (
             <Group title="Finished" count={played.length}>
               {played.map((m) => <Row key={m.fixture.matchId} m={m} called={called.has(m.fixture.matchId)} kind="played" />)}
+              {played.length === 0 && <Empty>No finished matches yet.</Empty>}
             </Group>
           )}
         </>
@@ -140,6 +198,26 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="card" style={{ padding: "20px 18px", textAlign: "center", fontSize: 13, fontWeight: 600, color: "#988990" }}>{children}</div>;
 }
 
+/** In-play score for a locked match, polled from the same TxLINE snapshot the
+ *  bet screen reads. Falls back to a "predictions closed" note before kickoff. */
+function LiveRowScore({ matchId }: { matchId: string }) {
+  const trpc = useTRPC();
+  const q = useQuery({ ...trpc.liveScore.queryOptions({ matchId }), refetchInterval: 15_000, staleTime: 10_000 });
+  const live = q.data;
+  if (!live) {
+    return <span style={{ color: "#C2373B", fontWeight: 700 }}>● Started · predictions closed</span>;
+  }
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: live.finished ? "#5B6B62" : "#B01030", fontWeight: 800, letterSpacing: ".04em" }}>
+        {!live.finished && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#E01243", animation: "cbLivePulse 1.1s ease-in-out infinite" }} />}
+        {live.finished ? "FT" : "LIVE"}
+      </span>
+      <span className="mono" style={{ fontWeight: 700, color: "#221217", fontVariantNumeric: "tabular-nums" }}>{live.score.home}–{live.score.away}</span>
+    </span>
+  );
+}
+
 function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" | "live" | "played" }) {
   const f = m.fixture;
   const inner = (
@@ -154,7 +232,7 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#988990", marginTop: 2 }}>
           {kind === "open" && <><Clock size={13} weight="fill" /> {kickoffLabel(f.kickoff).ko} · {f.group ?? f.stage}{marketCount(m) > 1 ? ` · ${marketCount(m)} ways to predict` : ""}</>}
-          {kind === "live" && <span style={{ color: "#C2373B", fontWeight: 700 }}>● Started — predictions closed</span>}
+          {kind === "live" && <LiveRowScore matchId={f.matchId} />}
           {kind === "played" && <>{winnerOf(m) ? `${winnerOf(m)} ${winnerOf(m) === "Draw" ? "" : "won"}` : "Settled"} · {f.group ?? f.stage}</>}
         </div>
       </div>

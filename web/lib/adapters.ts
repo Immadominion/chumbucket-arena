@@ -100,9 +100,13 @@ function marketTab(mk: MarketView): string {
     case "RESULT":
       return "Result";
     case "OVER_UNDER":
-      return "Total goals";
-    case "HANDICAP":
-      return "Winning margin";
+      // Include the line so three O/U markets don't all read "Total goals"
+      // (mirrors mobile's "Goals 1.5 / 2.5 / 3.5").
+      return `Goals ${mk.line?.line ?? ""}`.trim();
+    case "HANDICAP": {
+      const by = Math.floor(Math.abs(mk.line?.line ?? 0)) + 1; // 1.5 ⇒ win by 2+
+      return `Win by ${by}+`;
+    }
     default:
       return mk.label;
   }

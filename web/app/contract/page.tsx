@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SignContractModal from "@/components/flow/SignContractModal";
 import { Fire, LockSimple, SealCheck, ShieldCheck, Trophy } from "@/components/icons";
 import { useSession } from "@/lib/session";
@@ -33,10 +33,30 @@ export default function ContractPage() {
   // One action: not logged in → Privy modal; logged in but no handle → name step.
   // Privy only allows listed origins (dashboard → this app). Local dev must be on
   // http://localhost:3000 — other ports look like a dead button.
+  const [loginErr, setLoginErr] = useState<string | null>(null);
+  const authedRef = useRef(authenticated);
+  authedRef.current = authenticated;
   const start = () => {
     if (!ready) return;
-    if (authenticated && session.status === "guest") setShowHandle(true);
-    else login();
+    setLoginErr(null);
+    if (authenticated && session.status === "guest") {
+      setShowHandle(true);
+      return;
+    }
+    try {
+      login();
+    } catch {
+      setLoginErr("We couldn't open sign-in just now. Please try again.");
+      return;
+    }
+    // A blocked pop-up or an unauthorized origin makes Privy open nothing and
+    // never throw — the button looks dead. If we're still signed out a few
+    // seconds after the click, say so instead of leaving them staring.
+    window.setTimeout(() => {
+      if (!authedRef.current) {
+        setLoginErr("The sign-in window didn't open. Check your browser isn't blocking pop-ups, then try again.");
+      }
+    }, 6000);
   };
 
   return (
@@ -74,6 +94,11 @@ export default function ContractPage() {
             <Fire size={18} weight="fill" />
             Get started
           </button>
+          {loginErr && (
+            <div role="alert" style={{ marginTop: 12, background: "#FDE7EC", border: "1px solid #F7C6D2", borderRadius: 12, padding: "10px 14px", fontSize: 13, fontWeight: 600, color: "#B01030", lineHeight: 1.45 }}>
+              {loginErr}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, fontSize: 12, fontWeight: 600, color: "#B3A6AB" }}>
             <SealCheck size={14} weight="fill" color="#FF3355" />
             Email, Google, X or wallet. No seed phrases. Owned by you, verifiable on-chain.

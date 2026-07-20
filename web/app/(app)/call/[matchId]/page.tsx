@@ -5,13 +5,14 @@ import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
+import { useSignAndSendTransaction, useSignMessage, useWallets } from "@privy-io/react-auth/solana";
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import { LiveScoreStrip } from "@/components/LiveScoreStrip";
 import { ArrowLeft, ArrowUpRight, CheckCircle, Clock, LockSimple, ShieldCheck, WarningCircle } from "@/components/icons";
 import { flag } from "@/lib/data";
 import { toFixture, toCallMarkets, type CallMarket } from "@/lib/adapters";
 import { useGameData } from "@/lib/useGameData";
+import { signCallProof } from "@/lib/walletSign";
 import { useTRPC } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
 import { placeCall, fetchUsdcBalance } from "@/lib/arena-onchain";
@@ -51,6 +52,11 @@ export default function MakeCallPage() {
   // (lib/solana.ts / app/(app)/send/page.tsx). No more off-chain ledger mutation.
   const { wallets, ready: walletsReady } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
+  const { signMessage } = useSignMessage();
+  // Optimistic social mirror: after the on-chain bet lands, record it so it shows
+  // instantly in "Your bets" and the feed (mobile does the same). Best-effort —
+  // the indexer reconciles by tx signature regardless (see lock()).
+  const recordCallM = useMutation(trpc.recordPredictionCall.mutationOptions());
   const myWallet = useMemo(
     () => wallets.find((w) => w.address === session.wallet) ?? wallets[0],
     [wallets, session.wallet],
@@ -185,6 +191,45 @@ export default function MakeCallPage() {
       // else here worth invalidating.
       await qc.invalidateQueries({ queryKey: ["usdc-balance", session.wallet] });
       setDone(true);
+      // Best-effort optimistic mirror so this bet appears immediately in "Your
+      // bets" / the feed (mobile does the same via signAndRecordCallProof). A
+      // second lightweight signature, NOT another money tx. Any failure or a
+      // user-cancelled signature is harmless — the indexer reconciles by tx
+      // signature — so it must never surface as a failed bet. Scoped to Result
+      // markets, whose HOME/DRAW/AWAY buckets match the recordPredictionCall
+      // contract; line-market (Over/Under, Handicap) bets appear via the
+      // on-chain reconciler instead.
+      if (myWallet && selectedMarket.kind === "RESULT") {
+        const bucket = sel.bucket as "HOME" | "DRAW" | "AWAY";
+        const stakeBaseUnits = String(Math.round(stake * 1_000_000));
+        void (async () => {
+          try {
+            const proof = await signCallProof({
+              matchId: params.matchId,
+              bucket,
+              stakeBaseUnits,
+              txSignature: signature,
+              wallet: myWallet,
+              signMessage,
+            });
+            await recordCallM.mutateAsync({
+              wallet: myWallet.address,
+              matchId: params.matchId,
+              marketId: selectedMarket.marketId,
+              bucket,
+              stakeBaseUnits,
+              txSignature: signature,
+              timestamp: proof.timestamp,
+              signature: proof.signature,
+              metadata: { home: fx?.home.name, away: fx?.away.name },
+            });
+            // Refresh the player summary so this bet shows in arena "Your bets".
+            await qc.invalidateQueries({ queryKey: trpc.me.queryKey() });
+          } catch {
+            /* non-fatal: the reconciler still records this bet from the chain */
+          }
+        })();
+      }
       // M3: no 1.4s bounce to /arena — the player stays on a confirmation they
       // can actually read (and reach the Explorer link + their bets from).
     } catch (e) {
@@ -315,30 +360,34 @@ export default function MakeCallPage() {
           {markets.length > 1 && (
             <>
               <div className="lbl" style={{ margin: "24px 0 12px" }}>WHAT TO PREDICT</div>
-              <div style={{ display: "inline-flex", gap: 4, background: "#F5EEF1", borderRadius: 13, padding: 4 }}>
-                {markets.map((mk, i) => {
-                  const on = i === marketIdx;
-                  return (
-                    <button
-                      key={mk.marketId}
-                      onClick={() => switchMarket(i)}
-                      className="mono"
-                      style={{
-                        border: "none",
-                        cursor: "pointer",
-                        borderRadius: 10,
-                        padding: "9px 18px",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        background: on ? "#fff" : "transparent",
-                        color: on ? "#221217" : "#988990",
-                        boxShadow: on ? "0 1px 3px rgba(40,16,24,.14)" : "none",
-                      }}
-                    >
-                      {mk.tab}
-                    </button>
-                  );
-                })}
+              <div style={{ overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
+                <div style={{ display: "inline-flex", gap: 4, background: "#F5EEF1", borderRadius: 13, padding: 4, width: "max-content" }}>
+                  {markets.map((mk, i) => {
+                    const on = i === marketIdx;
+                    return (
+                      <button
+                        key={mk.marketId}
+                        onClick={() => switchMarket(i)}
+                        className="mono"
+                        style={{
+                          border: "none",
+                          cursor: "pointer",
+                          borderRadius: 10,
+                          padding: "9px 18px",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                          background: on ? "#fff" : "transparent",
+                          color: on ? "#221217" : "#988990",
+                          boxShadow: on ? "0 1px 3px rgba(40,16,24,.14)" : "none",
+                        }}
+                      >
+                        {mk.tab}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}

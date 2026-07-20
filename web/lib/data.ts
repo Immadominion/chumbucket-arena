@@ -214,23 +214,6 @@ export const walletActivity: WalletEntry[] = [
   { kind: "deposit", title: "Deposit", sub: "10 Jun", amount: "+200.0", amountTone: "blue" },
 ];
 
-export type ChatMsg =
-  | { from: "gaffer"; text: string }
-  | { from: "me"; text: string }
-  | { from: "dossier"; quote: string; result: string; text: string };
-
-export const chatThread: ChatMsg[] = [
-  { from: "gaffer", text: "Back again. Last Tuesday you swore Argentina were finished. They're in the quarters." },
-  { from: "gaffer", text: "Still fancy dying on that hill, or has the penny finally dropped?" },
-  { from: "me", text: "Fine. I was wrong about Argentina. Happy?" },
-  {
-    from: "dossier",
-    quote: '14 Jun · "Argentina are done, lump on Netherlands"',
-    result: "Lost 20 USDC",
-    text: "Happy? I'm thrilled. Now do the France game without the ego and we might get somewhere.",
-  },
-];
-
 export type SettledCall = {
   id: string;
   home: { name: string; code: string };

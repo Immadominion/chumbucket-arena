@@ -23,7 +23,7 @@ export default function AppGate({ children }: { children: React.ReactNode }) {
   if (!ready || session.status === "guest" || !session.onboarded) {
     return (
       <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf6f7" }}>
-        <div className="gaffer-float" style={{ display: "flex", alignItems: "center", gap: 10, color: "#988990", fontWeight: 600, fontSize: 14 }}>
+        <div className="cb-float" style={{ display: "flex", alignItems: "center", gap: 10, color: "#988990", fontWeight: 600, fontSize: 14 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/img/logo.png" alt="" style={{ width: 34, height: 34, objectFit: "contain" }} />
           Loading ChumBucket…

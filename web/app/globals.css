@@ -897,7 +897,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* sign-in / contract — desktop: content left, giant Gaffer grounded on the right */
+/* sign-in hero — desktop: content left, artwork grounded on the right */
 .signin {
   min-height: 100dvh;
   display: flex;
@@ -921,7 +921,7 @@ body {
   justify-content: center;
   overflow: hidden;
 }
-.signin-gaffer {
+.signin-hero {
   width: min(680px, 50vw);
   height: 92vh;
 }
@@ -938,7 +938,7 @@ body {
     flex: none;
     height: 320px;
   }
-  .signin-gaffer {
+  .signin-hero {
     width: 320px;
     height: 320px;
   }
@@ -985,8 +985,8 @@ body {
   }
 }
 
-/* gaffer 3d idle float */
-@keyframes gaffer-float {
+/* hero idle float */
+@keyframes cb-float {
   0%,
   100% {
     transform: translateY(0);
@@ -995,16 +995,16 @@ body {
     transform: translateY(-10px);
   }
 }
-.gaffer-float {
-  animation: gaffer-float 5s ease-in-out infinite;
+.cb-float {
+  animation: cb-float 5s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .gaffer-float {
+  .cb-float {
     animation: none;
   }
 }
 
-/* the Gaffer's "typing" indicator — three dots bouncing in sequence */
+/* "typing" indicator — three dots bouncing in sequence */
 @keyframes typing-bounce {
   0%,
   60%,
@@ -1178,7 +1178,7 @@ model-viewer {
   align-items: center;
   position: relative;
 }
-.verdict-gaffer {
+.verdict-hero {
   width: 300px;
   height: 320px;
   flex: none;
@@ -1189,7 +1189,7 @@ model-viewer {
     gap: 18px;
     padding: 24px;
   }
-  .verdict-gaffer {
+  .verdict-hero {
     width: 220px;
     height: 240px;
   }

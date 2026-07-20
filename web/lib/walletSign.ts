@@ -43,6 +43,53 @@ export type SocialActionProof = {
 };
 
 /**
+ * Byte-for-byte port of src/auth/WalletSignature.ts's callProofMessage() — the
+ * exact string a wallet signs to attribute a prediction call to itself. Keep in
+ * lockstep with the backend template if it ever changes.
+ */
+export function callProofMessage(params: {
+  matchId: string;
+  bucket: string;
+  stake: string; // stake in base units, as a decimal string
+  txSignature: string;
+  timestamp: number;
+}): string {
+  return `ChumBucket: call ${params.matchId} ${params.bucket} ${params.stake} ${params.txSignature}\nnet:${SOCIAL_NETWORK}\nts:${params.timestamp}`;
+}
+
+export type CallProof = { wallet: string; timestamp: number; signature: string };
+
+/**
+ * Sign the social-mirror proof for a just-placed bet — a second, lightweight
+ * wallet message signature (NOT another money tx). Mirrors mobile's
+ * `signAndRecordCallProof`. The on-chain bet has already landed by the time this
+ * runs; a throw or a user-cancelled signature here is harmless (the indexer
+ * reconciles by tx signature later), so callers must treat it as non-fatal.
+ */
+export async function signCallProof(opts: {
+  matchId: string;
+  bucket: string;
+  stakeBaseUnits: string;
+  txSignature: string;
+  wallet: ConnectedStandardSolanaWallet;
+  signMessage: UseSignMessage["signMessage"];
+}): Promise<CallProof> {
+  const timestamp = Date.now();
+  const message = callProofMessage({
+    matchId: opts.matchId,
+    bucket: opts.bucket,
+    stake: opts.stakeBaseUnits,
+    txSignature: opts.txSignature,
+    timestamp,
+  });
+  const { signature } = await opts.signMessage({
+    message: new TextEncoder().encode(message),
+    wallet: opts.wallet,
+  });
+  return { wallet: opts.wallet.address, timestamp, signature: bs58.encode(signature) };
+}
+
+/**
  * Sign a social-graph action proof with the caller's own connected Solana
  * wallet — the exact shape `verifySocialAction` (src/auth/WalletSignature.ts)
  * checks server-side. `signMessage` is the function returned by Privy's
