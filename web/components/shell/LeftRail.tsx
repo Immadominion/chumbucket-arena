@@ -3,35 +3,30 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { House, SoccerBall, ChartDonut, Wallet, Users, Plus, Basket } from "@/components/icons";
-
-const items = [
-  { href: "/arena", Icon: House, also: [] as string[] },
-  { href: "/matchday", Icon: SoccerBall, also: ["/call", "/challenge"] },
-  { href: "/calls", Icon: Basket, also: [] },
-  { href: "/results", Icon: ChartDonut, also: [] },
-  { href: "/wallet", Icon: Wallet, also: [] },
-  { href: "/friends", Icon: Users, also: ["/send"] },
-];
+import { Plus } from "@/components/icons";
+import { NAV_ITEMS, isNavActive } from "@/components/shell/navItems";
 
 export default function LeftRail() {
   const path = usePathname();
-  const matchesSegment = (p: string) => path === p || path.startsWith(`${p}/`);
-  const active = (href: string, also: string[]) =>
-    (href === "/arena" ? path === "/arena" : matchesSegment(href)) ||
-    also.some((p) => matchesSegment(p));
 
   return (
     <div className="lrail">
       <div className="logo">
         <Image src="/img/logo.png" alt="ChumBucket" width={30} height={30} style={{ objectFit: "contain" }} />
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 34 }}>
-        {items.map(({ href, Icon, also }) => {
-          const on = active(href, also);
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 30, width: "100%", alignItems: "center" }}>
+        {NAV_ITEMS.map(({ href, label, Icon, also }) => {
+          const on = isNavActive(path, href, also);
           return (
-            <Link key={href} href={href} className={`railbtn${on ? " railon" : ""}`} aria-current={on ? "page" : undefined}>
-              <Icon size={22} weight={on ? "fill" : "regular"} />
+            <Link
+              key={href}
+              href={href}
+              className={`railbtn${on ? " railon" : ""}`}
+              aria-current={on ? "page" : undefined}
+              style={{ width: 68, height: "auto", padding: "9px 0", flexDirection: "column", gap: 4 }}
+            >
+              <Icon size={21} weight={on ? "fill" : "regular"} />
+              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".01em", lineHeight: 1 }}>{label}</span>
             </Link>
           );
         })}

@@ -15,7 +15,7 @@ export default function TrialPage() {
   // guard: only signed, not-yet-onboarded players belong here
   useEffect(() => {
     if (!ready) return;
-    if (session.status === "guest") router.replace("/contract");
+    if (session.status === "guest") router.replace("/signin");
     else if (session.onboarded) router.replace("/arena");
   }, [ready, session.status, session.onboarded, router]);
 

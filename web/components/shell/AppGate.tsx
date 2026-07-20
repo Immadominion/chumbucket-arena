@@ -6,7 +6,7 @@ import { useSession } from "@/lib/session";
 
 /**
  * Connects the journey: you can't be inside the app until you've signed the
- * contract and been through the Trial. Guests go to /contract; signed-but-not-
+ * contract and been through the Trial. Guests go to /signin; signed-but-not-
  * onboarded players go to /trial.
  */
 export default function AppGate({ children }: { children: React.ReactNode }) {
@@ -16,7 +16,7 @@ export default function AppGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    if (session.status === "guest") router.replace("/contract");
+    if (session.status === "guest") router.replace("/signin");
     else if (!session.onboarded && path !== "/trial") router.replace("/trial");
   }, [ready, session.status, session.onboarded, path, router]);
 

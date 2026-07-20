@@ -63,6 +63,8 @@ export {
   PencilSimple,
   ImageSquare,
   Basket,
+  Broadcast,
+  UserCircle,
   GithubLogo,
   Stack,
   BookOpen,

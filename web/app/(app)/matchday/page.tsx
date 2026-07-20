@@ -124,7 +124,7 @@ export default function MatchdayPage() {
 
       {/* featured (first open) — only in All/Open views */}
       {(filter === "all" || filter === "open") && featured && (
-        <Link href={`/call/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
+        <Link href={`/bet/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
           <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255, 51, 85,.25),transparent 70%)" }} />
             <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
@@ -262,7 +262,7 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
 
   const style = { padding: "16px 18px", display: "flex", alignItems: "center", gap: 16, color: "inherit" } as const;
   return kind === "open" ? (
-    <Link href={`/call/${f.matchId}`} className="card" style={{ ...style, textDecoration: "none" }}>{inner}</Link>
+    <Link href={`/bet/${f.matchId}`} className="card" style={{ ...style, textDecoration: "none" }}>{inner}</Link>
   ) : (
     <div className="card" style={{ ...style, opacity: kind === "played" ? 0.85 : 1 }}>{inner}</div>
   );

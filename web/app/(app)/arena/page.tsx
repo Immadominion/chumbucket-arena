@@ -119,7 +119,7 @@ export default function ArenaPage() {
                 <Link href={`/challenge/${featured.matchId}`} className="btnp" style={{ fontSize: 15, padding: "13px 24px", borderRadius: 13, textDecoration: "none" }}>
                   <Fire size={16} weight="fill" /> Challenge a mate
                 </Link>
-                <Link href={`/call/${featured.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.1)", padding: "13px 22px", borderRadius: 13, textDecoration: "none" }}>
+                <Link href={`/bet/${featured.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#fff", background: "rgba(255,255,255,.1)", padding: "13px 22px", borderRadius: 13, textDecoration: "none" }}>
                   Back the crowd <ArrowRight size={16} weight="bold" />
                 </Link>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.06)", borderRadius: 30, padding: "10px 15px" }}>
@@ -167,7 +167,7 @@ export default function ArenaPage() {
                   <Link href={`/challenge/${m.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", background: CORAL, padding: "9px 15px", borderRadius: 11, textDecoration: "none" }}>
                     <Fire size={13} weight="fill" /> Challenge
                   </Link>
-                  <Link href={`/call/${m.matchId}`} style={{ fontSize: 12.5, fontWeight: 700, color: CORAL, background: BLUSH_SOFT, padding: "9px 15px", borderRadius: 11, textDecoration: "none" }}>
+                  <Link href={`/bet/${m.matchId}`} style={{ fontSize: 12.5, fontWeight: 700, color: CORAL, background: BLUSH_SOFT, padding: "9px 15px", borderRadius: 11, textDecoration: "none" }}>
                     Back it
                   </Link>
                 </div>

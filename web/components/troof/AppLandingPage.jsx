@@ -460,7 +460,7 @@ function Trophy01(_p = {}) {
 function AppLandingPage(_p = {}) {
   const props = _p;
   const _router = useRouter();
-  const _goApp = () => _router.push("/contract");
+  const _goApp = () => _router.push("/signin");
   const _goProof = () => _router.push("/proof");
   const _goDocs = () => _router.push("/docs");
   const _goApk = () =>

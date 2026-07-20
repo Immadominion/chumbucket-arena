@@ -162,7 +162,7 @@ export default function TroofLanding() {
       ) {
         e.preventDefault();
         e.stopPropagation();
-        router.push("/contract");
+        router.push("/signin");
       }
       if (text === "see proof" || text === "proof" || text === "live chat") {
         e.preventDefault();
@@ -220,7 +220,7 @@ function MobileLanding() {
           <Image src="/img/bucket.png" alt="" width={32} height={32} style={{ objectFit: "contain" }} />
           <span>CHUMBUCKET</span>
         </div>
-        <Link href="/contract" className="cb-m-nav-cta">
+        <Link href="/signin" className="cb-m-nav-cta">
           Open
         </Link>
       </header>
@@ -236,7 +236,7 @@ function MobileLanding() {
           Pick a side. Lock a stake. When the final whistle goes, the winner gets paid.
         </p>
         <div className="cb-m-actions">
-          <Link href="/contract" className="cb-m-btn">
+          <Link href="/signin" className="cb-m-btn">
             Get started
             <Arrow />
           </Link>
@@ -306,7 +306,7 @@ function MobileLanding() {
       <section className="cb-m-cta">
         <h2>Ready to call a match?</h2>
         <p>Open the Arena, pick a fixture, and put something on it with a mate.</p>
-        <Link href="/contract" className="cb-m-btn">
+        <Link href="/signin" className="cb-m-btn">
           Open Arena
           <Arrow />
         </Link>

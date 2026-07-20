@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
-import { CaretRight, PencilSimple, PaperPlaneRight, SealCheck, SignOut, Users } from "@/components/icons";
+import { BookOpen, CaretRight, ChartDonut, PencilSimple, PaperPlaneRight, SealCheck, ShieldCheck, SignOut, Users, Wallet } from "@/components/icons";
 import { avatar } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { fetchSupabaseProfile } from "@/lib/social";
@@ -54,7 +54,7 @@ export default function SettingsPage() {
 
   return (
     <div className="midpad" style={{ maxWidth: 760 }}>
-      <div className="cd" style={{ fontSize: 24 }}>Settings</div>
+      <div className="cd" style={{ fontSize: 24 }}>Profile</div>
 
       {/* account */}
       <div className="card" style={{ marginTop: 22, padding: "20px 22px", display: "flex", alignItems: "center", gap: 16 }}>
@@ -75,6 +75,13 @@ export default function SettingsPage() {
         </button>
       </div>
       <div style={{ fontSize: 11, fontWeight: 700, color: "#B3A6AB", margin: "8px 4px 0" }}>Connected via {method}</div>
+
+      <Section title="Your bets & money">
+        <NavRow href="/wallet" Icon={Wallet} title="Wallet" desc="Balance, add funds, cash out" />
+        <NavRow href="/results" Icon={ChartDonut} title="Your bets" desc="Open positions and settled results" />
+        <NavRow href="/proof" Icon={ShieldCheck} title="How it settles" desc="TxLINE proves the score on-chain" />
+        <NavRow href="/docs" Icon={BookOpen} title="Technical docs" desc="Architecture, markets, settlement" last />
+      </Section>
 
       <Section title="Social">
         <Link href="/friends" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", textDecoration: "none", color: "inherit", borderBottom: "1px solid #F9F3F5" }}>
@@ -140,6 +147,21 @@ export default function SettingsPage() {
 
       <EditProfileModal open={editOpen} onClose={() => setEditOpen(false)} currentHandle={handle} />
     </div>
+  );
+}
+
+function NavRow({ href, Icon, title, desc, last }: { href: string; Icon: typeof Users; title: string; desc: string; last?: boolean }) {
+  return (
+    <Link href={href} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", textDecoration: "none", color: "inherit", borderBottom: last ? "none" : "1px solid #F9F3F5" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Icon size={17} weight="fill" color="#FF3355" />
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
+          <div style={{ fontSize: 12, color: "#988990", fontWeight: 600 }}>{desc}</div>
+        </div>
+      </div>
+      <CaretRight size={15} color="#B3A6AB" />
+    </Link>
   );
 }
 

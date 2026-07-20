@@ -213,7 +213,7 @@ function CallCard({
         <div style={{ marginLeft: "auto" }}>
           {!call.isSettled && call.matchId ? (
             <Link
-              href={`/call/${call.matchId}`}
+              href={`/bet/${call.matchId}`}
               style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#fff", background: CORAL, padding: "7px 13px", borderRadius: 20, textDecoration: "none" }}
             >
               <Target size={12} weight="fill" /> Make this pick
