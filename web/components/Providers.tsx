@@ -17,7 +17,7 @@ import { TRPCProvider } from "@/lib/trpc";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://chumbucket-arena-production.up.railway.app";
-const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "cmqn0pa6s00240djp985c7mp8";
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "cmbcbqy1900fujz0mlkf8wjkp";
 const WS_URL = BACKEND_URL.replace(/^http/, "ws");
 
 function TRPCStack({ children }: { children: React.ReactNode }) {
