@@ -9,6 +9,7 @@
  */
 
 import Link from "next/link";
+import { Flag } from "@/components/Flag";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchUsdcBalance } from "@/lib/arena-onchain";
@@ -23,7 +24,6 @@ import {
   Trophy,
   CaretRight,
 } from "@/components/icons";
-import { flag } from "@/lib/data";
 import { useGameData } from "@/lib/useGameData";
 import { useSession } from "@/lib/session";
 
@@ -105,8 +105,8 @@ export default function ArenaPage() {
               </span>
 
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 20 }}>
-                <img src={flag(featured.home.code)} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} alt="" />
-                <img src={flag(featured.away.code)} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -14 }} alt="" />
+                <Flag code={featured.home.code} name={featured.home.name} size={44} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} />
+                <Flag code={featured.away.code} name={featured.away.name} size={44} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -14 }} />
               </div>
               <h1 className="cd" style={{ fontSize: 38, lineHeight: 1.03, color: "#fff", margin: "14px 0 0", letterSpacing: "-.5px" }}>
                 {featured.home.name} <span style={{ color: "#7c5b64", fontWeight: 600 }}>vs</span> {featured.away.name}
@@ -154,8 +154,8 @@ export default function ArenaPage() {
             {matchday.map((m) => (
               <div key={m.matchId} className="card" style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
-                  <img src={flag(m.home.code)} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff" }} alt="" />
-                  <img src={flag(m.away.code)} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff", marginLeft: -12 }} alt="" />
+                  <Flag code={m.home.code} name={m.home.name} size={40} style={{ boxShadow: "0 0 0 2px #fff" }} />
+                  <Flag code={m.away.code} name={m.away.name} size={40} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -12 }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 140 }}>
                   <div className="cd" style={{ fontWeight: 600, fontSize: 15.5, color: INK }}>{m.home.name} v {m.away.name}</div>
@@ -191,8 +191,8 @@ export default function ArenaPage() {
               {openCalls.map((oc) => (
                 <div key={oc.matchId} className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ display: "flex", alignItems: "center" }}>
-                    <img src={flag(oc.home.code)} style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff" }} alt="" />
-                    <img src={flag(oc.away.code)} style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff", marginLeft: -10 }} alt="" />
+                    <Flag code={oc.home.code} name={oc.home.name} size={34} style={{ boxShadow: "0 0 0 2px #fff" }} />
+                    <Flag code={oc.away.code} name={oc.away.name} size={34} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -10 }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5, color: INK }}>{oc.pick}</div>

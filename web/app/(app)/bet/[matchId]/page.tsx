@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Flag } from "@/components/Flag";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +10,6 @@ import { useSignAndSendTransaction, useSignMessage, useWallets } from "@privy-io
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import { LiveScoreStrip } from "@/components/LiveScoreStrip";
 import { ArrowLeft, ArrowUpRight, CheckCircle, Clock, LockSimple, ShieldCheck, WarningCircle } from "@/components/icons";
-import { flag } from "@/lib/data";
 import { toFixture, toCallMarkets, type CallMarket } from "@/lib/adapters";
 import { useGameData } from "@/lib/useGameData";
 import { signCallProof } from "@/lib/walletSign";
@@ -347,12 +347,12 @@ export default function MakeCallPage() {
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 46, marginTop: 22 }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                <img src={flag(fx.home.code, 160)} style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff,0 4px 12px rgba(40,16,24,.14)" }} alt="" />
+                <Flag code={fx.home.code} name={fx.home.name} size={64} style={{ boxShadow: "0 0 0 2px #fff,0 4px 12px rgba(40,16,24,.14)" }} />
                 <span className="cd" style={{ fontSize: 18 }}>{fx.home.name}</span>
               </div>
               <span className="cd" style={{ fontSize: 20, color: "#CBBFC3" }}>VS</span>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                <img src={flag(fx.away.code, 160)} style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff,0 4px 12px rgba(40,16,24,.14)" }} alt="" />
+                <Flag code={fx.away.code} name={fx.away.name} size={64} style={{ boxShadow: "0 0 0 2px #fff,0 4px 12px rgba(40,16,24,.14)" }} />
                 <span className="cd" style={{ fontSize: 18 }}>{fx.away.name}</span>
               </div>
             </div>

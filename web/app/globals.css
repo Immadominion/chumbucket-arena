@@ -917,9 +917,11 @@ body {
   flex: 1;
   position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
+  padding: 40px;
+  background: linear-gradient(150deg, #fbeef1, #f6e4ea 60%, #faf6f7);
 }
 .signin-hero {
   width: min(680px, 50vw);

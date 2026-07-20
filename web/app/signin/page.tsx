@@ -54,7 +54,7 @@ export default function ContractPage() {
     // seconds after the click, say so instead of leaving them staring.
     window.setTimeout(() => {
       if (!authedRef.current) {
-        setLoginErr("Sign-in didn't open. Refresh and try again — if it keeps happening, your browser may be blocking the pop-up.");
+        setLoginErr("Sign-in didn't open. Refresh and try again. If it keeps happening, your browser may be blocking the pop-up.");
       }
     }, 6000);
   };
@@ -74,7 +74,7 @@ export default function ContractPage() {
         </h1>
 
         <p style={{ margin: "20px 0 0", fontSize: 16, lineHeight: 1.5, fontWeight: 500, color: "#594A50", maxWidth: 460 }}>
-          Pick a handle, add a little to play with, and put your money where your mouth is. The match settles every bet, proven on-chain, so no one can rig it.
+          Back your call, challenge a mate, and let the final score settle it. No arguing, no house, proven on-chain. Grab some test funds and place your first bet in minutes.
         </p>
 
         <div className="card" style={{ padding: "6px 4px", marginTop: 22, maxWidth: 460 }}>
@@ -112,14 +112,21 @@ export default function ContractPage() {
       </div>
 
       <div className="signin-right">
-        <div style={{ width: "100%", maxWidth: 360, background: "linear-gradient(135deg,#1A1013,#3a0f1c)", borderRadius: 28, padding: 28, color: "#fff", position: "relative", overflow: "hidden", boxShadow: "0 30px 44px rgba(40,16,24,.3)" }}>
-          <div style={{ position: "absolute", right: -50, top: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,rgba(255,90,118,.32),transparent 70%)" }} />
-          <div style={{ position: "relative" }}>
-            <ShieldCheck size={26} weight="fill" color="#FF5A76" />
-            <div className="cd" style={{ fontSize: 24, marginTop: 14, lineHeight: 1.15 }}>The match decides. Not the house.</div>
-            <p style={{ fontSize: 14, lineHeight: 1.5, color: "#D9C3C9", marginTop: 12 }}>
-              Every bet locks in a Solana escrow. A TxLINE Merkle proof decides the result, and the pool&rsquo;s configured fee is enforced on-chain.
-            </p>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+          {/* the actual app, device-framed — show them what they're joining */}
+          <div style={{ borderRadius: 42, padding: 7, background: "#1A1013", boxShadow: "0 40px 70px rgba(40,16,24,.3)" }}>
+            <img
+              src="/product-shots/home.png"
+              alt="The ChumBucket app"
+              style={{ display: "block", height: "min(64vh, 620px)", width: "auto", borderRadius: 35 }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 11, background: "#fff", borderRadius: 16, padding: "13px 18px", boxShadow: "0 12px 34px rgba(40,16,24,.12)", maxWidth: 360 }}>
+            <ShieldCheck size={22} weight="fill" color="#FF3355" style={{ flex: "none" }} />
+            <div>
+              <div className="cd" style={{ fontSize: 14.5, color: "#221217", lineHeight: 1.2 }}>The match decides. Not the house.</div>
+              <div style={{ fontSize: 12.5, color: "#7C6D72", marginTop: 2, fontWeight: 500 }}>Every bet settles from the real score, proven on-chain.</div>
+            </div>
           </div>
         </div>
       </div>

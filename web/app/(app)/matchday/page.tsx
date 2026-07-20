@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { Flag } from "@/components/Flag";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CaretRight, CheckCircle, Clock, DownloadSimple, Fire, LockSimple, Trophy } from "@/components/icons";
 import ErrorState from "@/components/ErrorState";
-import { flag } from "@/lib/data";
 import { useGameData } from "@/lib/useGameData";
 import { useTRPC } from "@/lib/trpc";
 import type { MatchView } from "@/lib/adapters";
-import { flagCode, frostToWal, kickoffLabel } from "@/lib/format";
+import { frostToWal, kickoffLabel } from "@/lib/format";
 import { downloadIcs } from "@/lib/ics";
 
 /* eslint-disable @next/next/no-img-element */
@@ -128,8 +128,8 @@ export default function MatchdayPage() {
           <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255, 51, 85,.25),transparent 70%)" }} />
             <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
-              <img src={flag(flagCode(featured.fixture.home) ?? "", 160)} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} alt="" />
-              <img src={flag(flagCode(featured.fixture.away) ?? "", 160)} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -16 }} alt="" />
+              <Flag name={featured.fixture.home} size={52} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} />
+              <Flag name={featured.fixture.away} size={52} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -16 }} />
             </div>
             <div style={{ flex: 1, position: "relative" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#FF5A76", color: "#3a0510", fontSize: 11, fontWeight: 700, padding: "4px 11px", borderRadius: 20 }}>
@@ -229,8 +229,8 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
   const inner = (
     <>
       <div style={{ display: "flex", alignItems: "center" }}>
-        <img src={flag(flagCode(f.home) ?? "")} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff" }} alt="" />
-        <img src={flag(flagCode(f.away) ?? "")} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff", marginLeft: -12 }} alt="" />
+        <Flag name={f.home} size={40} style={{ boxShadow: "0 0 0 2px #fff" }} />
+        <Flag name={f.away} size={40} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -12 }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="cd" style={{ fontSize: 16 }}>
