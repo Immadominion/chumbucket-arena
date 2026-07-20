@@ -122,15 +122,15 @@ export default function SettingsPage() {
 
       {/* ownership */}
       <div className="ink" style={{ marginTop: 18, padding: 22 }}>
-        <div className="glow" style={{ right: -30, bottom: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255, 51, 85,.2),transparent 70%)" }} />
+        <div className="glow" style={{ right: -30, bottom: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 9, position: "relative" }}>
-          <SealCheck size={20} weight="fill" color="#FFB0C0" />
+          <SealCheck size={20} weight="fill" color="#fff" />
           <span className="cd" style={{ fontSize: 14, letterSpacing: ".5px", color: "#fff" }}>SETTLED ON-CHAIN, NOT BY US</span>
         </div>
-        <p style={{ margin: "10px 0 0", fontSize: 13.5, lineHeight: 1.5, color: "#B8C6BD", fontWeight: 500, position: "relative" }}>
+        <p style={{ margin: "10px 0 0", fontSize: 13.5, lineHeight: 1.5, color: "rgba(255,255,255,.85)", fontWeight: 500, position: "relative" }}>
           Every bet locks in a Solana escrow and pays out from the real match result, proven by TxLINE. It&rsquo;s verifiable on-chain, and no one (not even us) can change who won.
         </p>
-        <div className="mono" style={{ fontSize: 11, color: "#7E8C84", marginTop: 10, position: "relative" }}>{wallet ? `${wallet.slice(0, 10)}…` : ""}</div>
+        <div className="mono" style={{ fontSize: 11, color: "rgba(255,255,255,.6)", marginTop: 10, position: "relative" }}>{wallet ? `${wallet.slice(0, 10)}…` : ""}</div>
       </div>
 
       <button onClick={out} style={{ marginTop: 18, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#fff", border: "1.5px solid #F0D6D7", color: "#C2373B", borderRadius: 14, padding: 14, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>

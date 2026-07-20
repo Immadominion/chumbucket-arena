@@ -129,8 +129,8 @@ export default function ChallengeLinkPage() {
             </div>
 
             <div className="ink" style={{ marginTop: 14, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
-              <ShieldCheck size={16} weight="fill" color={CORAL_BRIGHT} style={{ flex: "none" }} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>Neither player, and not ChumBucket, can decide who won. The match settles it, proven on-chain by TxLINE.</span>
+              <ShieldCheck size={16} weight="fill" color="#fff" style={{ flex: "none" }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "rgba(255,255,255,.9)", lineHeight: 1.4 }}>Neither player, and not ChumBucket, can decide who won. The match settles it, proven on-chain by TxLINE.</span>
             </div>
           </>
         )}

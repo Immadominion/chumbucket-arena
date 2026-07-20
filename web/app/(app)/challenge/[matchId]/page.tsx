@@ -179,8 +179,8 @@ export default function CreateChallengePage() {
       )}
 
       <div className="ink" style={{ marginTop: 16, padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
-        <ShieldCheck size={16} weight="fill" color="#FF5A76" style={{ flex: "none" }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0", lineHeight: 1.4 }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
+        <ShieldCheck size={16} weight="fill" color="#fff" style={{ flex: "none" }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "rgba(255,255,255,.9)", lineHeight: 1.4 }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
       </div>
 
       <AddFundsModal open={funds} onClose={() => setFunds(false)} />

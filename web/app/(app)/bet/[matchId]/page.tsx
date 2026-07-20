@@ -423,8 +423,8 @@ export default function MakeCallPage() {
           <div className="ink" style={{ marginTop: 18, padding: "16px 18px" }}>
             <span style={{ fontSize: 14, fontWeight: 500, color: "#F7EEF0", lineHeight: 1.42 }}>{read}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.08)" }}>
-              <ShieldCheck size={15} weight="fill" color="#FF5A76" />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#FFB0C0" }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
+              <ShieldCheck size={15} weight="fill" color="#fff" />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "rgba(255,255,255,.9)" }}>The real match result is checked automatically before anyone gets paid, no one can fake it.</span>
             </div>
           </div>
         </div>

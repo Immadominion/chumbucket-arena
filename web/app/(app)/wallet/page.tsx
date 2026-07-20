@@ -61,13 +61,13 @@ export default function WalletPage() {
         {/* LEFT */}
         <div className="col-main">
           <div className="ink" style={{ padding: 26 }}>
-            <div className="glow" style={{ right: -30, top: -30, width: 150, height: 150, background: "radial-gradient(circle,rgba(255, 51, 85,.3),transparent 70%)" }} />
-            <div className="lbl" style={{ color: "#FFB0C0", position: "relative" }}>AVAILABLE BALANCE</div>
+            <div className="glow" style={{ right: -30, top: -30, width: 150, height: 150, background: "radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)" }} />
+            <div className="lbl" style={{ color: "#fff", position: "relative" }}>AVAILABLE BALANCE</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, position: "relative" }}>
               <span className="mono" style={{ fontWeight: 700, fontSize: 42 }}>{available.toFixed(1)}</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: "#FFB0C0" }}>USDC</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: "rgba(255,255,255,.85)" }}>USDC</span>
             </div>
-            <div className="mono" style={{ fontSize: 12, color: "#B8C6BD", marginTop: 3, position: "relative" }}>
+            <div className="mono" style={{ fontSize: 12, color: "rgba(255,255,255,.7)", marginTop: 3, position: "relative" }}>
               {session.wallet ? shortWallet(session.wallet) : "your Solana wallet"}
             </div>
             {staked > 0 && (

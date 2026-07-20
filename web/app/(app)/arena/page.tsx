@@ -240,14 +240,14 @@ export default function ArenaPage() {
 
           {/* how settlement works, the differentiator, always visible */}
           <Link href="/proof" className="ink" style={{ display: "block", padding: 22, textDecoration: "none", marginTop: 20 }}>
-            <div className="glow" style={{ right: -30, top: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255,90,118,.3),transparent 70%)" }} />
+            <div className="glow" style={{ right: -30, top: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)" }} />
             <div style={{ position: "relative" }}>
-              <ShieldCheck size={22} weight="fill" color={CORAL_BRIGHT} />
+              <ShieldCheck size={22} weight="fill" color="#fff" />
               <div className="cd" style={{ fontSize: 17, color: "#fff", marginTop: 10 }}>No more arguing who won.</div>
-              <div style={{ fontSize: 13, color: "#D9C3C9", fontWeight: 500, marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,.9)", fontWeight: 500, marginTop: 6, lineHeight: 1.5 }}>
                 Old ChumBucket made someone pick the winner. Now the match does: TxLINE proves the result on Solana, then the winner claims from the pool.
               </div>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: CORAL_BRIGHT, marginTop: 12 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", marginTop: 12 }}>
                 See how it settles <CaretRight size={13} weight="bold" />
               </div>
             </div>

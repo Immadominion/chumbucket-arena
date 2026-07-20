@@ -109,7 +109,7 @@ body {
   box-shadow: 0 2px 12px rgba(40, 16, 24, 0.05);
 }
 .ink {
-  background: linear-gradient(160deg, #1a1013, #26161b);
+  background: linear-gradient(150deg, #ff3355, #b81540);
   color: #fff;
   border-radius: 22px;
   position: relative;

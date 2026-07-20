@@ -125,25 +125,25 @@ export default function MatchdayPage() {
       {/* featured (first open), only in All/Open views */}
       {(filter === "all" || filter === "open") && featured && (
         <Link href={`/bet/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
-          <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
-            <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255, 51, 85,.25),transparent 70%)" }} />
+          <div style={{ background: "linear-gradient(140deg, #FF3355 0%, #D81E4A 55%, #B81540 100%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
+            <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)" }} />
             <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
               <Flag name={featured.fixture.home} size={52} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} />
               <Flag name={featured.fixture.away} size={52} style={{ boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -16 }} />
             </div>
             <div style={{ flex: 1, position: "relative" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#FF5A76", color: "#3a0510", fontSize: 11, fontWeight: 700, padding: "4px 11px", borderRadius: 20 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", color: "#FF3355", fontSize: 11, fontWeight: 700, padding: "4px 11px", borderRadius: 20 }}>
                 <Fire size={12} weight="fill" /> Featured
               </span>
-              <div className="cd" style={{ fontSize: 26, color: "#fff", marginTop: 10 }}>{featured.fixture.home} <span style={{ color: "#6A5A60" }}>vs</span> {featured.fixture.away}</div>
-              <div style={{ fontSize: 12.5, color: "#B8C6BD", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}{marketCount(featured) > 1 ? ` · ${marketCount(featured)} ways to predict` : ""}</div>
+              <div className="cd" style={{ fontSize: 26, color: "#fff", marginTop: 10 }}>{featured.fixture.home} <span style={{ color: "rgba(255,255,255,.55)" }}>vs</span> {featured.fixture.away}</div>
+              <div style={{ fontSize: 12.5, color: "rgba(255,255,255,.8)", fontWeight: 600, marginTop: 4 }}>{featured.fixture.group ?? featured.fixture.stage} · {kickoffLabel(featured.fixture.kickoff).koTag}{marketCount(featured) > 1 ? ` · ${marketCount(featured)} ways to predict` : ""}</div>
             </div>
             <div style={{ position: "relative", textAlign: "right" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end", color: "#fff" }}>
                 <Trophy size={15} weight="fill" color="#F2B705" />
                 <span className="mono" style={{ fontWeight: 700, fontSize: 14 }}>{Math.round(potOf(featured)).toLocaleString()}</span>
               </div>
-              <span className="btnp" style={{ fontSize: 13.5, padding: "10px 18px", borderRadius: 12, marginTop: 12 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, background: "#fff", color: "#FF3355", fontSize: 13.5, padding: "10px 18px", borderRadius: 12, marginTop: 12 }}>
                 {called.has(featured.fixture.matchId) ? "You're in" : "Predict"} <ArrowRight size={15} weight="bold" />
               </span>
             </div>

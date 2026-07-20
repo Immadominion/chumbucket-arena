@@ -64,9 +64,14 @@ export default function Tour({ steps, onDone }: { steps: TourStep[]; onDone: () 
     ? { x: rect.x - PAD, y: rect.y - PAD, w: rect.w + PAD * 2, h: rect.h + PAD * 2 }
     : { x: vp.w / 2 - 80, y: vp.h / 2 - 40, w: 160, h: 80 };
 
-  // place the note below the hole if there's room, else above; clamp horizontally
+  // Place the note below the hole if there's room, else above; then clamp BOTH
+  // axes so the note (and its "Got it"/Skip buttons) is always fully on-screen,
+  // even when the spotlighted element is taller than the viewport (which used to
+  // push the last step's note, and its dismiss button, off the bottom).
+  const NOTE_H = 240;
   const noteBelow = hole.y + hole.h + 190 < vp.h || hole.y < 200;
-  const noteTop = noteBelow ? hole.y + hole.h + 16 : Math.max(16, hole.y - 172);
+  const rawTop = noteBelow ? hole.y + hole.h + 16 : hole.y - 172;
+  const noteTop = Math.min(Math.max(16, rawTop), Math.max(16, vp.h - NOTE_H - 16));
   const noteLeft = Math.min(Math.max(16, hole.x), Math.max(16, vp.w - NOTE_W - 16));
 
   return (

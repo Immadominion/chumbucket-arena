@@ -48,7 +48,7 @@ export default function ProofPage() {
           ) : err ? (
             <div className="ink" style={{ padding: 24, color: "#F0A6A6", fontSize: 14, fontWeight: 600 }}>Couldn&rsquo;t load the settlement.</div>
           ) : (
-            <div className="ink" style={{ padding: 24, color: "#FFB0C0", fontSize: 14, fontWeight: 600 }}>Loading the settlement…</div>
+            <div className="ink" style={{ padding: 24, color: "#fff", fontSize: 14, fontWeight: 600 }}>Loading the settlement…</div>
           )}
         </div>
 
