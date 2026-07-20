@@ -5,6 +5,7 @@
  * runs anywhere; set keys to light up Walrus, Claude, and real WAL one by one.
  */
 import { type AppConfig } from "./config";
+import { Faucet } from "./keeper/Faucet";
 import type { EventStore } from "./core/eventstore/EventStore";
 import type { MemoryStore } from "./core/memory/MemoryStore";
 import { ReadModel } from "./core/projections/ReadModel";
@@ -33,6 +34,8 @@ export interface App {
     social: SocialStore;
     /** Pull-based chain->read-model reconciler (present when social + reconciler configured). */
     reconciler?: ArenaReconciler;
+    /** Devnet test-USDC faucet (present when the on-chain keeper + a USDC mint are configured). */
+    faucet?: Faucet;
     /** Description of which adapters are live — handy for /health and the demo. */
     wiring: Record<string, string>;
 }

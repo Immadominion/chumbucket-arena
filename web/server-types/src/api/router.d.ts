@@ -43,6 +43,20 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         output: import("../core/projections/PotProjection").MatchView | null;
         meta: object;
     }>;
+    liveScore: import("@trpc/server").TRPCQueryProcedure<{
+        input: {
+            matchId: string;
+        };
+        output: import("../ports/MatchData").LiveMatchState | null;
+        meta: object;
+    }>;
+    faucet: import("@trpc/server").TRPCMutationProcedure<{
+        input: {
+            wallet: string;
+        };
+        output: import("../keeper/Faucet").FaucetResult;
+        meta: object;
+    }>;
     leaderboard: import("@trpc/server").TRPCQueryProcedure<{
         input: {
             limit?: number | undefined;
@@ -169,8 +183,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         input: {
             marketId: string;
             bucket: string;
-            stake: bigint;
             matchId: string;
+            stake: bigint;
         };
         output: string;
         meta: object;
@@ -265,8 +279,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
      */
     follow: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            wallet: string;
             signature: string;
+            wallet: string;
             target: string;
             timestamp: number;
         };
@@ -279,8 +293,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     }>;
     unfollow: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            wallet: string;
             signature: string;
+            wallet: string;
             target: string;
             timestamp: number;
         };
@@ -311,8 +325,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     /** Mark notifications read — wallet-signature authed (only you mark your own). */
     markNotificationsRead: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            wallet: string;
             signature: string;
+            wallet: string;
             timestamp: number;
             ids?: string[] | undefined;
         };
@@ -331,8 +345,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
      */
     linkIdentity: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            wallet: string;
             signature: string;
+            wallet: string;
             timestamp: number;
             accessToken: string;
         };
@@ -375,8 +389,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
      */
     createPendingTarget: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            wallet: string;
             signature: string;
+            wallet: string;
             timestamp: number;
             providerUsername: string;
             provider?: "twitter" | undefined;
@@ -456,8 +470,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     makeCall: import("@trpc/server").TRPCMutationProcedure<{
         input: {
             bucket: string;
-            stake: bigint;
             matchId: string;
+            stake: bigint;
             marketId?: string | undefined;
             note?: string | undefined;
         };
@@ -469,8 +483,8 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     }>;
     createChallenge: import("@trpc/server").TRPCMutationProcedure<{
         input: {
-            stake: bigint;
             matchId: string;
+            stake: bigint;
             side: "HOME" | "DRAW" | "AWAY";
             opponentSide?: "HOME" | "DRAW" | "AWAY" | undefined;
         };
@@ -530,9 +544,9 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
      */
     recordPredictionCall: import("@trpc/server").TRPCMutationProcedure<{
         input: {
+            signature: string;
             bucket: "HOME" | "DRAW" | "AWAY";
             wallet: string;
-            signature: string;
             matchId: string;
             txSignature: string;
             timestamp: number;
@@ -603,7 +617,7 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
     onFeed: import("@trpc/server").TRPCSubscriptionProcedure<{
         input: void;
         output: AsyncIterable<{
-            type: "PlayerSigned" | "Deposited" | "Withdrawn" | "WithdrawalInitiated" | "WithdrawalSettled" | "WithdrawalReversed" | "WelcomeGranted" | "HouseSeeded" | "CallMade" | "HotTakeDeclared" | "CallSettled" | "CallVoided" | "TierChanged" | "TraitObserved" | "VerdictIssued" | "ChatExchanged" | "ChallengeStakeLocked" | "ChallengeStakeSettled" | "ChallengeStakeRefunded" | "MatchOpened" | "MatchLocked" | "MatchResolved" | "PotSettled" | "ChallengeCreated" | "ChallengeAccepted" | "ChallengeSettled" | "ChallengeVoided" | "ChallengeCancelled";
+            type: "PlayerSigned" | "Deposited" | "Withdrawn" | "WithdrawalInitiated" | "WithdrawalSettled" | "WithdrawalReversed" | "WelcomeGranted" | "HouseSeeded" | "CallMade" | "HotTakeDeclared" | "CallSettled" | "CallVoided" | "TierChanged" | "TraitObserved" | "VerdictIssued" | "ChatExchanged" | "ChallengeStakeLocked" | "ChallengeStakeSettled" | "ChallengeStakeRefunded" | "MatchOpened" | "MarketsAdded" | "MatchLocked" | "MatchResolved" | "PotSettled" | "ChallengeCreated" | "ChallengeAccepted" | "ChallengeSettled" | "ChallengeVoided" | "ChallengeCancelled";
             at: number;
             payload: import("../domain/events").DomainEvent;
         }, void, any>;

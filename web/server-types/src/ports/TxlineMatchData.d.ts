@@ -16,7 +16,7 @@
  */
 import { type MatchId } from "../domain/ids";
 import type { Fixture } from "../domain/model";
-import type { MatchDataProvider, MatchResult } from "./MatchData";
+import type { LiveMatchState, MatchDataProvider, MatchResult } from "./MatchData";
 export interface TxlineConfig {
     apiBaseUrl: string;
     jwt: string;
@@ -34,6 +34,7 @@ export interface TxScoresEvent {
     Seq?: number;
     StatusId?: number;
     Action?: string;
+    Participant1IsHome?: boolean;
     Stats?: Record<string, number>;
 }
 /**
@@ -62,6 +63,14 @@ export declare class TxlineMatchData implements MatchDataProvider {
     private headers;
     fixtures(): Promise<Fixture[]>;
     results(matchIds: MatchId[]): Promise<MatchResult[]>;
+    /**
+     * Current in-play score + phase from the same scores snapshot results() reads,
+     * but returning the LATEST score rather than only a terminal one — so the live
+     * strip can show the score while a match is being played. Never settles: the
+     * on-chain proof gate in the settlement verifier is the only source of truth
+     * for payouts.
+     */
+    liveScore(matchId: MatchId): Promise<LiveMatchState | null>;
     private fetchFixtures;
     private toFixture;
 }

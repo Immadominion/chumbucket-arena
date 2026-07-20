@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useSignAndSendTransaction, useWallets } from "@privy-io/react-auth/solana";
 import AddFundsModal from "@/components/flow/AddFundsModal";
+import { LiveScoreStrip } from "@/components/LiveScoreStrip";
 import { ArrowLeft, ArrowUpRight, CheckCircle, Clock, LockSimple, ShieldCheck, WarningCircle } from "@/components/icons";
 import { flag } from "@/lib/data";
 import { toFixture, toCallMarkets, type CallMarket } from "@/lib/adapters";
@@ -307,6 +308,7 @@ export default function MakeCallPage() {
                 <span className="cd" style={{ fontSize: 18 }}>{fx.away.name}</span>
               </div>
             </div>
+            <LiveScoreStrip matchId={params.matchId} />
           </div>
 
           {/* Bet-type switcher — only when this fixture has more than the Result market. */}

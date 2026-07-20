@@ -10,6 +10,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchUsdcBalance } from "@/lib/arena-onchain";
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import ErrorState from "@/components/ErrorState";
 import {
@@ -45,7 +47,17 @@ export default function ArenaPage() {
   const matchday = g.matchday;
   const openCalls = g.openCalls;
   const handle = session.handle || "there";
-  const balance = session.balance;
+  // Show the ON-CHAIN wallet balance — the exact USDC a bet spends — not the
+  // custodial float. Funding the float never moved this number, so a judge who
+  // topped up the old way saw a balance they couldn't bet with (the dead loop).
+  const qc = useQueryClient();
+  const balanceQ = useQuery({
+    queryKey: ["usdc-balance", session.wallet],
+    queryFn: () => fetchUsdcBalance(session.wallet),
+    enabled: !!session.wallet,
+    staleTime: 15_000,
+  });
+  const balance = balanceQ.data ?? 0;
 
   if (!featured && g.isError) {
     return <ErrorState onRetry={g.refetch} title="Couldn't load ChumBucket" />;
@@ -211,7 +223,17 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      <AddFundsModal open={funds} onClose={() => setFunds(false)} />
+      <AddFundsModal
+        open={funds}
+        onClose={() => setFunds(false)}
+        onchain
+        onchainAddress={session.wallet}
+        onchainBalance={balance}
+        onRecheck={async () => {
+          await qc.invalidateQueries({ queryKey: ["usdc-balance", session.wallet] });
+          await balanceQ.refetch();
+        }}
+      />
     </div>
   );
 }

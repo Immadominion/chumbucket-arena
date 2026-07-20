@@ -156,6 +156,18 @@ export interface MatchOpened {
     fixture: Fixture;
     markets: MarketDef[];
 }
+/**
+ * Markets curated onto an ALREADY-open match after the fact. MatchOpened is
+ * idempotent by matchId, so a fixture opened before a market existed could never
+ * gain it; this event backfills the missing markets onto an open match (the
+ * projection ignores it for locked/resolved matches and skips any market that
+ * already exists). Purely additive — never touches an existing market's pot.
+ */
+export interface MarketsAdded {
+    type: "MarketsAdded";
+    matchId: MatchId;
+    markets: MarketDef[];
+}
 export interface MatchLocked {
     type: "MatchLocked";
     matchId: MatchId;
@@ -181,7 +193,7 @@ export interface PotSettled {
     winnersStake: Frost;
     settledCount: number;
 }
-export type MatchEvent = MatchOpened | MatchLocked | MatchResolved | PotSettled;
+export type MatchEvent = MatchOpened | MarketsAdded | MatchLocked | MatchResolved | PotSettled;
 export interface ChallengeCreated {
     type: "ChallengeCreated";
     challengeId: ChallengeId;

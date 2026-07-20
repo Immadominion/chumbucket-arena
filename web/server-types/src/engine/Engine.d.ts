@@ -131,7 +131,23 @@ export declare class Engine {
      * on purpose (UX §4 — choice overload kills conversion): the one universal
      * over/under line plus a home handicap. More lines are a later expand.
      */
+    /**
+     * The curated book of extra markets opened alongside RESULT on every fixture.
+     * All settle from the full-time goals stat TxLINE proves on-chain (Over/Under
+     * totals + home goal handicaps), so each is a single verified predicate — no
+     * unprovable markets. Adding a line here automatically backfills onto every
+     * already-open fixture too (see reconcileMarkets), so the book can grow without
+     * re-seeding.
+     */
     private lineMarketsFor;
+    /**
+     * Backfill newly-curated markets onto an already-open match. openMatch is
+     * idempotent by matchId, so a fixture opened before a market existed would
+     * never gain it; this appends the missing markets (with their on-chain pot ids
+     * stamped) to any OPEN match. No-op for new matches (openMatch already gave
+     * them the full book) and for locked/resolved matches (their book is frozen).
+     */
+    private reconcileMarkets;
     lockMatch(matchId: MatchId): Promise<void>;
     resolveMatch(matchId: MatchId, score: {
         home: number;
