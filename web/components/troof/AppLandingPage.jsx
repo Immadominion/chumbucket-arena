@@ -2,8 +2,13 @@
 
 /**
  * Literal Troof Figma template (materialized AppLandingPage) with Chumbucket copy.
- * Assets: /public/troof. Do not redesign — wording + blank screenshots only.
+ * Assets: /public/troof. Structural layout is Figma-precise pixel positioning.
+ * Do not restructure or reposition. Interactive elements get onClick + cursor
+ * pointer only (never affects layout); content-only edits are otherwise safe
+ * since every node is independently absolute-positioned (no reflow on removal).
  */
+
+import { useRouter } from "next/navigation";
 
 // AppLandingPage.bundle.jsx — 8 component(s) materialized from a .fig as one
 // self-contained file: no imports/exports; every component is assigned to window below.
@@ -454,6 +459,13 @@ function Trophy01(_p = {}) {
 // figma node: 101:79 App Landing Page
 function AppLandingPage(_p = {}) {
   const props = _p;
+  const _router = useRouter();
+  const _goApp = () => _router.push("/contract");
+  const _goProof = () => _router.push("/proof");
+  const _goDocs = () => _router.push("/docs");
+  const _goApk = () =>
+    window.open("https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk", "_blank");
+  const _clickable = { cursor: "pointer" };
   return (
     <div className={props.className} style={{
       width: 1440,
@@ -900,13 +912,14 @@ function AppLandingPage(_p = {}) {
               </svg>
             </div>
           </div>
-          <div style={{
+          <div onClick={_goApp} style={{
             position: "absolute",
             left: 400.758,
             top: 253.549,
             width: 121,
             height: 38.606,
-            overflow: "hidden"
+            overflow: "hidden",
+            ..._clickable
           }}>
             <span style={{
               position: "absolute",
@@ -5021,13 +5034,14 @@ function AppLandingPage(_p = {}) {
               lineHeight: "28px",
               color: "rgb(255,255,255)"
             }}>Open the Arena, pick a fixture, and put something on it with a mate.</span>
-            <div style={{
+            <div onClick={_goApp} style={{
               position: "absolute",
               left: 0,
               top: 136,
               width: 208,
               height: 60,
-              overflow: "hidden"
+              overflow: "hidden",
+              ..._clickable
             }}>
               <div style={{
                 position: "absolute",
@@ -5254,13 +5268,14 @@ function AppLandingPage(_p = {}) {
         height: 60,
         overflow: "visible"
       }}>
-        <div style={{
+        <div onClick={_goApp} style={{
           position: "absolute",
           left: 0,
           top: 0,
           width: 180,
           height: 60,
-          overflow: "hidden"
+          overflow: "hidden",
+          ..._clickable
         }}>
           <div style={{
             position: "absolute",
@@ -5306,13 +5321,14 @@ function AppLandingPage(_p = {}) {
             </svg>
           </div>
         </div>
-        <div style={{
+        <div onClick={_goProof} style={{
           position: "absolute",
           left: 220,
           top: 15,
           width: 154,
           height: 29,
-          overflow: "hidden"
+          overflow: "hidden",
+          ..._clickable
         }}>
           <div style={{
             position: "absolute",
@@ -5516,45 +5532,50 @@ function AppLandingPage(_p = {}) {
             justifyContent: "center",
             alignItems: "center"
           }}>
-            <span style={{
+            <span onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 700,
               fontSize: 20,
               lineHeight: "26px",
-              color: "rgb(255,90,118)"
+              color: "rgb(255,90,118)",
+              ..._clickable
             }}>Home</span>
-            <span style={{
+            <span onClick={() => document.getElementById("section-features")?.scrollIntoView({ behavior: "smooth" })} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
               fontSize: 20,
               lineHeight: "26px",
-              color: "rgb(0,0,0)"
+              color: "rgb(0,0,0)",
+              ..._clickable
             }}>Features</span>
-            <span style={{
+            <span onClick={() => document.getElementById("section-benefits")?.scrollIntoView({ behavior: "smooth" })} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
               fontSize: 20,
               lineHeight: "26px",
-              color: "rgb(0,0,0)"
+              color: "rgb(0,0,0)",
+              ..._clickable
             }}>Benefits</span>
-            <span style={{
+            <span onClick={() => document.getElementById("section-faqs")?.scrollIntoView({ behavior: "smooth" })} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
               fontSize: 20,
               lineHeight: "26px",
-              color: "rgb(0,0,0)"
+              color: "rgb(0,0,0)",
+              ..._clickable
             }}>FAQs</span>
-            <span style={{
+            <span onClick={() => document.getElementById("section-testimonials")?.scrollIntoView({ behavior: "smooth" })} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
               fontSize: 20,
               lineHeight: "26px",
-              color: "rgb(0,0,0)"
+              color: "rgb(0,0,0)",
+              ..._clickable
             }}>Testimonials</span>
           </div>
           <div style={{
@@ -5579,13 +5600,14 @@ function AppLandingPage(_p = {}) {
             }}>TM</span>
           </div>
         </div>
-        <div style={{
+        <div onClick={_goApp} style={{
           position: "absolute",
           left: 733,
           top: 0,
           width: 180,
           height: 60,
-          overflow: "hidden"
+          overflow: "hidden",
+          ..._clickable
         }}>
           <div style={{
             position: "absolute",
@@ -5647,7 +5669,7 @@ function AppLandingPage(_p = {}) {
             textAlign: "center",
             lineHeight: "48px",
             color: "rgb(0,0,0)"
-          }}>from people using it</span>
+          }} id="section-testimonials">from people using it</span>
           <span style={{
             position: "absolute",
             left: 153,
@@ -5704,7 +5726,7 @@ function AppLandingPage(_p = {}) {
               fontSize: 28,
               lineHeight: "28px",
               color: "rgb(0,0,0)"
-            }}>Finally a clean way to put money on a match with my friends.</span>
+            }}>The final score decides every bet. No friend has to be the judge.</span>
             <div style={{
               position: "absolute",
               left: 0,
@@ -5867,7 +5889,7 @@ function AppLandingPage(_p = {}) {
               fontSize: 18,
               lineHeight: "28px",
               color: "rgb(0,0,0)"
-            }}>Dave N.</span>
+            }}>Settled by TxLINE</span>
           </div>
           <div style={{
             position: "absolute",
@@ -6121,7 +6143,7 @@ function AppLandingPage(_p = {}) {
                 fontSize: 48,
                 lineHeight: "48px",
                 color: "rgb(0,0,0)"
-              }}>What you can do</span>
+              }} id="section-features">What you can do</span>
               <span style={{
                 position: "absolute",
                 left: 0,
@@ -6425,7 +6447,7 @@ function AppLandingPage(_p = {}) {
                 fontSize: 48,
                 lineHeight: "48px",
                 color: "rgb(0,0,0)"
-              }}>Why people use it</span>
+              }} id="section-benefits">Why people use it</span>
               <span style={{
                 position: "absolute",
                 left: 0,
@@ -6438,7 +6460,7 @@ function AppLandingPage(_p = {}) {
                 lineHeight: "28px",
                 letterSpacing: "0.160em",
                 color: "rgb(255,90,118)"
-              }}>advatnages</span>
+              }}>advantages</span>
             </div>
             <div style={{
               position: "absolute",
@@ -6896,7 +6918,7 @@ function AppLandingPage(_p = {}) {
             fontSize: 48,
             lineHeight: "48px",
             color: "rgb(0,0,0)"
-          }}>Questions</span>
+          }} id="section-faqs">Questions</span>
           <span style={{
             position: "absolute",
             left: 0,
@@ -7273,7 +7295,7 @@ function AppLandingPage(_p = {}) {
           height: 168,
           overflow: "hidden"
         }}>
-          <span style={{
+          <span onClick={_goApp} style={{
             position: "absolute",
             left: 0,
             top: 58,
@@ -7283,9 +7305,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
+            color: "rgb(0,0,0)",
+            ..._clickable
           }}>open arena</span>
-          <span style={{
+          <span onClick={_goProof} style={{
             position: "absolute",
             left: 0,
             top: 100,
@@ -7295,9 +7318,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
+            color: "rgb(0,0,0)",
+            ..._clickable
           }}>proof</span>
-          <span style={{
+          <span onClick={() => document.getElementById("section-testimonials")?.scrollIntoView({ behavior: "smooth" })} style={{
             position: "absolute",
             left: 0,
             top: 142,
@@ -7307,8 +7331,9 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
-          }}>reveiws</span>
+            color: "rgb(0,0,0)",
+            ..._clickable
+          }}>reviews</span>
           <span style={{
             position: "absolute",
             left: 0,
@@ -7330,7 +7355,7 @@ function AppLandingPage(_p = {}) {
           height: 168,
           overflow: "hidden"
         }}>
-          <span style={{
+          <span onClick={() => window.open("https://github.com/Immadominion/chumbucket-arena/blob/main/LICENSE", "_blank")} style={{
             position: "absolute",
             left: 0,
             top: 58,
@@ -7340,9 +7365,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
-          }}>terms of use</span>
-          <span style={{
+            color: "rgb(0,0,0)",
+            ..._clickable
+          }}>license</span>
+          <span onClick={_goDocs} style={{
             position: "absolute",
             left: 0,
             top: 100,
@@ -7352,9 +7378,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
-          }}>privacy policy</span>
-          <span style={{
+            color: "rgb(0,0,0)",
+            ..._clickable
+          }}>how it works</span>
+          <span onClick={_goApk} style={{
             position: "absolute",
             left: 0,
             top: 142,
@@ -7364,8 +7391,9 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
-          }}>cookie policy</span>
+            color: "rgb(0,0,0)",
+            ..._clickable
+          }}>android app</span>
           <span style={{
             position: "absolute",
             left: 0,
@@ -7377,7 +7405,7 @@ function AppLandingPage(_p = {}) {
             fontSize: 32,
             lineHeight: "42px",
             color: "rgb(0,0,0)"
-          }}>legal</span>
+          }}>more</span>
         </div>
         <div style={{
           position: "absolute",
@@ -7387,7 +7415,7 @@ function AppLandingPage(_p = {}) {
           height: 210,
           overflow: "hidden"
         }}>
-          <span style={{
+          <span onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{
             position: "absolute",
             left: 3,
             top: 58,
@@ -7397,9 +7425,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
+            color: "rgb(0,0,0)",
+            ..._clickable
           }}>Home</span>
-          <span style={{
+          <span onClick={() => window.open("https://github.com/Immadominion/chumbucket-arena", "_blank")} style={{
             position: "absolute",
             left: 3,
             top: 100,
@@ -7409,9 +7438,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
-          }}>Discord</span>
-          <span style={{
+            color: "rgb(0,0,0)",
+            ..._clickable
+          }}>GitHub</span>
+          <span onClick={_goDocs} style={{
             position: "absolute",
             left: 3,
             top: 142,
@@ -7421,9 +7451,10 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
+            color: "rgb(0,0,0)",
+            ..._clickable
           }}>Documentation</span>
-          <span style={{
+          <span onClick={() => window.open("https://x.com/HeIsJoel0x", "_blank")} style={{
             position: "absolute",
             left: 3,
             top: 184,
@@ -7433,7 +7464,8 @@ function AppLandingPage(_p = {}) {
             fontWeight: 500,
             fontSize: 16,
             lineHeight: "26px",
-            color: "rgb(0,0,0)"
+            color: "rgb(0,0,0)",
+            ..._clickable
           }}>twitter (formerly x)</span>
           <span style={{
             position: "absolute",
@@ -7608,7 +7640,7 @@ function AppLandingPage(_p = {}) {
             fontSize: 32,
             lineHeight: "42px",
             color: "rgb(0,0,0)"
-          }}>Newsletter</span>
+          }}>Updates</span>
           <span style={{
             position: "absolute",
             left: 0,
@@ -7620,14 +7652,15 @@ function AppLandingPage(_p = {}) {
             fontSize: 16,
             lineHeight: "26px",
             color: "rgb(0,0,0)"
-          }}>Get updates</span>
-          <div style={{
+          }}>Follow along</span>
+          <div onClick={() => window.open("https://x.com/HeIsJoel0x", "_blank")} style={{
             position: "absolute",
             left: 0,
             top: 100,
             width: 340,
             height: 81,
-            overflow: "hidden"
+            overflow: "hidden",
+            ..._clickable
           }}>
             <div style={{
               position: "absolute",
@@ -7643,14 +7676,14 @@ function AppLandingPage(_p = {}) {
               position: "absolute",
               left: 24,
               top: 28,
-              width: 83,
+              width: 130,
               height: 26,
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
               fontSize: 16,
               lineHeight: "26px",
               color: "rgb(152,137,144)"
-            }}>Your email </span>
+            }}>@HeIsJoel0x</span>
             <div style={{
               position: "absolute",
               left: 170,
@@ -7679,7 +7712,7 @@ function AppLandingPage(_p = {}) {
                 fontSize: 16,
                 lineHeight: "26px",
                 color: "rgb(255,255,255)"
-              }}>Subscribe</span>
+              }}>Follow</span>
             </div>
           </div>
         </div>

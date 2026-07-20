@@ -8,9 +8,9 @@ import TroofLanding from "@/components/troof/TroofLanding";
  */
 
 export const metadata: Metadata = {
-  title: "Chumbucket — call the match with friends",
+  title: "Chumbucket: predict football matches with friends",
   description:
-    "Pick a side on a football match, lock a stake with friends, and get paid when the final score lands.",
+    "Predict a football match, challenge a friend, and let the real score settle it on Solana via TxLINE.",
 };
 
 export default function LandingPage() {

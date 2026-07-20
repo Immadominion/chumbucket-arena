@@ -63,4 +63,7 @@ export {
   PencilSimple,
   ImageSquare,
   Basket,
+  GithubLogo,
+  Stack,
+  BookOpen,
 } from "@phosphor-icons/react";

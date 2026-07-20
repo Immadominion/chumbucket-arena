@@ -244,6 +244,21 @@ function MobileLanding() {
             See a proof
           </Link>
         </div>
+        {/* Plain inline-styled link so it renders correctly regardless of the
+            Figma-derived CSS classes above — the Android app download. */}
+        <a
+          href="https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk"
+          style={{
+            display: "inline-block",
+            marginTop: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#F2385C",
+            textDecoration: "underline",
+          }}
+        >
+          Download the Android app (APK)
+        </a>
         <div className="cb-m-phones" aria-hidden>
           <div className="cb-m-phone">
             <Image src="/product-shots/home.png" alt="" fill sizes="42vw" priority />
