@@ -179,7 +179,7 @@ export default function ArenaPage() {
 
           {/* LIVE MATCHES */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "26px 0 14px" }}>
-            <div className="cd" style={{ fontSize: 20, color: INK }}>Today&rsquo;s matches</div>
+            <div className="cd" style={{ fontSize: 20, color: INK }}>Open to predict</div>
             <Link href="/matchday" style={{ fontSize: 13, fontWeight: 700, color: CORAL, textDecoration: "none" }}>See all</Link>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
