@@ -74,7 +74,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
     >
       {/* header */}
       <div style={{ padding: "22px 24px 18px", position: "relative" }}>
-        <div className="glow" style={{ right: -30, top: -40, width: 180, height: 180, background: `radial-gradient(circle,rgba(242,58,92,${verified ? ".28" : ".16"}),transparent 70%)`, transition: "opacity .3s" }} />
+        <div className="glow" style={{ right: -30, top: -40, width: 180, height: 180, background: `radial-gradient(circle,rgba(255, 51, 85,${verified ? ".28" : ".16"}),transparent 70%)`, transition: "opacity .3s" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
           <ShieldCheck size={17} weight="fill" color={GREEN} />
           <span className="cd" style={{ fontSize: 13, letterSpacing: ".5px", color: "#FFB0C0" }}>ON-CHAIN SETTLEMENT PROOF</span>
@@ -117,7 +117,7 @@ export default function VerifyReceipt({ receipt }: { receipt: Receipt }) {
         ) : (
           <div style={{ animation: "fadein .3s ease" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <div style={{ width: 40, height: 40, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", boxShadow: `0 0 0 6px rgba(242,58,92,.18)` }}>
+              <div style={{ width: 40, height: 40, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", boxShadow: `0 0 0 6px rgba(255, 51, 85,.18)` }}>
                 <CheckCircle size={24} weight="fill" color={INK} />
               </div>
               <div>

@@ -199,9 +199,6 @@ export const dossierTraits = [
   { label: "Tuesday tilt", fg: "#5B6B62", bg: "#EEF2EB" },
 ];
 
-export const gafferRead =
-  "Loyal to a fault — backs England and Brazil with his heart, not his head. Strong in knockout games, hopeless in Group F. Chases losses on a Tuesday, and won't admit he's wrong until the table forces him to.";
-
 export type WalletEntry = {
   kind: "stake" | "loss" | "win" | "deposit";
   title: string;

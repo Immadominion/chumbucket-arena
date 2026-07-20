@@ -30,7 +30,7 @@ export default function ResultsPage() {
           <div className="cd" style={{ fontSize: 24 }}>Your bets</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#988990", marginTop: 2 }}>Every settled bet, on the record</div>
         </div>
-        <Link href="/matchday" style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: "#F2385A", textDecoration: "none" }}>Find a match</Link>
+        <Link href="/matchday" style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: "#FF3355", textDecoration: "none" }}>Find a match</Link>
       </div>
 
       <ClaimableWinnings />
@@ -70,9 +70,9 @@ export default function ResultsPage() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 22, marginTop: 14, paddingTop: 14, borderTop: "1px solid #F5EEF1" }}>
-                  <Stat label="P&L" value={r.pnl} tone={r.outcome === "WON" ? "#F2385A" : r.outcome === "LOST" ? "#C2373B" : "#221217"} />
+                  <Stat label="P&L" value={r.pnl} tone={r.outcome === "WON" ? "#FF3355" : r.outcome === "LOST" ? "#C2373B" : "#221217"} />
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontSize: 12, fontWeight: 600, color: "#988990" }}>
-                    <ShieldCheck size={14} weight="fill" color="#F2385A" /> Settled on-chain
+                    <ShieldCheck size={14} weight="fill" color="#FF3355" /> Settled on-chain
                   </div>
                 </div>
 

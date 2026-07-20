@@ -28,7 +28,7 @@ import { useSession } from "@/lib/session";
 /* eslint-disable @next/next/no-img-element */
 
 // ChumBucket brand — coral, distinct from the semantic win/loss greens & reds.
-const CORAL = "#F2385A";
+const CORAL = "#FF3355";
 const CORAL_BRIGHT = "#FF5A76";
 const INK = "#1A1013";
 const INK2 = "#26161B";
@@ -122,7 +122,7 @@ export default function ArenaPage() {
           <div className="grid3" style={{ gap: 12, marginTop: 16 }}>
             {[
               { icon: <Fire size={16} weight="fill" color={CORAL} />, t: "1. Pick your side", s: "Challenge a mate 1-v-1, or back an outcome in the pool." },
-              { icon: <LockSimple size={16} weight="fill" color={CORAL} />, t: "2. Funds go on-chain", s: "Both stakes lock in a Solana escrow. Nobody can touch them." },
+              { icon: <LockSimple size={16} weight="fill" color={CORAL} />, t: "2. Funds go on-chain", s: "Both bets lock in a Solana escrow. Nobody can touch them." },
               { icon: <ShieldCheck size={16} weight="fill" color={CORAL} />, t: "3. TxLINE proves it", s: "The final score is validated on-chain before a winning position becomes claimable." },
             ].map((c) => (
               <div key={c.t} className="card" style={{ padding: "15px 16px" }}>
@@ -201,7 +201,7 @@ export default function ArenaPage() {
               <ShieldCheck size={22} weight="fill" color={CORAL_BRIGHT} />
               <div className="cd" style={{ fontSize: 17, color: "#fff", marginTop: 10 }}>No more arguing who won.</div>
               <div style={{ fontSize: 13, color: "#D9C3C9", fontWeight: 500, marginTop: 6, lineHeight: 1.5 }}>
-                Old Chumbucket made someone pick the winner. Now the match does: TxLINE proves the result on Solana, then the winner claims from the pool.
+                Old ChumBucket made someone pick the winner. Now the match does: TxLINE proves the result on Solana, then the winner claims from the pool.
               </div>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: CORAL_BRIGHT, marginTop: 12 }}>
                 See how it settles <CaretRight size={13} weight="bold" />

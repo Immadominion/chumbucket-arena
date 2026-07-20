@@ -14,7 +14,7 @@ export function fixturesToIcs(matches: MatchView[]): string {
     const f = m.fixture;
     return [
       "BEGIN:VEVENT",
-      `UID:chumbucket-${f.matchId}@thegaffer.fun`,
+      `UID:chumbucket-${f.matchId}@chumbucket.fun`,
       `DTSTAMP:${now}`,
       `DTSTART:${stamp(f.kickoff)}`,
       `DTEND:${stamp(f.kickoff + 2 * 60 * 60 * 1000)}`,

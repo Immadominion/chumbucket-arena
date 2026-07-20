@@ -8,7 +8,7 @@ import TroofLanding from "@/components/troof/TroofLanding";
  */
 
 export const metadata: Metadata = {
-  title: "Chumbucket: predict football matches with friends",
+  title: "ChumBucket: predict football matches with friends",
   description:
     "Predict a football match, challenge a friend, and let the real score settle it on Solana via TxLINE.",
 };

@@ -253,7 +253,7 @@ function MobileLanding() {
             marginTop: 10,
             fontSize: 13,
             fontWeight: 600,
-            color: "#F2385C",
+            color: "#FF3355",
             textDecoration: "underline",
           }}
         >
@@ -295,7 +295,7 @@ function MobileLanding() {
         />
         <Feature
           title="The score settles it"
-          body="Nobody at Chumbucket types in the result. The pot only opens after the real final score checks out."
+          body="Nobody at ChumBucket types in the result. The pot only opens after the real final score checks out."
         />
         <Feature
           title="Phone and web"

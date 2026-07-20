@@ -26,7 +26,7 @@ import { useWalletProfiles } from "@/lib/useWalletProfiles";
 /* eslint-disable @next/next/no-img-element */
 
 const INK = "#1A1013";
-const CORAL = "#F2385A";
+const CORAL = "#FF3355";
 const GRAY = "#988990";
 
 // Raw status enums must never reach the UI — map to plain phrases (audit H2).

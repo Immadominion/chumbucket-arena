@@ -65,7 +65,7 @@ export default function ClaimableWinnings() {
   return (
     <div className="card" style={{ marginTop: 18, padding: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px" }}>
-        <Trophy size={17} weight="fill" color="#F2385A" style={{ flex: "none" }} />
+        <Trophy size={17} weight="fill" color="#FF3355" style={{ flex: "none" }} />
         <div>
           <div className="cd" style={{ fontSize: 16 }}>Winnings to collect</div>
           <div style={{ fontSize: 11.5, color: "#988990", fontWeight: 600, marginTop: 1 }}>

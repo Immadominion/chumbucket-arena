@@ -80,7 +80,7 @@ export default function Tour({ steps, onDone }: { steps: TourStep[]; onDone: () 
           </mask>
         </defs>
         <rect width="100%" height="100%" fill="rgba(8,16,12,.74)" mask="url(#tour-hole)" />
-        <rect x={hole.x} y={hole.y} width={hole.w} height={hole.h} rx={16} ry={16} fill="none" stroke="rgba(242,58,92,.9)" strokeWidth={2} />
+        <rect x={hole.x} y={hole.y} width={hole.w} height={hole.h} rx={16} ry={16} fill="none" stroke="rgba(255, 51, 85,.9)" strokeWidth={2} />
       </svg>
 
       {/* pointing cursor at the hole's lower-right */}

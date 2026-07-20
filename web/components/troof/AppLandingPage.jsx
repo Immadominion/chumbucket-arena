@@ -465,6 +465,14 @@ function AppLandingPage(_p = {}) {
   const _goDocs = () => _router.push("/docs");
   const _goApk = () =>
     window.open("https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk", "_blank");
+  // Scroll the WINDOW (not scrollIntoView, which scrolls the overflow:hidden
+  // scaled stage and traps you there so you can't wheel back up).
+  const _scrollToId = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const y = el.getBoundingClientRect().top + window.scrollY - 40;
+    window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+  };
   const _clickable = { cursor: "pointer" };
   return (
     <div className={props.className} style={{
@@ -5541,7 +5549,7 @@ function AppLandingPage(_p = {}) {
               color: "rgb(255,90,118)",
               ..._clickable
             }}>Home</span>
-            <span onClick={() => document.getElementById("section-features")?.scrollIntoView({ behavior: "smooth" })} style={{
+            <span onClick={() => _scrollToId("section-features")} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
@@ -5550,7 +5558,7 @@ function AppLandingPage(_p = {}) {
               color: "rgb(0,0,0)",
               ..._clickable
             }}>Features</span>
-            <span onClick={() => document.getElementById("section-benefits")?.scrollIntoView({ behavior: "smooth" })} style={{
+            <span onClick={() => _scrollToId("section-benefits")} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
@@ -5559,7 +5567,7 @@ function AppLandingPage(_p = {}) {
               color: "rgb(0,0,0)",
               ..._clickable
             }}>Benefits</span>
-            <span onClick={() => document.getElementById("section-faqs")?.scrollIntoView({ behavior: "smooth" })} style={{
+            <span onClick={() => _scrollToId("section-faqs")} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
@@ -5568,7 +5576,7 @@ function AppLandingPage(_p = {}) {
               color: "rgb(0,0,0)",
               ..._clickable
             }}>FAQs</span>
-            <span onClick={() => document.getElementById("section-testimonials")?.scrollIntoView({ behavior: "smooth" })} style={{
+            <span onClick={() => _scrollToId("section-testimonials")} style={{
               position: "relative",
               fontFamily: "PP Neue Machina",
               fontWeight: 500,
@@ -6695,7 +6703,7 @@ function AppLandingPage(_p = {}) {
                   fontSize: 18,
                   lineHeight: "28px",
                   color: "rgb(0,0,0)"
-                , overflow: "visible" }}>Nobody at Chumbucket types in the result. The pot only opens after the real final score checks out.</span>
+                , overflow: "visible" }}>Nobody at ChumBucket types in the result. The pot only opens after the real final score checks out.</span>
                 <div style={{
                   position: "absolute",
                   left: 0,
@@ -7285,7 +7293,7 @@ function AppLandingPage(_p = {}) {
             fontSize: 16,
             lineHeight: "26px",
             color: "rgb(0,0,0)"
-          }}>Copyright 2026 Chumbucket. All rights reserved.</span>
+          }}>Copyright 2026 ChumBucket. All rights reserved.</span>
         </div>
         <div style={{
           position: "absolute",
@@ -7321,7 +7329,7 @@ function AppLandingPage(_p = {}) {
             color: "rgb(0,0,0)",
             ..._clickable
           }}>proof</span>
-          <span onClick={() => document.getElementById("section-testimonials")?.scrollIntoView({ behavior: "smooth" })} style={{
+          <span onClick={() => _scrollToId("section-testimonials")} style={{
             position: "absolute",
             left: 0,
             top: 142,

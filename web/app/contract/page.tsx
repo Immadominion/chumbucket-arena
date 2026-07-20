@@ -54,14 +54,14 @@ export default function ContractPage() {
         </h1>
 
         <p style={{ margin: "20px 0 0", fontSize: 16, lineHeight: 1.5, fontWeight: 500, color: "#594A50", maxWidth: 460 }}>
-          Pick a handle, add a little to play with, and put your money where your mouth is. The match settles every bet — proven on-chain, so no one can rig it.
+          Pick a handle, add a little to play with, and put your money where your mouth is. The match settles every bet, proven on-chain, so no one can rig it.
         </p>
 
         <div className="card" style={{ padding: "6px 4px", marginTop: 22, maxWidth: 460 }}>
           {perks.map((p, i) => (
             <div key={p.text}>
               <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 14px" }}>
-                <p.Icon size={18} weight="fill" color="#F2385A" />
+                <p.Icon size={18} weight="fill" color="#FF3355" />
                 <span style={{ fontSize: 13.5, fontWeight: 500, color: "#2C4A39" }}>{p.text}</span>
               </div>
               {i < perks.length - 1 && <div style={{ height: 1, background: "#F5EEF1", margin: "0 14px" }} />}
@@ -75,8 +75,13 @@ export default function ContractPage() {
             Get started
           </button>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, fontSize: 12, fontWeight: 600, color: "#B3A6AB" }}>
-            <SealCheck size={14} weight="fill" color="#F2385A" />
-            Email, Google, X or wallet — no seed phrases. Owned by you, verifiable on-chain.
+            <SealCheck size={14} weight="fill" color="#FF3355" />
+            Email, Google, X or wallet. No seed phrases. Owned by you, verifiable on-chain.
+          </div>
+          <div style={{ textAlign: "center", marginTop: 14, fontSize: 13, fontWeight: 600 }}>
+            <a href="https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk" style={{ color: "#FF3355", textDecoration: "underline" }}>
+              On Android? Get the mobile app
+            </a>
           </div>
         </div>
       </div>

@@ -19,7 +19,7 @@ import { useSession } from "@/lib/session";
 
 /* eslint-disable @next/next/no-img-element */
 
-const CORAL = "#F2385A";
+const CORAL = "#FF3355";
 const CORAL_BRIGHT = "#FF5A76";
 const INK = "#1A1013";
 const GRAY = "#988990";
@@ -142,7 +142,7 @@ export default function ChallengeLinkPage() {
 function SideCard({ label, team, code, muted }: { label: string; team: string; code: string; muted?: boolean }) {
   return (
     <div style={{ flex: 1, borderRadius: 14, padding: "14px 12px", background: muted ? "#F9F3F5" : "#FFE7EC", border: muted ? "1.5px solid #EFE6E9" : "1.5px solid rgba(242,56,90,.25)", textAlign: "center" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".5px", color: muted ? "#988990" : "#F2385A" }}>{label.toUpperCase()}</div>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".5px", color: muted ? "#988990" : "#FF3355" }}>{label.toUpperCase()}</div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 8 }}>
         {code ? <img src={flag(code)} style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover" }} alt="" /> : null}
         <span className="cd" style={{ fontSize: 15, color: "#1A1013" }}>{team}</span>

@@ -57,7 +57,7 @@ export default function MatchdayPage() {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {open.length > 0 && (
             <button onClick={() => downloadIcs(open)} title="Download open fixtures as a calendar file" style={{ display: "flex", alignItems: "center", gap: 6, background: "#fff", border: "1.5px solid #EFE6E9", borderRadius: 11, padding: "8px 13px", fontWeight: 700, fontSize: 12.5, color: "#221217", cursor: "pointer" }}>
-              <DownloadSimple size={15} weight="bold" color="#F2385A" /> Add to calendar
+              <DownloadSimple size={15} weight="bold" color="#FF3355" /> Add to calendar
             </button>
           )}
           {called.size > 0 && (
@@ -72,7 +72,7 @@ export default function MatchdayPage() {
       {featured && (
         <Link href={`/call/${featured.fixture.matchId}`} style={{ display: "block", textDecoration: "none", color: "inherit", marginTop: 22 }}>
           <div style={{ background: "linear-gradient(120deg,#1A1013,#26161B 70%)", borderRadius: 24, padding: "22px 24px", position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 20 }}>
-            <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(242,58,92,.25),transparent 70%)" }} />
+            <div style={{ position: "absolute", right: -30, top: -30, width: 160, height: 160, borderRadius: "50%", background: "radial-gradient(circle,rgba(255, 51, 85,.25),transparent 70%)" }} />
             <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
               <img src={flag(flagCode(featured.fixture.home) ?? "", 160)} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)" }} alt="" />
               <img src={flag(flagCode(featured.fixture.away) ?? "", 160)} style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px rgba(255,255,255,.2)", marginLeft: -16 }} alt="" />
@@ -176,7 +176,7 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
           </span>
         )}
         {kind === "played" && called && (
-          <Link href="/results" style={{ fontSize: 12, fontWeight: 700, color: "#F2385A", textDecoration: "none" }}>Result</Link>
+          <Link href="/results" style={{ fontSize: 12, fontWeight: 700, color: "#FF3355", textDecoration: "none" }}>Result</Link>
         )}
       </div>
     </>

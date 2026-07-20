@@ -13,16 +13,16 @@ import { flagCode, frostToWal, shortWallet } from "@/lib/format";
 /* eslint-disable @next/next/no-img-element */
 
 const tile: Record<WalletEntry["kind"], { bg: string; node: React.ReactNode }> = {
-  stake: { bg: "#FFE7EC", node: <LockSimple size={18} weight="fill" color="#F2385A" /> },
+  stake: { bg: "#FFE7EC", node: <LockSimple size={18} weight="fill" color="#FF3355" /> },
   loss: { bg: "#FBE9EA", node: <XCircle size={18} weight="fill" color="#C2373B" /> },
-  win: { bg: "#FFE7EC", node: <Trophy size={18} weight="fill" color="#F2385A" /> },
+  win: { bg: "#FFE7EC", node: <Trophy size={18} weight="fill" color="#FF3355" /> },
   deposit: { bg: "#E6EDFF", node: <ArrowDown size={18} weight="fill" color="#2F6BFF" /> },
 };
 
 const amtColor: Record<WalletEntry["amountTone"], string | undefined> = {
   neutral: undefined,
   bad: "#C2373B",
-  good: "#F2385A",
+  good: "#FF3355",
   blue: "#2F6BFF",
 };
 
@@ -61,7 +61,7 @@ export default function WalletPage() {
         {/* LEFT */}
         <div className="col-main">
           <div className="ink" style={{ padding: 26 }}>
-            <div className="glow" style={{ right: -30, top: -30, width: 150, height: 150, background: "radial-gradient(circle,rgba(242,58,92,.3),transparent 70%)" }} />
+            <div className="glow" style={{ right: -30, top: -30, width: 150, height: 150, background: "radial-gradient(circle,rgba(255, 51, 85,.3),transparent 70%)" }} />
             <div className="lbl" style={{ color: "#FFB0C0", position: "relative" }}>AVAILABLE BALANCE</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8, position: "relative" }}>
               <span className="mono" style={{ fontWeight: 700, fontSize: 42 }}>{available.toFixed(1)}</span>
@@ -129,7 +129,7 @@ export default function WalletPage() {
             </div>
             <div className="card" style={{ flex: 1, padding: 18 }}>
               <div className="lbl">STAKED</div>
-              <div className="mono" style={{ fontWeight: 700, fontSize: 20, color: "#F2385A", marginTop: 5 }}>{staked.toFixed(1)}</div>
+              <div className="mono" style={{ fontWeight: 700, fontSize: 20, color: "#FF3355", marginTop: 5 }}>{staked.toFixed(1)}</div>
             </div>
           </div>
           <div className="card" style={{ marginTop: 14, padding: 20 }}>
@@ -149,7 +149,7 @@ export default function WalletPage() {
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{pickLabel(c.bucket, home, away)}</div>
                       <div style={{ fontSize: 11, color: "#988990", fontWeight: 600 }}>{home} v {away}</div>
                     </div>
-                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#F2385A" }}>{frostToWal(c.stake).toFixed(1)}</span>
+                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#FF3355" }}>{frostToWal(c.stake).toFixed(1)}</span>
                   </div>
                 );
               })

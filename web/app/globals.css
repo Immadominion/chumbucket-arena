@@ -1,14 +1,35 @@
 @import "tailwindcss";
 
+/* PP Neue Machina — the brand display face, served locally (same files the
+   landing uses) so the app matches the landing judges arrive from. */
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Light.otf") format("opentype");
+  font-weight: 300;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Regular.otf") format("opentype");
+  font-weight: 400 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PP Neue Machina";
+  src: url("/fonts/PPNeueMachina-Ultrabold.otf") format("opentype");
+  font-weight: 700 900;
+  font-display: swap;
+}
+
 /* ============================================================
    CHUMBUCKET — design tokens (coral; legacy green-/mint- token names)
    ============================================================ */
 @theme {
-  --font-display: "Clash Display", system-ui, sans-serif;
-  --font-sans: "Satoshi", system-ui, -apple-system, sans-serif;
+  --font-display: "PP Neue Machina", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --color-green: #f23a5c;
+  --color-green: #ff3355;
   --color-green-bright: #ff5a76;
   --color-green-deep: #d81e4a;
   --color-green-700: #b81540;
@@ -187,7 +208,7 @@ body {
   color: #221217;
 }
 .railon {
-  background: #f23a5c !important;
+  background: #ff3355 !important;
   color: #fff !important;
 }
 
@@ -400,7 +421,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: lowercase;
-  color: #f2385c;
+  color: #ff3355;
   margin: 0 0 14px;
 }
 .troof-center {
@@ -420,7 +441,7 @@ body {
   margin: 0 0 8px;
 }
 .troof-accent {
-  color: #f2385c;
+  color: #ff3355;
 }
 .troof-lead {
   font-size: 18px;
@@ -742,7 +763,7 @@ body {
   opacity: 0.55;
 }
 .troof-cta .troof-blob-a {
-  background: #f2385c;
+  background: #ff3355;
   opacity: 0.35;
 }
 .troof-cta .troof-blob-b {
@@ -947,10 +968,10 @@ body {
 }
 @keyframes tour-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(242, 58, 92, 0.5);
+    box-shadow: 0 0 0 0 rgba(255, 51, 85, 0.5);
   }
   100% {
-    box-shadow: 0 0 0 14px rgba(242, 58, 92, 0);
+    box-shadow: 0 0 0 14px rgba(255, 51, 85, 0);
   }
 }
 @keyframes popin {

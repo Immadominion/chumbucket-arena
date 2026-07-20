@@ -21,7 +21,7 @@ import { walToFrost } from "@/lib/format";
 
 /* eslint-disable @next/next/no-img-element */
 
-const CORAL = "#F2385A";
+const CORAL = "#FF3355";
 const INK = "#221217";
 const GRAY = "#988990";
 const RAKE_BPS = 250; // 2.5% off the loser's stake (matches backend/on-chain)
@@ -164,7 +164,7 @@ export default function CreateChallengePage() {
             <div style={{ height: 1, background: "#F5EEF1", margin: "18px 0" }} />
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>Winner gets</span>
-              <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: "#F2385A" }}>{winnerTakes.toFixed(1)} USDC total</span>
+              <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: "#FF3355" }}>{winnerTakes.toFixed(1)} USDC total</span>
             </div>
             <p style={{ fontSize: 11, color: "#B3A6AB", fontWeight: 500, lineHeight: 1.4, margin: "6px 0 16px" }}>
               You each bet {stake} USDC. Win and you get {winnerTakes.toFixed(1)} USDC total — your {stake} back plus {(winnerTakes - stake).toFixed(1)} profit, after a 2.5% fee. A level match refunds you both.

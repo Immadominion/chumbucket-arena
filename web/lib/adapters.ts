@@ -241,7 +241,7 @@ export function toOpenCall(call: OpenCallView, match: MatchView | undefined): Op
 }
 
 const settledLine = (result: string, difficulty: number): string => {
-  if (result === "VOID") return "Match abandoned — stake returned. We'll never know how wrong you were.";
+  if (result === "VOID") return "Match abandoned — your bet came back. We'll never know how wrong you were.";
   if (result === "WON") {
     return difficulty >= 0.55
       ? "Backed yourself when the crowd didn't. That's the version of you I want to see."
@@ -273,22 +273,24 @@ export function toSettledCall(c: SettledRow, match: MatchView | undefined): Sett
 // ── Calls feed (trpc.activity / trpc.followingFeed) ─────────────────────────
 
 const BUCKET_STYLE: Record<string, { color: string; bg: string }> = {
-  HOME: { color: "#F2385A", bg: "#FFE7EC" },
+  HOME: { color: "#FF3355", bg: "#FFE7EC" },
   DRAW: { color: "#C57A12", bg: "rgba(197,122,18,.12)" },
   AWAY: { color: "#2F6BFF", bg: "rgba(47,107,255,.12)" },
 };
 const BUCKET_FALLBACK = { color: "#988990", bg: "#F5EEF1" };
 
-/** "now" / "5m" / "3h" / "2d" / "Jul 12" — mirrors mobile's Calls tab _relativeTime exactly. */
+/** "just now" / "5m ago" / "3h ago" / "2d ago" / "Jul 12" — mirrors mobile's Calls tab _relativeTime exactly. */
 export function relativeTime(iso: string, now = Date.now()): string {
   const diffMs = now - new Date(iso).getTime();
-  if (diffMs < 45_000) return "now";
+  // A negative diff (timestamp in the future) is clock skew, not a real future
+  // event — never show it as a raw negative number.
+  if (diffMs < 45_000) return "just now";
   const diffMin = Math.floor(diffMs / 60_000);
-  if (diffMin < 60) return `${diffMin}m`;
+  if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h`;
+  if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d`;
+  if (diffDay < 7) return `${diffDay}d ago`;
   return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 

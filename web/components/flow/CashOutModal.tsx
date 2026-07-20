@@ -72,7 +72,7 @@ export default function CashOutModal({ open, onClose }: { open: boolean; onClose
         {error && <p style={{ fontSize: 12, color: "#C2373B", textAlign: "center", marginTop: 12, fontWeight: 600, lineHeight: 1.4 }}>{error}</p>}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14, fontSize: 11.5, fontWeight: 600, color: "#B3A6AB" }}>
-          <ShieldCheck size={14} weight="fill" color="#F2385A" />
+          <ShieldCheck size={14} weight="fill" color="#FF3355" />
           Sent from the ChumBucket wallet to your account
         </div>
       </div>

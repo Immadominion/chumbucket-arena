@@ -30,7 +30,7 @@ export default function ProofPage() {
           <ArrowLeft size={15} weight="bold" /> ChumBucket
         </Link>
 
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(242,58,92,.12)", border: "1px solid rgba(242,58,92,.25)", borderRadius: 30, padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#FFB0C0" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255, 51, 85,.12)", border: "1px solid rgba(255, 51, 85,.25)", borderRadius: 30, padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#FFB0C0" }}>
           <ShieldCheck size={14} weight="fill" /> Real on-chain settlement
         </div>
         <h1 className="cd proof-title" style={{ fontSize: 40, lineHeight: 1.05, color: "#fff", margin: "18px 0 0", letterSpacing: "0", textWrap: "balance" }}>
@@ -69,7 +69,7 @@ export default function ProofPage() {
 function Step({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", background: "rgba(255,255,255,.03)", borderRadius: 14, padding: "16px 18px" }}>
-      <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(242,58,92,.12)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>{icon}</div>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255, 51, 85,.12)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>{icon}</div>
       <div>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: "#fff" }}>{title}</div>
         <div style={{ fontSize: 13, color: "#B3A6AB", marginTop: 3, lineHeight: 1.45 }}>{body}</div>

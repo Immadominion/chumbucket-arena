@@ -382,7 +382,7 @@ export default function MakeCallPage() {
               /* M3: dismissible post-bet confirmation — no bounce, real summary. */
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#F2385A", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#FF3355", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                     <CheckCircle size={24} weight="fill" color="#fff" />
                   </div>
                   <div className="cd" style={{ fontSize: 18, color: "#221217" }}>Bet placed</div>
@@ -456,7 +456,7 @@ export default function MakeCallPage() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: "#7C6D72" }}>If {sel?.settle ?? "it lands"}</span>
-                  <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: profit > 0 ? "#F2385A" : "#988990" }}>
+                  <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: profit > 0 ? "#FF3355" : "#988990" }}>
                     {profit > 0 ? `+${profit.toFixed(1)} USDC` : "your bet back"}
                   </span>
                 </div>

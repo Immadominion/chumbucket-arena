@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Modal from "@/components/ui/Modal";
-import { ArrowDown, CheckCircle, ShieldCheck } from "@/components/icons";
+import { ArrowDown, CheckCircle, Coins, ShieldCheck } from "@/components/icons";
 import { useTRPC } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
 import { frostToWal } from "@/lib/format";
@@ -50,6 +50,10 @@ export default function AddFundsModal({
   // Custodial-only: don't hit the deposit-address endpoint in on-chain mode.
   const addrQ = useQuery({ ...trpc.depositAddress.queryOptions(), enabled: open && !onchain });
   const syncM = useMutation(trpc.syncDeposit.mutationOptions());
+  // Self-serve devnet faucet — mints the program's pinned test-USDC mint to the
+  // player's own wallet (the exact mint the bet reads), so a tester/judge can
+  // fund themselves without hunting for the right mint. Play money on devnet.
+  const faucetM = useMutation(trpc.faucet.mutationOptions());
   const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -96,6 +100,23 @@ export default function AddFundsModal({
     }
   };
 
+  const getTestUsdc = async () => {
+    if (!address) return;
+    setMsg(null);
+    try {
+      const r = await faucetM.mutateAsync({ wallet: address });
+      // Pull the new balance into the bet screen so it updates without a reload.
+      await onRecheck?.();
+      setMsg(
+        r.funded
+          ? { ok: true, text: "Added 100 test USDC — you can place a bet now." }
+          : { ok: true, text: "You already have test USDC." },
+      );
+    } catch {
+      setMsg({ ok: false, text: "Couldn't get test USDC just now — try again in a moment." });
+    }
+  };
+
   // ── On-chain bet funding (no sweep — the bet spends from this exact wallet) ──
   if (onchain) {
     return (
@@ -128,13 +149,27 @@ export default function AddFundsModal({
                 </div>
               )}
 
+              {/* Self-serve faucet — the fastest path, and it hands out the exact
+                  test USDC this app reads (a faucet elsewhere gives the wrong one). */}
+              <button
+                onClick={() => void getTestUsdc()}
+                disabled={faucetM.isPending}
+                className="btnp"
+                style={{ width: "100%", padding: 14, borderRadius: 14, fontSize: 15, marginTop: 18, opacity: faucetM.isPending ? 0.6 : 1 }}
+              >
+                <Coins size={16} weight="fill" />
+                {faucetM.isPending ? "Minting…" : "Get test USDC"}
+              </button>
+              <div style={{ fontSize: 11.5, color: "#B3A6AB", fontWeight: 600, textAlign: "center", marginTop: 8 }}>
+                Drops 100 test USDC into your wallet — no charge, it&rsquo;s play money.
+              </div>
+
               <button
                 onClick={() => void recheckOnchain()}
                 disabled={checking}
-                className="btnp"
-                style={{ width: "100%", padding: 14, borderRadius: 14, fontSize: 15, marginTop: 18, opacity: checking ? 0.6 : 1 }}
+                style={{ width: "100%", padding: 12, borderRadius: 14, fontSize: 13.5, marginTop: 12, background: "transparent", border: "1.5px solid #EFE6E9", color: "#7C6D72", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: checking ? 0.6 : 1 }}
               >
-                <ArrowDown size={16} weight="bold" />
+                <ArrowDown size={15} weight="bold" />
                 {checking ? "Checking…" : "I've sent it — check my balance"}
               </button>
               {msg && (
@@ -150,7 +185,7 @@ export default function AddFundsModal({
           )}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16, fontSize: 11.5, fontWeight: 600, color: "#B3A6AB" }}>
-            <ShieldCheck size={14} weight="fill" color="#F2385A" /> Your funds stay in your own wallet until you bet
+            <ShieldCheck size={14} weight="fill" color="#FF3355" /> Your funds stay in your own wallet until you bet
           </div>
         </div>
       </Modal>
@@ -204,7 +239,7 @@ export default function AddFundsModal({
         )}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 16, fontSize: 11.5, fontWeight: 600, color: "#B3A6AB" }}>
-          <ShieldCheck size={14} weight="fill" color="#F2385A" /> Held in the ChumBucket float · cash out anytime
+          <ShieldCheck size={14} weight="fill" color="#FF3355" /> Held in the ChumBucket float · cash out anytime
         </div>
       </div>
     </Modal>

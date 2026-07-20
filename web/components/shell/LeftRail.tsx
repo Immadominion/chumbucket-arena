@@ -40,7 +40,7 @@ export default function LeftRail() {
         <Link
           href="/matchday"
           title="Start a bet"
-          style={{ width: 46, height: 46, borderRadius: 14, border: "1.5px dashed #E6C9D0", background: "none", color: "#F2385A", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+          style={{ width: 46, height: 46, borderRadius: 14, border: "1.5px dashed #E6C9D0", background: "none", color: "#FF3355", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
         >
           <Plus size={22} weight="bold" />
         </Link>

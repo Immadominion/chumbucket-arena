@@ -272,7 +272,7 @@ function PendingTargetRowItem({ target, last }: { target: PendingTargetRow; last
           flex: "none",
         }}
       >
-        <XLogo size={18} weight="fill" color="#F2385A" />
+        <XLogo size={18} weight="fill" color="#FF3355" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700 }}>@{target.provider_username}</div>
@@ -312,7 +312,7 @@ function FriendRowItem({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700 }}>{friend.name}</div>
         {xLabel ? (
-          <div style={{ fontSize: 11.5, color: "#F2385A", fontWeight: 700 }}>{xLabel}</div>
+          <div style={{ fontSize: 11.5, color: "#FF3355", fontWeight: 700 }}>{xLabel}</div>
         ) : (
           <div className="mono" style={{ fontSize: 11.5, color: "#988990", fontWeight: 600 }}>
             {friend.walletAddress.slice(0, 6)}…{friend.walletAddress.slice(-4)}
@@ -321,7 +321,7 @@ function FriendRowItem({
       </div>
       <Link
         href={`/send?to=${encodeURIComponent(friend.walletAddress)}&name=${encodeURIComponent(friend.name)}`}
-        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#F2385A", textDecoration: "none", flex: "none" }}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#FF3355", textDecoration: "none", flex: "none" }}
       >
         <PaperPlaneRight size={15} weight="fill" /> Send USDC
       </Link>

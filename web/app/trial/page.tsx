@@ -29,13 +29,13 @@ export default function TrialPage() {
       {/* progress */}
       <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
         {[0, 1, 2].map((n) => (
-          <span key={n} style={{ width: step >= n ? 26 : 16, height: 6, borderRadius: 6, background: step >= n ? "#F2385A" : "#D7E0D4", transition: ".25s" }} />
+          <span key={n} style={{ width: step >= n ? 26 : 16, height: 6, borderRadius: 6, background: step >= n ? "#FF3355" : "#D7E0D4", transition: ".25s" }} />
         ))}
       </div>
 
       <div style={{ width: "100%", maxWidth: 480, display: "flex", flexDirection: "column", alignItems: "center" }}>
         {/* brand badge — clean, illustration-free */}
-        <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,#FF5A76,#D81E4A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 14px 30px rgba(242,58,92,.35)" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 20, background: "linear-gradient(135deg,#FF5A76,#D81E4A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 14px 30px rgba(255, 51, 85,.35)" }}>
           <Fire size={30} weight="fill" color="#fff" />
         </div>
 
@@ -48,7 +48,7 @@ export default function TrialPage() {
                 Bet your mates on the World Cup. Two ways to play — the match settles every bet, on-chain.
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
-                <Way icon={<Fire size={18} weight="fill" color="#F2385A" />} title="Challenge a mate" body="1-v-1. Pick a side, they take the other. Winner takes the pot." />
+                <Way icon={<Fire size={18} weight="fill" color="#FF3355" />} title="Challenge a mate" body="1-v-1. Pick a side, they take the other. Winner takes the pot." />
                 <Way icon={<Trophy size={18} weight="fill" color="#F2B705" />} title="Back the crowd" body="Join the pooled market and share the winnings with everyone on your side." />
               </div>
             </div>
@@ -78,7 +78,7 @@ export default function TrialPage() {
           {step === 2 && (
             <div className="card" style={{ padding: 24, textAlign: "center" }}>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                <ShieldCheck size={34} weight="fill" color="#F2385A" />
+                <ShieldCheck size={34} weight="fill" color="#FF3355" />
               </div>
               <div className="cd" style={{ fontSize: 22, marginTop: 8 }}>You&rsquo;re in.</div>
               <p style={{ fontSize: 13.5, color: "#7C6D72", lineHeight: 1.5, margin: "8px 0 0" }}>

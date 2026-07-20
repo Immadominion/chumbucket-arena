@@ -90,9 +90,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         loginMethods: ["email", "google", "twitter", "wallet"],
         appearance: {
           theme: "light",
-          accentColor: "#F2385A",
+          accentColor: "#FF3355",
           logo: "/img/bucket.png",
-          landingHeader: "Welcome to Chumbucket",
+          landingHeader: "Welcome to ChumBucket",
         },
         // Solana wallets are provisioned server-side by PrivyAuth (user-controlled
         // server wallets). Client-side createOnLogin stays off to match the Privy

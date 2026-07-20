@@ -105,7 +105,7 @@ export default function EditProfileModal({
                   height: 52,
                   borderRadius: "50%",
                   padding: 0,
-                  border: selected ? "2.5px solid #F2385A" : "2.5px solid transparent",
+                  border: selected ? "2.5px solid #FF3355" : "2.5px solid transparent",
                   cursor: "pointer",
                   background: "#F5EEF1",
                   position: "relative",
@@ -118,7 +118,7 @@ export default function EditProfileModal({
                   style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
                 />
                 {selected && (
-                  <span style={{ position: "absolute", bottom: -2, right: -2, background: "#F2385A", borderRadius: "50%", padding: 2, display: "flex" }}>
+                  <span style={{ position: "absolute", bottom: -2, right: -2, background: "#FF3355", borderRadius: "50%", padding: 2, display: "flex" }}>
                     <CheckCircle size={13} weight="fill" color="#fff" />
                   </span>
                 )}
