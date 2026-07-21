@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CaretRight, ChartDonut, PencilSimple, PaperPlaneRight, SealCheck, ShieldCheck, SignOut, Users, Wallet } from "@/components/icons";
+import { BookOpen, CaretRight, ChartDonut, DownloadSimple, PencilSimple, PaperPlaneRight, SealCheck, ShieldCheck, SignOut, Users, Wallet } from "@/components/icons";
 import { avatar } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { fetchSupabaseProfile } from "@/lib/social";
@@ -80,7 +80,8 @@ export default function SettingsPage() {
         <NavRow href="/wallet" Icon={Wallet} title="Wallet" desc="Balance, add funds, cash out" />
         <NavRow href="/results" Icon={ChartDonut} title="Your bets" desc="Open positions and settled results" />
         <NavRow href="/proof" Icon={ShieldCheck} title="How it settles" desc="TxLINE proves the score on-chain" />
-        <NavRow href="/docs" Icon={BookOpen} title="Technical docs" desc="Architecture, markets, settlement" last />
+        <NavRow href="/docs" Icon={BookOpen} title="Technical docs" desc="Architecture, markets, settlement" />
+        <NavRow href="https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk" Icon={DownloadSimple} title="Get the Android app" desc="The full ChumBucket app on your phone" last />
       </Section>
 
       <Section title="Social">
@@ -144,8 +145,9 @@ export default function SettingsPage() {
 }
 
 function NavRow({ href, Icon, title, desc, last }: { href: string; Icon: typeof Users; title: string; desc: string; last?: boolean }) {
-  return (
-    <Link href={href} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", textDecoration: "none", color: "inherit", borderBottom: last ? "none" : "1px solid #F9F3F5" }}>
+  const external = href.startsWith("http");
+  const inner = (
+    <>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Icon size={17} weight="fill" color="#FF3355" />
         <div>
@@ -154,7 +156,13 @@ function NavRow({ href, Icon, title, desc, last }: { href: string; Icon: typeof 
         </div>
       </div>
       <CaretRight size={15} color="#B3A6AB" />
-    </Link>
+    </>
+  );
+  const style = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", textDecoration: "none", color: "inherit", borderBottom: last ? "none" : "1px solid #F9F3F5" } as const;
+  return external ? (
+    <a href={href} style={style}>{inner}</a>
+  ) : (
+    <Link href={href} style={style}>{inner}</Link>
   );
 }
 

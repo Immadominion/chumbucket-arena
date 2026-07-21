@@ -15,6 +15,17 @@ const DESIGN_WIDTH = 1440;
 const DESIGN_HEIGHT = 5887;
 const MOBILE_BP = 768;
 
+const APK_URL = "https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk";
+
+/** Android robot glyph, inline so the landing carries no icon-lib dependency. */
+function AndroidGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M6 9v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9H6Zm-2 0a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0v-5a1 1 0 0 0-1-1Zm16 0a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0v-5a1 1 0 0 0-1-1ZM8 18v2a1 1 0 0 0 1 1 1 1 0 0 0 1-1v-2H8Zm6 0v2a1 1 0 0 0 1 1 1 1 0 0 0 1-1v-2h-2ZM7.5 8h9a4.5 4.5 0 0 0-2.06-3.4l.9-1.36a.35.35 0 1 0-.58-.4l-.95 1.43A4.7 4.7 0 0 0 12 3.5c-.64 0-1.25.12-1.81.35l-.95-1.43a.35.35 0 1 0-.58.4l.9 1.36A4.5 4.5 0 0 0 7.5 8Zm2.25-2.1a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Zm4.5 0a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Z" />
+    </svg>
+  );
+}
+
 export default function TroofLanding() {
   const stageRef = useRef<HTMLDivElement>(null);
   const scalerRef = useRef<HTMLDivElement>(null);
@@ -207,6 +218,30 @@ export default function TroofLanding() {
           <AppLandingPage />
         </div>
       </div>
+      {/* Always-visible download CTA — the mobile app (185 real users, Solana
+          Mobile airdrop) is core to the story, but the scaled artboard buries it. */}
+      <a
+        href={APK_URL}
+        style={{
+          position: "fixed",
+          right: 24,
+          bottom: 24,
+          zIndex: 60,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 10,
+          background: "#FF3355",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 15,
+          padding: "14px 22px",
+          borderRadius: 40,
+          textDecoration: "none",
+          boxShadow: "0 14px 38px rgba(255,51,85,.4)",
+        }}
+      >
+        <AndroidGlyph size={19} /> Get the Android app
+      </a>
     </div>
   );
 }
@@ -235,30 +270,22 @@ function MobileLanding() {
         <p className="cb-m-lead">
           Pick a side. Lock a stake. When the final whistle goes, the winner gets paid.
         </p>
+        {/* On a phone, getting the Android app is the natural primary action —
+            it's the flagship (185 users, Solana Mobile airdrop). */}
         <div className="cb-m-actions">
-          <Link href="/signin" className="cb-m-btn">
-            Get started
-            <Arrow />
-          </Link>
-          <Link href="/proof" className="cb-m-btn-ghost">
-            See a proof
+          <a href={APK_URL} className="cb-m-btn" style={{ background: "#FF3355", color: "#fff" }}>
+            <AndroidGlyph /> Get the Android app
+          </a>
+          <Link href="/signin" className="cb-m-btn-ghost">
+            Open in browser
           </Link>
         </div>
-        {/* Plain inline-styled link so it renders correctly regardless of the
-            Figma-derived CSS classes above — the Android app download. */}
-        <a
-          href="https://github.com/Immadominion/Chum-Bucket/releases/latest/download/chumbucket.apk"
-          style={{
-            display: "inline-block",
-            marginTop: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#FF3355",
-            textDecoration: "underline",
-          }}
+        <Link
+          href="/proof"
+          style={{ display: "inline-block", marginTop: 12, fontSize: 13, fontWeight: 600, color: "#FF3355", textDecoration: "underline" }}
         >
-          Download the Android app (APK)
-        </a>
+          See a real settlement
+        </Link>
         <div className="cb-m-phones" aria-hidden>
           <div className="cb-m-phone">
             <Image src="/product-shots/home.png" alt="" fill sizes="42vw" priority />
