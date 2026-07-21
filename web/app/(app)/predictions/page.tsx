@@ -15,6 +15,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import ErrorState from "@/components/ErrorState";
+import { FollowButton } from "@/components/FollowButton";
 import { Target } from "@/components/icons";
 import { avatar } from "@/lib/data";
 import { shortWallet } from "@/lib/format";
@@ -184,19 +185,22 @@ function CallCard({
   return (
     <div className="card" style={{ padding: "14px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", background: "#F5EEF1", flex: "none" }} />
-        ) : (
-          <img src={avatar(call.wallet, "d9f2e1")} alt="" style={{ width: 40, height: 40, borderRadius: "50%", background: "#d9f2e1", flex: "none" }} />
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {identity}
+        <Link href={`/caller/${call.wallet}`} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", background: "#F5EEF1", flex: "none" }} />
+          ) : (
+            <img src={avatar(call.wallet, "d9f2e1")} alt="" style={{ width: 40, height: 40, borderRadius: "50%", background: "#d9f2e1", flex: "none" }} />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {identity}
+            </div>
+            <div style={{ fontSize: 11.5, color: GRAY, fontWeight: 600, marginTop: 1 }}>
+              {call.verb} · {call.when}
+            </div>
           </div>
-          <div style={{ fontSize: 11.5, color: GRAY, fontWeight: 600, marginTop: 1 }}>
-            {call.verb} · {call.when}
-          </div>
-        </div>
+        </Link>
+        {!isMe && <FollowButton target={call.wallet} />}
       </div>
 
       <div className="cd" style={{ fontSize: 15, marginTop: 10, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
