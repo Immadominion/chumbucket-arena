@@ -48,6 +48,41 @@ const FLAG: Record<string, string> = {
   "trinidad and tobago": "tt", guatemala: "gt", suriname: "sr", angola: "ao",
   "equatorial guinea": "gq", gabon: "ga", benin: "bj", namibia: "na", zambia: "zm",
   tanzania: "tz", uganda: "ug", madagascar: "mg", mozambique: "mz", kenya: "ke",
+  // AFC (Asia)
+  vietnam: "vn", myanmar: "mm", tajikistan: "tj", india: "in", thailand: "th",
+  indonesia: "id", malaysia: "my", philippines: "ph", singapore: "sg", china: "cn",
+  "china pr": "cn", "hong kong": "hk", bahrain: "bh", kuwait: "kw", lebanon: "lb",
+  syria: "sy", palestine: "ps", yemen: "ye", kyrgyzstan: "kg", turkmenistan: "tm",
+  nepal: "np", bangladesh: "bd", "sri lanka": "lk", maldives: "mv", bhutan: "bt",
+  mongolia: "mn", laos: "la", cambodia: "kh", brunei: "bn", "timor-leste": "tl",
+  guam: "gu", macau: "mo", "chinese taipei": "tw", taiwan: "tw", pakistan: "pk",
+  afghanistan: "af", "north korea": "kp", "korea dpr": "kp",
+  // UEFA (Europe)
+  liechtenstein: "li", gibraltar: "gi", azerbaijan: "az", armenia: "am", georgia: "ge",
+  kazakhstan: "kz", israel: "il", cyprus: "cy", malta: "mt", luxembourg: "lu",
+  andorra: "ad", "san marino": "sm", "faroe islands": "fo", iceland: "is", ireland: "ie",
+  "republic of ireland": "ie", "northern ireland": "gb-nir", finland: "fi", estonia: "ee",
+  latvia: "lv", lithuania: "lt", belarus: "by", russia: "ru", moldova: "md", bulgaria: "bg",
+  "north macedonia": "mk", macedonia: "mk", albania: "al", montenegro: "me",
+  "bosnia and herzegovina": "ba", bosnia: "ba", kosovo: "xk",
+  // CAF (Africa)
+  guinea: "gn", congo: "cg", "republic of congo": "cg", togo: "tg", sudan: "sd",
+  ethiopia: "et", zimbabwe: "zw", malawi: "mw", rwanda: "rw", burundi: "bi",
+  "sierra leone": "sl", liberia: "lr", gambia: "gm", "the gambia": "gm", mauritania: "mr",
+  niger: "ne", chad: "td", "central african republic": "cf", somalia: "so", libya: "ly",
+  comoros: "km", botswana: "bw", lesotho: "ls", eswatini: "sz", swaziland: "sz",
+  "guinea-bissau": "gw", "sao tome and principe": "st", seychelles: "sc", mauritius: "mu",
+  djibouti: "dj", eritrea: "er", "south sudan": "ss",
+  // CONCACAF
+  nicaragua: "ni", cuba: "cu", "dominican republic": "do", belize: "bz", bermuda: "bm",
+  guyana: "gy", "antigua and barbuda": "ag", barbados: "bb", grenada: "gd",
+  "saint lucia": "lc", "saint kitts and nevis": "kn", "saint vincent and the grenadines": "vc",
+  dominica: "dm", bahamas: "bs", aruba: "aw", montserrat: "ms", "puerto rico": "pr",
+  "cayman islands": "ky", "turks and caicos islands": "tc", "british virgin islands": "vg",
+  anguilla: "ai",
+  // OFC (Oceania)
+  fiji: "fj", "papua new guinea": "pg", "solomon islands": "sb", vanuatu: "vu",
+  tahiti: "pf", samoa: "ws", tonga: "to", "american samoa": "as", "cook islands": "ck",
 };
 
 export function flagCode(team: string): string | null {
