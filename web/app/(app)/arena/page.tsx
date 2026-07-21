@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchUsdcBalance } from "@/lib/arena-onchain";
 import { useOpenPositions } from "@/lib/useOnchainPositions";
+import { MatchCallers } from "@/components/MatchCallers";
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import Tour, { type TourStep } from "@/components/tour/Tour";
 import ErrorState from "@/components/ErrorState";
@@ -150,6 +151,10 @@ export default function ArenaPage() {
                 Put your money where your mouth is. The <b style={{ color: "#fff" }}>match</b> ends, TxLINE proves the result, and winners can claim from the pool.
               </p>
 
+              <div style={{ marginTop: 14 }}>
+                <MatchCallers matchId={featured.matchId} tone="dark" />
+              </div>
+
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, flexWrap: "wrap" }}>
                 <Link href={`/challenge/${featured.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, background: "#fff", color: CORAL, fontSize: 15, padding: "13px 24px", borderRadius: 13, textDecoration: "none" }}>
                   <Fire size={16} weight="fill" /> Challenge a mate
@@ -197,6 +202,7 @@ export default function ArenaPage() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: GRAY, marginTop: 2 }}>
                     {m.koTag} · <span className="mono">{m.pot.toLocaleString()} USDC</span> in the pool
                   </div>
+                  <div style={{ marginTop: 6 }}><MatchCallers matchId={m.matchId} /></div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <Link href={`/challenge/${m.matchId}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", background: CORAL, padding: "9px 15px", borderRadius: 11, textDecoration: "none" }}>

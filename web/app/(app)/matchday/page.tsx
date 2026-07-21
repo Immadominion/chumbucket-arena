@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Flag } from "@/components/Flag";
+import { MatchCallers } from "@/components/MatchCallers";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CaretRight, CheckCircle, Clock, DownloadSimple, Fire, LockSimple, Trophy } from "@/components/icons";
@@ -241,6 +242,7 @@ function Row({ m, called, kind }: { m: MatchView; called: boolean; kind: "open" 
           {kind === "live" && <LiveRowScore matchId={f.matchId} />}
           {kind === "played" && <>{winnerOf(m) ? `${winnerOf(m)} ${winnerOf(m) === "Draw" ? "" : "won"}` : "Settled"} · {f.group ?? f.stage}</>}
         </div>
+        {kind !== "played" && <div style={{ marginTop: 7 }}><MatchCallers matchId={f.matchId} /></div>}
       </div>
       {called && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#B81540", background: "#FFE7EC", padding: "5px 10px", borderRadius: 20 }}>
