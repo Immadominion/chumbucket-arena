@@ -13,6 +13,7 @@ import { Flag } from "@/components/Flag";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchUsdcBalance } from "@/lib/arena-onchain";
+import { useOpenPositions } from "@/lib/useOnchainPositions";
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import Tour, { type TourStep } from "@/components/tour/Tour";
 import ErrorState from "@/components/ErrorState";
@@ -55,7 +56,9 @@ export default function ArenaPage() {
 
   const featured = g.featured;
   const matchday = g.matchday;
-  const openCalls = g.openCalls;
+  // "Your bets" reads the player's OPEN on-chain positions (the source the web
+  // bet flow actually writes to) — a placed bet shows here immediately.
+  const { open: openPositions } = useOpenPositions();
   const handle = session.handle || "there";
   // Show the ON-CHAIN wallet balance, the exact USDC a bet spends, not the
   // custodial float. Funding the float never moved this number, so a judge who
@@ -212,29 +215,34 @@ export default function ArenaPage() {
         <div className="col-side w320" data-tour="mybets">
           {/* your open stakes */}
           <div className="cd" style={{ fontSize: 20, color: INK, marginBottom: 14 }}>Your bets</div>
-          {openCalls.length === 0 ? (
+          {openPositions.length === 0 ? (
             <div className="card" style={{ padding: "20px 18px", textAlign: "center" }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, color: SOFT, lineHeight: 1.45 }}>
-                No live bets yet. Pick a match and challenge someone.
+                No open bets yet. Back an outcome and it shows up here.
               </div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {openCalls.map((oc) => (
-                <div key={oc.matchId} className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <Flag code={oc.home.code} name={oc.home.name} size={34} style={{ boxShadow: "0 0 0 2px #fff" }} />
-                    <Flag code={oc.away.code} name={oc.away.name} size={34} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -10 }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: INK }}>{oc.pick}</div>
-                    <div style={{ fontSize: 11.5, color: GRAY, fontWeight: 600, marginTop: 1 }}>
-                      <span className="mono">{oc.staked.toFixed(1)}</span> backed · locks {oc.lock}
+              {openPositions.map((p) => {
+                const home = p.match?.fixture.home ?? "Home";
+                const away = p.match?.fixture.away ?? "Away";
+                const pick = p.bucket === 0 ? `${home} to win` : p.bucket === 2 ? `${away} to win` : "The draw";
+                return (
+                  <Link key={p.matchId} href={`/bet/${p.matchId}`} className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, textDecoration: "none", color: "inherit" }}>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <Flag name={home} size={34} style={{ boxShadow: "0 0 0 2px #fff" }} />
+                      <Flag name={away} size={34} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -10 }} />
                     </div>
-                  </div>
-                  <LockSimple size={14} weight="fill" color={CORAL} />
-                </div>
-              ))}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: INK }}>{pick}</div>
+                      <div style={{ fontSize: 11.5, color: GRAY, fontWeight: 600, marginTop: 1 }}>
+                        <span className="mono">{(Number(p.stake) / 1e6).toFixed(1)}</span> USDC backed · {home} v {away}
+                      </div>
+                    </div>
+                    <LockSimple size={14} weight="fill" color={CORAL} />
+                  </Link>
+                );
+              })}
             </div>
           )}
 

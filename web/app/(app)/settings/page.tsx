@@ -44,9 +44,6 @@ export default function SettingsPage() {
             ? "your wallet"
             : "—";
 
-  const [notif, setNotif] = useState({ matchday: true, settle: true, ladder: true, mentions: false });
-  const [publicDossier, setPublicDossier] = useState(true);
-
   const out = () => {
     signOut();
     router.push("/");
@@ -107,20 +104,6 @@ export default function SettingsPage() {
         </Link>
       </Section>
 
-      <Section title="Notifications">
-        <Toggle label="Matchday reminders" desc="A nudge before fixtures lock" on={notif.matchday} set={(v) => setNotif({ ...notif, matchday: v })} />
-        <Toggle label="Settlement alerts" desc="When your bets are settled" on={notif.settle} set={(v) => setNotif({ ...notif, settle: v })} />
-        <Toggle label="Promotions & demotions" desc="Moving up (or down) the leaderboard" on={notif.ladder} set={(v) => setNotif({ ...notif, ladder: v })} />
-        <Toggle label="Mentions" desc="When someone mentions you" on={notif.mentions} set={(v) => setNotif({ ...notif, mentions: v })} last />
-      </Section>
-      <div style={{ fontSize: 11.5, color: "#B3A6AB", fontWeight: 500, lineHeight: 1.45, margin: "8px 4px 0" }}>
-        These surface in-app (the 🔔 bell in the header). Email &amp; push aren&rsquo;t wired up yet. A one-tap &ldquo;add fixtures to calendar&rdquo; export is the planned way to get real match reminders.
-      </div>
-
-      <Section title="Privacy">
-        <Toggle label="Public profile" desc="Let anyone see your betting record" on={publicDossier} set={setPublicDossier} last />
-      </Section>
-
       {/* ownership */}
       <div className="ink" style={{ marginTop: 18, padding: 22 }}>
         <div className="glow" style={{ right: -30, bottom: -30, width: 140, height: 140, background: "radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)" }} />
@@ -175,20 +158,3 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Toggle({ label, desc, on, set, last }: { label: string; desc: string; on: boolean; set: (v: boolean) => void; last?: boolean }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: last ? "none" : "1px solid #F9F3F5" }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>{label}</div>
-        <div style={{ fontSize: 12, color: "#988990", fontWeight: 600 }}>{desc}</div>
-      </div>
-      <button
-        onClick={() => set(!on)}
-        aria-pressed={on}
-        style={{ width: 46, height: 28, borderRadius: 20, border: "none", cursor: "pointer", background: on ? "#FF3355" : "#D7E0D4", position: "relative", transition: ".18s", flex: "none" }}
-      >
-        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", boxShadow: "0 2px 5px rgba(0,0,0,.2)", transition: ".18s" }} />
-      </button>
-    </div>
-  );
-}

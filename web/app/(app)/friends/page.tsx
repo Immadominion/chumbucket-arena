@@ -323,7 +323,7 @@ function FriendRowItem({
         href={`/send?to=${encodeURIComponent(friend.walletAddress)}&name=${encodeURIComponent(friend.name)}`}
         style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#FF3355", textDecoration: "none", flex: "none" }}
       >
-        <PaperPlaneRight size={15} weight="fill" /> Send USDC
+        <PaperPlaneRight size={15} weight="fill" /> Send SOL
       </Link>
     </div>
   );

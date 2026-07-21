@@ -1,14 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Flag } from "@/components/Flag";
 import AddFundsModal from "@/components/flow/AddFundsModal";
 import CashOutModal from "@/components/flow/CashOutModal";
 import ClaimableWinnings from "@/components/flow/ClaimableWinnings";
 import { ArrowDown, ArrowUp, LockSimple, Trophy, XCircle } from "@/components/icons";
-import { flag, type WalletEntry } from "@/lib/data";
+import { type WalletEntry } from "@/lib/data";
 import { useGameData } from "@/lib/useGameData";
+import { useOpenPositions } from "@/lib/useOnchainPositions";
+import { fetchUsdcBalance } from "@/lib/arena-onchain";
 import { useSession } from "@/lib/session";
-import { flagCode, frostToWal, shortWallet } from "@/lib/format";
+import { shortWallet } from "@/lib/format";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -26,32 +30,54 @@ const amtColor: Record<WalletEntry["amountTone"], string | undefined> = {
   blue: "#2F6BFF",
 };
 
-const pickLabel = (bucket: string, home: string, away: string) =>
-  bucket === "HOME" ? home : bucket === "AWAY" ? away : "Draw";
-
 export default function WalletPage() {
   const { session } = useSession();
   const g = useGameData();
   const [add, setAdd] = useState(false);
   const [out, setOut] = useState(false);
+  const qc = useQueryClient();
 
-  const available = session.balance;
-  const staked = session.staked;
+  // The REAL money is on-chain USDC (what a bet spends), not the custodial
+  // float — so the wallet reads the same on-chain balance as the arena/bet
+  // screens, and its "staked" is the sum of the player's open on-chain bets.
+  const balanceQ = useQuery({
+    queryKey: ["usdc-balance", session.wallet],
+    queryFn: () => fetchUsdcBalance(session.wallet),
+    enabled: !!session.wallet,
+    staleTime: 15_000,
+  });
+  const available = balanceQ.data ?? 0;
+  const { open: openPositions } = useOpenPositions();
+  const staked = openPositions.reduce((s, p) => s + Number(p.stake) / 1e6, 0);
   const total = available + staked;
 
-  const openCalls = g.meRaw?.openCalls ?? [];
-  const activity: WalletEntry[] = openCalls.map((c) => {
-    const m = g.matchById(c.matchId);
-    const home = m?.fixture.home ?? "Home";
-    const away = m?.fixture.away ?? "Away";
+  // Activity is a real ledger: open bets you've placed + settled wins/losses/
+  // refunds. Settled entries (g.settledCalls) light up the win/loss tiles that
+  // were previously dead scaffolding.
+  const openActivity: WalletEntry[] = openPositions.map((p) => {
+    const home = p.match?.fixture.home ?? "Home";
+    const away = p.match?.fixture.away ?? "Away";
+    const pick = p.bucket === 0 ? home : p.bucket === 2 ? away : "Draw";
     return {
       kind: "stake",
-      title: `Backed · ${pickLabel(c.bucket, home, away)}`,
+      title: `Backed · ${pick}`,
       sub: `${home} v ${away}`,
-      amount: `−${frostToWal(c.stake).toFixed(1)}`,
+      amount: `−${(Number(p.stake) / 1e6).toFixed(1)}`,
       amountTone: "neutral",
     };
   });
+  const settledActivity: WalletEntry[] = g.settledCalls.map((c) => {
+    const won = c.outcome === "WON";
+    const voided = c.outcome === "VOID";
+    return {
+      kind: voided ? "deposit" : won ? "win" : "loss",
+      title: `${voided ? "Refunded" : won ? "Won" : "Lost"} · ${c.backed}`,
+      sub: `${c.home.name} v ${c.away.name} · ${c.when}`,
+      amount: c.pnl,
+      amountTone: voided ? "blue" : won ? "good" : "bad",
+    };
+  });
+  const activity = [...openActivity, ...settledActivity];
 
   return (
     <div className="midpad">
@@ -134,22 +160,22 @@ export default function WalletPage() {
           </div>
           <div className="card" style={{ marginTop: 14, padding: 20 }}>
             <div className="cd" style={{ fontSize: 16, marginBottom: 14 }}>Open stakes</div>
-            {openCalls.length > 0 ? (
-              openCalls.map((c) => {
-                const m = g.matchById(c.matchId);
-                const home = m?.fixture.home ?? "Home";
-                const away = m?.fixture.away ?? "Away";
+            {openPositions.length > 0 ? (
+              openPositions.map((p) => {
+                const home = p.match?.fixture.home ?? "Home";
+                const away = p.match?.fixture.away ?? "Away";
+                const pick = p.bucket === 0 ? home : p.bucket === 2 ? away : "Draw";
                 return (
-                  <div key={c.callId} style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+                  <div key={p.matchId} style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
                     <div style={{ display: "flex", alignItems: "center" }}>
-                      <img src={flag(flagCode(home) ?? "")} style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff" }} alt="" />
-                      <img src={flag(flagCode(away) ?? "")} style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 2px #fff", marginLeft: -9 }} alt="" />
+                      <Flag name={home} size={30} style={{ boxShadow: "0 0 0 2px #fff" }} />
+                      <Flag name={away} size={30} style={{ boxShadow: "0 0 0 2px #fff", marginLeft: -9 }} />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{pickLabel(c.bucket, home, away)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{pick}</div>
                       <div style={{ fontSize: 11, color: "#988990", fontWeight: 600 }}>{home} v {away}</div>
                     </div>
-                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#FF3355" }}>{frostToWal(c.stake).toFixed(1)}</span>
+                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: "#FF3355" }}>{(Number(p.stake) / 1e6).toFixed(1)}</span>
                   </div>
                 );
               })
@@ -160,7 +186,17 @@ export default function WalletPage() {
         </div>
       </div>
 
-      <AddFundsModal open={add} onClose={() => setAdd(false)} />
+      <AddFundsModal
+        open={add}
+        onClose={() => setAdd(false)}
+        onchain
+        onchainAddress={session.wallet}
+        onchainBalance={available}
+        onRecheck={async () => {
+          await qc.invalidateQueries({ queryKey: ["usdc-balance", session.wallet] });
+          await balanceQ.refetch();
+        }}
+      />
       <CashOutModal open={out} onClose={() => setOut(false)} />
     </div>
   );

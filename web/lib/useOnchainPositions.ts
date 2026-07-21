@@ -37,6 +37,53 @@ export type ClaimablePosition = {
   won: boolean;
 };
 
+export type OpenPosition = {
+  matchId: string;
+  match: MatchView | undefined;
+  /** RESULT bucket slot: 0 HOME · 1 DRAW · 2 AWAY. */
+  bucket: number;
+  /** USDC base units (1e6 = 1 USDC). */
+  stake: bigint;
+};
+
+/**
+ * The player's OPEN on-chain bets — read straight from the Position accounts on
+ * still-OPEN matches. This is the authoritative source for "Your bets": a bet
+ * placed via placeCall shows here immediately, unlike the custodial dossier
+ * (which only ever saw the old off-chain call path).
+ */
+export function useOpenPositions() {
+  const { session } = useSession();
+  const g = useGameData();
+  const wallet = session.wallet;
+
+  const openMatchIds = g.matches.filter((m) => m.status === "OPEN").map((m) => m.fixture.matchId);
+  const key = openMatchIds.join(",");
+
+  const q = useQuery({
+    queryKey: ["onchain-open-positions", wallet, key],
+    queryFn: async () => {
+      const out: OpenPosition[] = [];
+      for (const matchId of openMatchIds) {
+        const position = await fetchPosition(matchId, wallet);
+        if (!position || position.stake <= 0n) continue;
+        out.push({
+          matchId,
+          match: g.matches.find((m) => m.fixture.matchId === matchId),
+          bucket: position.bucket,
+          stake: position.stake,
+        });
+      }
+      return out;
+    },
+    enabled: !!wallet && openMatchIds.length > 0,
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+  });
+
+  return { open: q.data ?? [], isLoading: q.isLoading, refetch: q.refetch };
+}
+
 export function useClaimablePositions() {
   const { session } = useSession();
   const g = useGameData();
