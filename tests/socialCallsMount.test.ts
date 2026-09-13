@@ -50,11 +50,23 @@ describe("the integration patch composes to exactly the §5 surface", () => {
     expect(pathsOf(patched)).toEqual(pathsOf(callsRouter));
   });
 
-  test("none of the three keys collides with an existing root procedure", () => {
+  test("the three namespaces are mounted, and shadow no legacy root procedure", () => {
+    // Written pre-mount as "these keys are still free, so the patch is safe to
+    // apply". The patch has since been applied, so the same intent now reads
+    // forwards: each namespace is present, and — the part that actually
+    // protects anything — nesting added paths without a bare key of the same
+    // name surviving to shadow a legacy procedure.
     const existing = Object.keys(appRouter._def.procedures as Record<string, unknown>);
     for (const key of ["calls", "markets", "people"]) {
+      expect(existing.filter((p) => p.startsWith(`${key}.`)).length).toBeGreaterThan(0);
       expect(existing).not.toContain(key);
-      expect(existing.filter((p) => p.startsWith(`${key}.`))).toHaveLength(0);
+    }
+  });
+
+  test("every §5 path is reachable on the ROOT router, not just the sub-router", () => {
+    const root = Object.keys(appRouter._def.procedures as Record<string, unknown>);
+    for (const path of pathsOf(callsRouter)) {
+      expect(root).toContain(path);
     }
   });
 

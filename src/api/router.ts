@@ -25,6 +25,7 @@ import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
 import { verifyCallProof, verifyGenericAction, verifySocialAction } from "../auth/WalletSignature.ts";
 import { authRouter } from "./authRoutes.ts";
 import { predictionsRouter } from "./predictions.ts";
+import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -63,6 +64,13 @@ export const appRouter = router({
 
   /** Packet B — venue-backed prediction markets, orders and reconciliation. */
   predictions: predictionsRouter,
+
+  /** Packet D — free social calls, venue-derived results and receipts.
+   *  Three keys rather than one: the client contract names the paths
+   *  calls.feed, markets.open and people.get. */
+  calls: socialCallsRouter,
+  markets: socialMarketsRouter,
+  people: socialPeopleRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({
