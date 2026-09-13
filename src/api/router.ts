@@ -23,6 +23,8 @@ import { DomainError } from "../domain/errors.ts";
 import { streamEvents } from "./eventStream.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
 import { verifyCallProof, verifyGenericAction, verifySocialAction } from "../auth/WalletSignature.ts";
+import { authRouter } from "./authRoutes.ts";
+import { predictionsRouter } from "./predictions.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -51,6 +53,17 @@ function toPublic(d: DossierView) {
 }
 
 export const appRouter = router({
+  // ── pivot sub-routers ────────────────────────────────────────────────────
+  // Both are self-contained: each reads ctx.app.config and builds its own
+  // store/adapter behind a module-level memo, so nesting them starts nothing
+  // at import time and createApp is unchanged.
+
+  /** Packet A — Supabase identity, nonce-backed SIWS wallet proof, legacy claims. */
+  auth: authRouter,
+
+  /** Packet B — venue-backed prediction markets, orders and reconciliation. */
+  predictions: predictionsRouter,
+
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({
     ok: true,

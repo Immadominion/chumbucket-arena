@@ -72,6 +72,26 @@ export interface AppConfig {
   indexer?: {
     heliusWebhookAuth?: string;
   };
+  /**
+   * Packet A — SIWS wallet-proof policy. The domain/uri allowlist a signed
+   * message may name, and how long a challenge stays redeemable. Unset → the
+   * deny-by-default fixture allowlist in src/auth/AuthIdentityRuntime.ts.
+   */
+  authIdentity?: {
+    siwsDomains?: string[];
+    siwsUris?: string[];
+    nonceTtlSeconds?: number;
+  };
+  /**
+   * Packet B — venue-backed prediction markets. The API key is SERVER-SIDE
+   * ONLY: it must never reach a response body, a log line or a client. The
+   * fundedPositions flag is the server-side kill switch and defaults OFF.
+   */
+  predictions?: {
+    venue?: "jupiter" | "fixture";
+    jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
+    flags?: { fundedPositions?: boolean };
+  };
   /** TxLINE — live World Cup data + on-chain settlement verification. Unset → mock data, verification stubbed to always-pass. */
   txline?: {
     apiBaseUrl: string;
@@ -240,6 +260,34 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (env.HELIUS_WEBHOOK_AUTH) {
     cfg.indexer = { heliusWebhookAuth: env.HELIUS_WEBHOOK_AUTH };
   }
+  if (env.SIWS_DOMAINS || env.SIWS_URIS || env.SIWS_NONCE_TTL_SECONDS) {
+    cfg.authIdentity = {
+      ...(env.SIWS_DOMAINS
+        ? { siwsDomains: env.SIWS_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean) }
+        : {}),
+      ...(env.SIWS_URIS
+        ? { siwsUris: env.SIWS_URIS.split(",").map((u) => u.trim()).filter(Boolean) }
+        : {}),
+      ...(env.SIWS_NONCE_TTL_SECONDS
+        ? { nonceTtlSeconds: num(env.SIWS_NONCE_TTL_SECONDS, 300) }
+        : {}),
+    };
+  }
+  // With no Jupiter key configured the BFF serves the clearly-labelled fixture
+  // catalog rather than failing; funded_positions stays OFF unless enabled.
+  cfg.predictions = {
+    venue: env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY ? "jupiter" : "fixture",
+    ...(env.JUPITER_API_KEY
+      ? {
+          jupiter: {
+            apiKey: env.JUPITER_API_KEY,
+            baseUrl: env.JUPITER_BASE_URL ?? "https://prediction-api.jup.ag",
+            timeoutMs: num(env.JUPITER_TIMEOUT_MS, 8_000),
+          },
+        }
+      : {}),
+    flags: { fundedPositions: env.FUNDED_POSITIONS === "true" },
+  };
   if (env.TXLINE_API_BASE_URL && env.TXLINE_PROGRAM_ID && env.TXLINE_API_TOKEN && env.TXLINE_JWT) {
     cfg.txline = {
       apiBaseUrl: env.TXLINE_API_BASE_URL,
