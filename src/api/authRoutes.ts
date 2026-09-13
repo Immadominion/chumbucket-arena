@@ -1,0 +1,245 @@
+/**
+ * authRouter — Packet A's isolated tRPC surface: Supabase session -> canonical
+ * user, wallet-proof issuance, and wallet linking.
+ *
+ * Mounting: this file exports `authRouter` and nothing else is required of it.
+ * `src/api/router.ts` is integration-owned (contract §6), and nesting a
+ * sub-router there is one added key (`auth: authRouter`) with no mergeRouters
+ * and no registry. The exact one-line patch is filed at
+ * docs/contracts/integration-requests/packet-a.md. Until it lands, every
+ * procedure here is reachable (and fully tested) via
+ * `authRouter.createCaller(ctx)`.
+ *
+ * Why the Supabase access token is a procedure INPUT rather than context:
+ * `Context` lives in `src/api/trpc.ts`, which this packet may not edit. Taking
+ * the credential as an input costs nothing in safety — it is verified against
+ * the issuer on every call, exactly as a header would be — and it keeps Packet
+ * A from needing a change to a shared file. When the integration owner adds a
+ * `supabaseAccessToken` to `Context`, these procedures can read it from there
+ * instead without any change to their behaviour.
+ *
+ * What is NOT trusted anywhere below: the `address` field. It is a claim until
+ * a signature over a server-issued challenge proves it, and it is never used to
+ * decide who the caller is.
+ */
+
+import { TRPCError } from "@trpc/server";
+import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
+import { z } from "zod";
+import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdentityError.ts";
+import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { WalletLinkService } from "../auth/WalletLinkService.ts";
+import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
+import type { AppConfig } from "../config.ts";
+import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
+
+/**
+ * One place where an identity failure becomes a transport status.
+ *
+ * The TRPCError `message` is always the bare code — machine-readable for the
+ * client, and structurally incapable of carrying a nonce, a signature, a token
+ * or a key. The human-readable `detail` stays on the cause, server-side.
+ */
+const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
+  AUTH_TOKEN_MISSING: "UNAUTHORIZED",
+  AUTH_TOKEN_INVALID: "UNAUTHORIZED",
+  AUTH_USER_UNLINKED: "FORBIDDEN",
+  AUTH_USER_AMBIGUOUS: "INTERNAL_SERVER_ERROR",
+  IDENTITY_NOT_CONFIGURED: "PRECONDITION_FAILED",
+
+  SIWS_MALFORMED_MESSAGE: "BAD_REQUEST",
+  SIWS_UNSUPPORTED_VERSION: "BAD_REQUEST",
+  SIWS_DOMAIN_NOT_ALLOWED: "BAD_REQUEST",
+  SIWS_URI_NOT_ALLOWED: "BAD_REQUEST",
+  SIWS_DOMAIN_MISMATCH: "BAD_REQUEST",
+  SIWS_URI_MISMATCH: "BAD_REQUEST",
+  SIWS_NETWORK_MISMATCH: "BAD_REQUEST",
+  SIWS_ADDRESS_MISMATCH: "BAD_REQUEST",
+  SIWS_STATEMENT_MISMATCH: "BAD_REQUEST",
+  SIWS_PURPOSE_MISMATCH: "BAD_REQUEST",
+  SIWS_BAD_SIGNATURE: "UNAUTHORIZED",
+
+  NONCE_UNKNOWN: "BAD_REQUEST",
+  NONCE_REUSED: "CONFLICT",
+  NONCE_EXPIRED: "BAD_REQUEST",
+  NONCE_USER_MISMATCH: "FORBIDDEN",
+  NONCE_ISSUE_FAILED: "INTERNAL_SERVER_ERROR",
+
+  WALLET_OWNED_BY_ANOTHER_USER: "CONFLICT",
+  WALLET_REQUIRES_TRANSFER: "CONFLICT",
+  WALLET_LINK_FAILED: "INTERNAL_SERVER_ERROR",
+
+  LEGACY_EVIDENCE_UNVERIFIED: "FORBIDDEN",
+  LEGACY_CLAIMED_BY_ANOTHER_USER: "CONFLICT",
+  LEGACY_CLAIM_FAILED: "INTERNAL_SERVER_ERROR",
+
+  IDENTITY_STORE_ERROR: "INTERNAL_SERVER_ERROR",
+};
+
+/** Run a procedure body: DomainError -> transport via guard(), then our own
+ *  identity codes. Both mappings are idempotent and order-independent. */
+async function run<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await guard(fn);
+  } catch (e) {
+    if (e instanceof AuthIdentityError) {
+      throw new TRPCError({ code: TRPC_CODE[e.code], message: e.code, cause: e });
+    }
+    throw e;
+  }
+}
+
+/** Build the service for this request from the app's own config. No wiring into
+ *  createApp; the runtime is memoised per config object. */
+function serviceFor(config: AppConfig): WalletLinkService {
+  const rt = authIdentityRuntimeFor(config);
+  return new WalletLinkService({ store: rt.store, verifier: rt.verifier, policy: rt.policy });
+}
+
+const accessToken = z.string().min(1).max(8192);
+// Base58 32-byte key: 32–44 chars. The real check is bs58-decode-to-32 bytes in
+// WalletLinkService; this only keeps obvious junk out of the service.
+const solanaAddress = z.string().min(32).max(44);
+const purpose = z.enum(["link_wallet", "transfer_wallet"]);
+
+export const authRouter = router({
+  /**
+   * Everything a client needs to construct a request, and nothing else. No key,
+   * no URL, no token. The allowed domains are already public — they appear in
+   * the message the user signs.
+   */
+  identityStatus: publicProcedure.query(({ ctx }) => {
+    const rt = authIdentityRuntimeFor(ctx.app.config);
+    return {
+      enabled: rt.store.enabled,
+      network: rt.policy.network,
+      proofVersion: SIWS_PROOF_VERSION,
+      allowedDomains: [...rt.policy.allowedDomains],
+      allowedUris: [...rt.policy.allowedUris],
+      nonceTtlSeconds: rt.policy.nonceTtlSeconds,
+    };
+  }),
+
+  /** Resolve the caller's Supabase session to exactly one canonical user id. */
+  whoami: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken }))
+    .query(({ ctx, input }) =>
+      run(async () => {
+        const identity = await serviceFor(ctx.app.config).authenticate(input.supabaseAccessToken);
+        // authUserId is returned deliberately: it is the client's own auth.uid(),
+        // which it already holds. It is not another user's identifier.
+        return { userId: identity.userId, authUserId: identity.authUserId };
+      }),
+    ),
+
+  /**
+   * Issue a single-use, short-lived challenge bound to this user, this address,
+   * this purpose, this domain/uri and this network — and return the exact
+   * message to sign.
+   */
+  requestWalletNonce: publicProcedure
+    .input(
+      z.object({
+        supabaseAccessToken: accessToken,
+        address: solanaAddress,
+        domain: z.string().min(1).max(253),
+        uri: z.string().min(1).max(2048),
+        purpose: purpose.optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      run(() =>
+        serviceFor(ctx.app.config).requestWalletNonce({
+          accessToken: input.supabaseAccessToken,
+          address: input.address,
+          domain: input.domain,
+          uri: input.uri,
+          ...(input.purpose ? { purpose: input.purpose } : {}),
+        }),
+      ),
+    ),
+
+  /**
+   * Verify the signed SIWS message, consume its nonce atomically, and link the
+   * address to the canonical user. Rejects with a distinct code for a reused
+   * nonce, an expired nonce, a wrong domain, uri, network, address or
+   * statement, a nonce issued to another user, and a bad signature.
+   */
+  linkWallet: publicProcedure
+    .input(
+      z.object({
+        supabaseAccessToken: accessToken,
+        address: solanaAddress,
+        message: z.string().min(1).max(4096),
+        signature: z.string().min(1).max(256),
+        purpose: purpose.optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      run(() =>
+        serviceFor(ctx.app.config).linkWallet({
+          accessToken: input.supabaseAccessToken,
+          address: input.address,
+          message: input.message,
+          signature: input.signature,
+          ...(input.purpose ? { purpose: input.purpose } : {}),
+        }),
+      ),
+    ),
+
+  /**
+   * Map the caller's LEGACY account onto their canonical user.
+   *
+   * `authedProcedure` on purpose: this needs TWO independently verified
+   * credentials — the legacy provider session (already verified by the app's
+   * Auth port, which is what populates ctx.wallet / ctx.privyUserId) and the
+   * new Supabase session. Neither alone is enough.
+   *
+   * Note what is absent from the input: the legacy subject. The client cannot
+   * name which legacy account it is claiming. The subject is read off the
+   * server-verified context, so "I am privy user X" is never something a client
+   * can assert — which is precisely the hole in the legacy sync_user_by_wallet
+   * path (contract §8 finding 2).
+   *
+   * The dev Auth adapter treats the credential itself as the wallet, so it
+   * proves nothing; the claim is refused whenever that is what is wired.
+   */
+  claimLegacyIdentity: authedProcedure
+    .input(
+      z.object({
+        supabaseAccessToken: accessToken,
+        legacyProvider: z.enum(["privy", "wallet"]).default("privy"),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      run(async () => {
+        // `dev` auth is the one adapter that verifies nothing — the credential
+        // IS the wallet string. Accepting it here would mean a legacy claim
+        // could be made from client input alone, which is the exact hole this
+        // packet closes. Any adapter that actually verifies is acceptable.
+        if (ctx.app.wiring.auth === "dev") {
+          throw new AuthIdentityError(
+            "LEGACY_EVIDENCE_UNVERIFIED",
+            "legacy claims require a verifying auth provider",
+          );
+        }
+
+        // Server-derived, never client-supplied.
+        const subject = input.legacyProvider === "privy" ? ctx.privyUserId : ctx.wallet;
+        if (!subject) {
+          throw new AuthIdentityError("LEGACY_EVIDENCE_UNVERIFIED", "no verified legacy subject");
+        }
+
+        return serviceFor(ctx.app.config).claimLegacyIdentity({
+          accessToken: input.supabaseAccessToken,
+          legacyProvider: input.legacyProvider,
+          legacySubject: subject,
+          evidence: "privy_session",
+          // A non-secret pointer to the verification, never the credential.
+          evidenceRef: `auth:${ctx.app.wiring.auth}`,
+        });
+      }),
+    ),
+});
+
+export type AuthRouter = typeof authRouter;
