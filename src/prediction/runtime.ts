@@ -10,6 +10,7 @@
 import type { AppConfig } from "../config.ts";
 import { FixtureVenue } from "./FixtureVenue.ts";
 import { JupiterVenue } from "./JupiterVenue.ts";
+import { POLYMARKET_VENUE_ID, PolymarketVenue } from "./PolymarketVenue.ts";
 import { CircuitBreaker } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { resolvePredictionConfig, type PredictionConfig } from "./config.ts";
@@ -32,6 +33,40 @@ export interface BuildRuntimeOverrides {
   config?: PredictionConfig;
 }
 
+/**
+ * The venue selector. `PREDICTION_VENUE=polymarket` reaches here through
+ * `resolvePredictionConfig`; unlike Jupiter it needs no key, so it never falls
+ * back to the demo catalog.
+ */
+function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
+  if (config.venue === POLYMARKET_VENUE_ID && config.polymarket) {
+    return new PolymarketVenue({
+      baseUrl: config.polymarket.baseUrl,
+      timeoutMs: config.polymarket.timeoutMs,
+      clock,
+      retry: config.retry,
+      cache: config.cache,
+      circuit: new CircuitBreaker({
+        ...config.circuit,
+        clock,
+        venue: POLYMARKET_VENUE_ID,
+        name: "polymarket",
+      }),
+    });
+  }
+  if (config.venue === "jupiter" && config.jupiter) {
+    return new JupiterVenue({
+      baseUrl: config.jupiter.baseUrl,
+      apiKey: config.jupiter.apiKey,
+      timeoutMs: config.jupiter.timeoutMs,
+      clock,
+      retry: config.retry,
+      circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "jupiter", name: "jupiter" }),
+    });
+  }
+  return new FixtureVenue({ clock });
+}
+
 export function buildPredictionRuntime(
   appConfig: AppConfig | undefined,
   overrides: BuildRuntimeOverrides = {},
@@ -39,18 +74,7 @@ export function buildPredictionRuntime(
   const config = overrides.config ?? resolvePredictionConfig(appConfig);
   const clock = overrides.clock ?? systemClock;
   const store = overrides.store ?? new InMemoryPredictionStore();
-  const venue =
-    overrides.venue ??
-    (config.venue === "jupiter" && config.jupiter
-      ? new JupiterVenue({
-          baseUrl: config.jupiter.baseUrl,
-          apiKey: config.jupiter.apiKey,
-          timeoutMs: config.jupiter.timeoutMs,
-          clock,
-          retry: config.retry,
-          circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "jupiter", name: "jupiter" }),
-        })
-      : new FixtureVenue({ clock }));
+  const venue = overrides.venue ?? buildVenue(config, clock);
 
   const service = new PredictionService({
     venue,

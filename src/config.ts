@@ -88,7 +88,7 @@ export interface AppConfig {
    * fundedPositions flag is the server-side kill switch and defaults OFF.
    */
   predictions?: {
-    venue?: "jupiter" | "fixture";
+    venue?: "jupiter" | "polymarket" | "fixture";
     jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
     flags?: { fundedPositions?: boolean };
   };
@@ -276,7 +276,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   // With no Jupiter key configured the BFF serves the clearly-labelled fixture
   // catalog rather than failing; funded_positions stays OFF unless enabled.
   cfg.predictions = {
-    venue: env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY ? "jupiter" : "fixture",
+    // Polymarket needs no key — it is read-only real data, so it is selectable
+    // on its name alone. Jupiter additionally requires a key; without one it
+    // would be a venue that cannot answer, so it falls back rather than
+    // pretending. Anything else is the clearly-labelled demo catalog.
+    venue:
+      env.PREDICTION_VENUE === "polymarket"
+        ? "polymarket"
+        : env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY
+          ? "jupiter"
+          : "fixture",
     ...(env.JUPITER_API_KEY
       ? {
           jupiter: {

@@ -36,8 +36,14 @@ export type FundingState =
   | "CLAIMABLE"
   | "CLAIMED";
 
-/** Which adapter produced a row. 'fixture' is ALWAYS demo data. */
-export type VenueId = "jupiter" | "fixture";
+/**
+ * Which adapter produced a row. 'fixture' is ALWAYS demo data.
+ *
+ * 'polymarket' is a READ-ONLY venue: real markets, real prices, real
+ * resolutions, but no trading through us. It exists because it needs no API
+ * key, so the product can run on real data before a Jupiter key exists.
+ */
+export type VenueId = "jupiter" | "polymarket" | "fixture";
 
 export interface VenueMarket {
   id: string; // Chumbucket UUID — the stable id everything references

@@ -93,10 +93,6 @@ export class PredictionService {
     this.reconciler = new OrderReconciler({ venue: this.venue, store: this.store, clock: this.clock });
   }
 
-  get venueId(): VenueId {
-    return this.venue.capabilities().demo ? "fixture" : "jupiter";
-  }
-
   capabilities(): Capabilities {
     return this.venue.capabilities();
   }
