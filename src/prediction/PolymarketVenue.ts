@@ -62,7 +62,7 @@ import {
 } from "./cache.ts";
 import { CircuitBreaker, DEFAULT_CIRCUIT } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
-import { schemaError, VenueError } from "./errors.ts";
+import { isVenueError, schemaError, VenueError } from "./errors.ts";
 import { httpJson, type FetchLike } from "./http.ts";
 import type {
   Capabilities,
@@ -521,6 +521,23 @@ export interface PolymarketVenueConfig {
 
 // ── the adapter ──────────────────────────────────────────────────────────────
 
+
+/**
+ * gamma's "you have paged as deep as offset paging goes" answer.
+ *
+ * Matched on the venue's own wording rather than on the bare 422, so an
+ * unrelated validation error keeps throwing. `/events/keyset` is the documented
+ * way to go deeper; until this adapter speaks it, the honest behaviour is to
+ * treat the cap as the end of the catalog and start again from the top.
+ */
+function isOffsetExhausted(err: unknown): boolean {
+  if (!isVenueError(err) || err.code !== "VENUE_BAD_REQUEST") return false;
+  const status = (err.details as { status?: number } | undefined)?.status;
+  if (status !== 422) return false;
+  const preview = String((err.details as { bodyPreview?: unknown } | undefined)?.bodyPreview ?? "");
+  return /offset too large/i.test(preview);
+}
+
 export class PolymarketVenue implements PredictionVenue, RawPayloadCapture, ResolutionReader {
   readonly venue = VENUE;
   private readonly baseUrl: string;
@@ -638,7 +655,29 @@ export class PolymarketVenue implements PredictionVenue, RawPayloadCapture, Reso
       async () => {
         const q = new URLSearchParams(qs);
         if (wantsFresh) q.set("end_date_min", new Date(this.clock.now()).toISOString());
-        const body = await this.call(`/events?${q.toString()}`);
+
+        let body: unknown;
+        try {
+          body = await this.call(`/events?${q.toString()}`);
+        } catch (err) {
+          // gamma caps offset pagination and says so in words:
+          //   422 {"type":"validation error",
+          //        "error":"offset too large, use /events/keyset for deeper pagination"}
+          //
+          // That is the venue telling us there is nothing deeper to read on
+          // this access path, which is the END of the catalog — not a failure.
+          // Reporting it as an error made the sync cursor a poison pill: it
+          // climbed past the cap once and then every pass died on its first
+          // page, forever, while the catalog silently went stale.
+          //
+          // Narrow on purpose. Any other 422 is a real rejection and still
+          // throws, because a validation error we do not understand must not
+          // be quietly turned into "no more results".
+          if (isOffsetExhausted(err)) {
+            return { events: [], nextCursor: null, fetchedAt: this.clock.now() };
+          }
+          throw err;
+        }
         const wire = parseOrThrow(PolyEventsResponse, body, "GET /events");
         const fetchedAt = this.clock.now();
         const events: VenueEvent[] = [];
