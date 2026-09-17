@@ -96,12 +96,31 @@ export interface BuildRuntimeOverrides {
  * `resolvePredictionConfig`; unlike Jupiter it needs no key, so it never falls
  * back to the demo catalog.
  */
+/**
+ * Raw payloads held by the Polymarket adapter at once.
+ *
+ * A full sync pass has produced ~2,300 markets; 8,000 leaves comfortable room
+ * for gamma growing its event grouping without the cache becoming the reason a
+ * market fails to persist. Each entry is one market's JSON.
+ */
+const POLYMARKET_RAW_CACHE_SIZE = 8_000;
+
 function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
   if (config.venue === POLYMARKET_VENUE_ID && config.polymarket) {
     return new PolymarketVenue({
       baseUrl: config.polymarket.baseUrl,
       timeoutMs: config.polymarket.timeoutMs,
       clock,
+      // Sized to hold a WHOLE market-sync pass, because the durable writer
+      // reads the raw payload back from this cache after the pass has moved on.
+      //
+      // The trap: MarketSync's pageSize bounds EVENTS, not markets, and gamma
+      // groups several markets under one event. 10 pages x 50 events was 2,274
+      // markets in production against a 500-entry LRU, so most payloads were
+      // evicted before the writer reached them — and venue_markets_live_rows_
+      // keep_raw then correctly refused the row rather than let a live market
+      // be stored with no record of what the venue actually said.
+      maxRawPayloads: POLYMARKET_RAW_CACHE_SIZE,
       retry: config.retry,
       cache: config.cache,
       circuit: new CircuitBreaker({
