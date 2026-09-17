@@ -121,7 +121,7 @@ export class MarketSync {
     this.filters = deps.filters ?? { category: "crypto" };
     this.pageSize = clamp(deps.pageSize ?? 50, 1, 100);
     this.maxPages = clamp(deps.maxPagesPerPass ?? 10, 1, 1000);
-    this.snapshotBudget = Math.max(0, deps.snapshotBudget ?? 25);
+    this.snapshotBudget = Math.max(0, deps.snapshotBudget ?? 150);
     this.snapshotMaxAgeMs = Math.max(0, deps.snapshotMaxAgeMs ?? 60_000);
   }
 
@@ -198,9 +198,24 @@ export class MarketSync {
     }
 
     // ── prices: the venue's own published number, or none at all ────────────
+    //
+    // Spend the budget on the markets people can actually call on: soonest to
+    // close, first. The catalog is dominated by far-dated markets ("Arizona
+    // Cardinals to win the 2027 championship"), and an unordered pass spends
+    // its whole budget on those while a Bitcoin market closing tonight — the
+    // product's whole target category, 4 hours to 7 days — never gets a price.
+    //
+    // A market with no snapshot cannot be called on at all: entry_probability
+    // has no source, and calls.snapshot_id is a real FK that the store refuses
+    // to null. So this ordering decides what the product can actually do.
     let budget = this.snapshotBudget;
     const now = this.clock.now();
-    for (const { market } of pending) {
+    const byClosingSoonest = [...pending].sort((a, b) => {
+      const ac = a.market.closesAt ?? Number.MAX_SAFE_INTEGER;
+      const bc = b.market.closesAt ?? Number.MAX_SAFE_INTEGER;
+      return ac - bc;
+    });
+    for (const { market } of byClosingSoonest) {
       if (budget <= 0) break;
       if (market.status !== "OPEN") continue; // a settled price will never move again
       const known = this.store.latestSnapshot(market.id);
