@@ -101,7 +101,20 @@ export function harness(opts: { people?: Person[]; markets?: VenueMarket[] } = {
   let seq = 0;
 
   for (const p of opts.people ?? []) calls.upsertPerson(p);
-  for (const m of opts.markets ?? []) venue.upsertMarket(m, null);
+  for (const m of opts.markets ?? []) {
+    venue.upsertMarket(m, null);
+    // Every seeded market gets a price, because markets.open only offers
+    // markets that HAVE one — a call pins entryProbability to the snapshot the
+    // person saw, and calls.snapshot_id is a real FK the store refuses to null.
+    // A market with no snapshot is not a callable market, so a fixture without
+    // one is not a realistic fixture.
+    venue.appendSnapshot({
+      marketId: m.id,
+      yesProbability: 0.5,
+      observedAt: clock.now(),
+      source: "venue",
+    });
+  }
 
   const rt = buildCallsRuntime(undefined, {
     store: calls,

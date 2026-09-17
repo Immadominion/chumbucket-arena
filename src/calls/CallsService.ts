@@ -117,11 +117,26 @@ export class CallsService {
 
   // ── 2. markets.open ───────────────────────────────────────────────────────
 
-  /** Markets a call can be made on right now. Reading needs no session. */
+  /**
+   * Markets a call can be made on right now. Reading needs no session.
+   *
+   * "Can be made on" is meant literally, which is why a market with no price
+   * is excluded. A call pins `entryProbability` to the snapshot the person saw,
+   * and `calls.snapshot_id` is a real foreign key the store refuses to null —
+   * so offering a market with no snapshot would be offering an action that
+   * fails the moment somebody takes it. In production this was most of the
+   * catalog: 2,105 markets offered, and the soonest-closing ones had no price,
+   * because the synchroniser prices markets on a budget and cannot cover
+   * thousands at once.
+   *
+   * Better to show fewer markets that all work than a long list that mostly
+   * does not.
+   */
   openMarkets(args: { category?: string | null } = {}): VenueMarket[] {
     return this.markets
       .listMarkets()
       .filter(acceptsNewCalls)
+      .filter((m) => this.markets.latestSnapshot(m.id) !== undefined)
       .filter((m) => (args.category ? m.category === args.category : true))
       .sort((a, b) => (a.closesAt ?? Number.MAX_SAFE_INTEGER) - (b.closesAt ?? Number.MAX_SAFE_INTEGER));
   }
