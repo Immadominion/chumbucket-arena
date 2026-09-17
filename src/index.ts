@@ -5,6 +5,7 @@
  */
 
 import { createApp } from "./app.ts";
+import { callsRuntimeFor } from "./calls/runtime.ts";
 import { startServer } from "./api/server.ts";
 import { OnchainKeeper } from "./keeper/onchainDriver.ts";
 
@@ -17,6 +18,41 @@ startServer(app, port);
 console.log(`⚽ The Gaffer backend listening on :${port}`);
 console.log(`   wiring:          ${JSON.stringify(app.wiring)}`);
 console.log(`   Sessions wallet: ${app.engine.custody.sessionsAddress()}`);
+
+// ── the pivot's durable stores ───────────────────────────────────────────────
+// Both stores serve reads from an in-process mirror built from Postgres, so
+// awaiting hydration here is what stops the first request after a deploy from
+// reading an empty feed. An empty feed on a database that has calls in it is a
+// lie, however brief. Resolves immediately on an in-memory server.
+const calls = callsRuntimeFor(app.config);
+await calls.ready;
+console.log(
+  `   Persistence:     ${calls.persistence.persisting ? "SUPABASE" : "IN-MEMORY"} — ${calls.persistence.reason}`,
+);
+
+// Keep venue_markets / market_snapshots / market_resolutions fresh. Without
+// this the catalog only ever contains markets somebody happened to browse, and
+// calls_guard_insert refuses a call on a market it cannot see. Idempotent and
+// cursor-backed, so a tick overlapping a restart repairs rather than
+// re-imports. Same shape as the reconciler loop below: on whenever Supabase is
+// configured, off with one env var.
+if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_ENABLED !== "false") {
+  const marketSyncTickMs = Number(process.env.MARKET_SYNC_TICK_MS ?? 60_000);
+  const marketSyncTick = async () => {
+    try {
+      const report = await calls.prediction!.marketSync.runOnce();
+      if (report.marketsUpserted || report.snapshotsRecorded || report.resolutionsRecorded) {
+        console.log("[marketSync]", JSON.stringify(report));
+      }
+      await calls.prediction!.durable?.flush();
+    } catch (err) {
+      console.error("[marketSync] tick failed:", err instanceof Error ? err.message : String(err));
+    }
+  };
+  console.log(`   Market sync:     ENABLED (tick every ${marketSyncTickMs}ms)`);
+  setInterval(marketSyncTick, marketSyncTickMs);
+  void marketSyncTick();
+}
 
 const TICK_MS = 30_000;
 const tick = async () => {

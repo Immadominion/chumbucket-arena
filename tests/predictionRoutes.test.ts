@@ -16,6 +16,7 @@ import { asWallet } from "../src/domain/ids.ts";
 import {
   FixtureVenue,
   InMemoryPredictionStore,
+  MarketSync,
   PredictionService,
   buildPredictionRuntime,
   predictionRuntimeFor,
@@ -283,16 +284,24 @@ describe("the module-level memo (contracts §6)", () => {
     expect(predictionRuntimeFor(other.config)).not.toBe(a); // not shared
 
     const clock = new TestClock();
+    const pinnedVenue = new FixtureVenue({ clock });
+    const pinnedStore = new InMemoryPredictionStore();
     const pinned = {
       config: a.config,
-      venue: new FixtureVenue({ clock }),
-      store: new InMemoryPredictionStore(),
+      venue: pinnedVenue,
+      store: pinnedStore,
       service: new PredictionService({
-        venue: new FixtureVenue({ clock }),
-        store: new InMemoryPredictionStore(),
+        venue: pinnedVenue,
+        store: pinnedStore,
         clock,
         flags: { fundedPositions: true },
       }),
+      // A pinned runtime is in memory and says so: `persistence` is the honest
+      // reporter, never optional.
+      persistence: { persisting: false, reason: "in-memory store supplied by the caller" },
+      durable: null,
+      marketSync: new MarketSync({ venue: pinnedVenue, store: pinnedStore, clock }),
+      ready: Promise.resolve(),
     };
     setPredictionRuntime(app.config, pinned);
     expect(predictionRuntimeFor(app.config)).toBe(pinned);
@@ -310,6 +319,10 @@ describe("the module-level memo (contracts §6)", () => {
       venue,
       store,
       service: new PredictionService({ venue, store, clock, ttls: config.cache, flags: config.flags }),
+      persistence: { persisting: false, reason: "in-memory store supplied by the caller" },
+      durable: null,
+      marketSync: new MarketSync({ venue, store, clock }),
+      ready: Promise.resolve(),
     });
 
     const { user } = callers(app);

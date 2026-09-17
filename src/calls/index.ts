@@ -11,6 +11,7 @@ export * from "./types.ts";
 export * from "./errors.ts";
 export * from "./markets.ts";
 export * from "./store.ts";
+export * from "./supabaseStore.ts";
 export * from "./receipts.ts";
 export * from "./CallsService.ts";
 export * from "./ResolutionSync.ts";
