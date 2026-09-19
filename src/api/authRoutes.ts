@@ -120,10 +120,22 @@ export const authRouter = router({
     };
   }),
 
-  /** Resolve the caller's Supabase session to exactly one canonical user id. */
+  /**
+   * Resolve the caller's Supabase session to exactly one canonical user id.
+   *
+   * A MUTATION, not a query, purely because of where tRPC puts the input.
+   * tRPC derives the HTTP method from the procedure type, so a `.query` is a
+   * GET and a GET carries `input` in the QUERY STRING — which would have put a
+   * live Supabase JWT into the request URL, and from there into Railway's
+   * access log and every proxy in between. It reads nothing and changes
+   * nothing; `mutation` here buys a request body, and that is the whole reason.
+   *
+   * The three other token-taking routes below were already mutations. This was
+   * the only one.
+   */
   whoami: publicProcedure
     .input(z.object({ supabaseAccessToken: accessToken }))
-    .query(({ ctx, input }) =>
+    .mutation(({ ctx, input }) =>
       run(async () => {
         const identity = await serviceFor(ctx.app.config).authenticate(input.supabaseAccessToken);
         // authUserId is returned deliberately: it is the client's own auth.uid(),

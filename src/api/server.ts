@@ -26,10 +26,19 @@ const tokenFrom = (req: IncomingMessage | undefined): string | undefined => {
   return Array.isArray(w) ? w[0] : w;
 };
 
+/** The Supabase session, kept in its OWN header so it never shares a slot with
+ *  the wallet/Privy bearer that `Authorization` already carries. */
+const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined => {
+  const h = req?.headers?.["x-supabase-authorization"];
+  const v = Array.isArray(h) ? h[0] : h;
+  if (!v) return undefined;
+  return v.startsWith("Bearer ") ? v.slice(7) : v;
+};
+
 export function startServer(app: App, port: number) {
   const http = createHTTPServer({
     router: appRouter,
-    createContext: (opts) => makeContext(app, tokenFrom(opts.req)),
+    createContext: (opts) => makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req)),
     middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/webhooks/helius") {
@@ -73,6 +82,8 @@ export function startServer(app: App, port: number) {
         (opts.info?.connectionParams?.token as string | undefined) ??
           (opts.info?.connectionParams?.wallet as string | undefined) ??
           tokenFrom(opts.req),
+        (opts.info?.connectionParams?.supabaseAccessToken as string | undefined) ??
+          supabaseTokenFrom(opts.req),
       ),
   });
 

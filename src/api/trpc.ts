@@ -14,6 +14,15 @@ import type { Wallet } from "../domain/ids.ts";
 export interface Context {
   app: App;
   wallet?: Wallet;
+  /**
+   * Raw Supabase access token from `x-supabase-authorization`.
+   *
+   * Carried, never trusted: Packet A verifies it against GoTrue on every
+   * use. Without it `supabaseViewerResolver` always returned null, so a
+   * signed-in person could not be resolved to a canonical user at all and
+   * every write answered "your account isn't linked yet".
+   */
+  supabaseAccessToken?: string;
   /** The player's Privy wallet handle (when provider-custodied) — for deposit sweeps. */
   privyWalletId?: string;
   /** The provider's own user id (e.g. Privy user id) — needed to ask the Auth
@@ -26,11 +35,16 @@ export interface Context {
  * valid, attach the player's wallet. A missing/invalid token just yields a
  * logged-out context (public procedures still work; authed ones reject).
  */
-export async function makeContext(app: App, token: string | undefined): Promise<Context> {
+export async function makeContext(
+  app: App,
+  token: string | undefined,
+  supabaseAccessToken?: string,
+): Promise<Context> {
   const user = await app.auth.verify(token ?? "");
-  if (!user) return { app };
+  if (!user) return { app, ...(supabaseAccessToken ? { supabaseAccessToken } : {}) };
   return {
     app,
+    ...(supabaseAccessToken ? { supabaseAccessToken } : {}),
     wallet: user.wallet,
     ...(user.privyWalletId ? { privyWalletId: user.privyWalletId } : {}),
     ...(user.userId ? { privyUserId: user.userId } : {}),
