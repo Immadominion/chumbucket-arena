@@ -158,7 +158,10 @@ describe("market sync -> venue_markets / market_snapshots / market_resolutions",
   test("a new observation is a NEW snapshot row; the same instant is not", async () => {
     const r = await rig();
     await r.sync.runOnce();
-    r.clock.advance(120_000); // past snapshotMaxAgeMs
+    // Past snapshotMaxAgeMs, which is a ten-minute floor: the pass refuses to
+    // re-price a market it priced recently, because re-writing the same number
+    // every minute was ~216,000 rows a day of noise.
+    r.clock.advance(11 * 60_000);
     await r.sync.runOnce();
     await r.prediction.flush();
 

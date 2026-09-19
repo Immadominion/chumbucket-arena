@@ -126,7 +126,15 @@ export class MarketSync {
     // just over several minutes instead of all at once.
     this.maxPages = clamp(deps.maxPagesPerPass ?? 4, 1, 1000);
     this.snapshotBudget = Math.max(0, deps.snapshotBudget ?? 150);
-    this.snapshotMaxAgeMs = Math.max(0, deps.snapshotMaxAgeMs ?? 60_000);
+    // Ten minutes, not one. At a 60s floor the pass re-priced the same markets
+    // every tick — 150 rows a minute, ~216,000 a day, on a product with no
+    // calls on it yet. Almost all of it was the same number written again.
+    //
+    // Ten minutes keeps a price fresh enough to call on and keeps the "data
+    // age" the UI shows honest, at a tenth of the write volume. It is a cost
+    // decision as much as a correctness one: these rows live in the founder's
+    // Supabase.
+    this.snapshotMaxAgeMs = Math.max(0, deps.snapshotMaxAgeMs ?? 600_000);
   }
 
   /**
