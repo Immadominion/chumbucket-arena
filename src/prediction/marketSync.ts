@@ -120,7 +120,11 @@ export class MarketSync {
     this.clock = deps.clock ?? systemClock;
     this.filters = deps.filters ?? { category: "crypto" };
     this.pageSize = clamp(deps.pageSize ?? 50, 1, 100);
-    this.maxPages = clamp(deps.maxPagesPerPass ?? 10, 1, 1000);
+    // Four pages is ~900 markets, which fits inside the adapter's raw cache
+    // and keeps one pass's working set small. The cursor advances every pass
+    // and wraps at gamma's offset cap, so the whole catalog is still covered —
+    // just over several minutes instead of all at once.
+    this.maxPages = clamp(deps.maxPagesPerPass ?? 4, 1, 1000);
     this.snapshotBudget = Math.max(0, deps.snapshotBudget ?? 150);
     this.snapshotMaxAgeMs = Math.max(0, deps.snapshotMaxAgeMs ?? 60_000);
   }

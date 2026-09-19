@@ -124,11 +124,15 @@ export class InMemoryPredictionStore implements PredictionStore {
   private readonly idemIndex = new Map<string, string>();
   private readonly positions = new Map<string, PositionRecord>();
   private readonly cursors = new Map<string, string | null>();
+  /** Market ids currently holding a raw payload, oldest first. */
+  private readonly rawHeld: string[] = [];
   private readonly maxSnapshotsPerMarket: number;
+  private readonly maxRawHeld: number;
   private resolutionSeq = 0;
 
-  constructor(opts: { maxSnapshotsPerMarket?: number } = {}) {
+  constructor(opts: { maxSnapshotsPerMarket?: number; maxRawHeld?: number } = {}) {
     this.maxSnapshotsPerMarket = opts.maxSnapshotsPerMarket ?? 200;
+    this.maxRawHeld = opts.maxRawHeld ?? 400;
   }
 
   // ── markets ───────────────────────────────────────────────────────────────
@@ -143,6 +147,22 @@ export class InMemoryPredictionStore implements PredictionStore {
     }
     const rec: VenueMarketRecord = { market, raw };
     this.markets.set(market.id, rec);
+
+    // A raw provider payload is WRITE-ONLY: the durable writer reads it on its
+    // way to Postgres and nothing reads it again. Retaining one per market
+    // meant thousands of full JSON bodies pinned in memory for the life of the
+    // process — the single biggest driver of a service that grew from 1.3 GB to
+    // 3.1 GB in a day. Keep a window big enough to cover the in-flight write
+    // queue and drop the rest.
+    if (raw) {
+      this.rawHeld.push(market.id);
+      while (this.rawHeld.length > this.maxRawHeld) {
+        const evict = this.rawHeld.shift();
+        if (evict === undefined || evict === market.id) continue;
+        const held = this.markets.get(evict);
+        if (held?.raw) this.markets.set(evict, { market: held.market, raw: null });
+      }
+    }
     return rec;
   }
 

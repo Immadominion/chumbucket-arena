@@ -99,11 +99,14 @@ export interface BuildRuntimeOverrides {
 /**
  * Raw payloads held by the Polymarket adapter at once.
  *
- * A full sync pass has produced ~2,300 markets; 8,000 leaves comfortable room
- * for gamma growing its event grouping without the cache becoming the reason a
- * market fails to persist. Each entry is one market's JSON.
+ * Sized against a single sync PAGE-BATCH rather than a whole pass, because
+ * 8,000 full market JSONs pinned in memory was a real cost: this service grew
+ * to 3.1 GB while every other service on the account sat under 0.3 GB.
+ *
+ * It only has to outlive the gap between normalizing a market and the durable
+ * writer reading its payload back, which is bounded by maxPagesPerPass below.
  */
-const POLYMARKET_RAW_CACHE_SIZE = 8_000;
+const POLYMARKET_RAW_CACHE_SIZE = 1_200;
 
 function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
   if (config.venue === POLYMARKET_VENUE_ID && config.polymarket) {
