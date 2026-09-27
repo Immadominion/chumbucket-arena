@@ -47,7 +47,8 @@ import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
 import { isCallsError, type CallsErrorCode } from "../calls/errors.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
-import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
+import { guard, router } from "./trpc.ts";
+import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 
 // ── input schemas (the FROZEN §3 wire shapes, verbatim) ──────────────────────
 
@@ -218,12 +219,10 @@ const callsNamespace = router({
   /**
    * Lock a new, free, immutable call. Returns ONE feed entry.
    *
-   * `authedProcedure` is the transport gate (no credential -> UNAUTHORIZED);
-   * `requireViewer` is the identity step that turns that verified credential
-   * into a canonical `public.users.id`. Both are needed: the first proves a
-   * session exists, the second proves it belongs to an account (§0.3).
+   * requireViewer verifies the session and resolves public.users.id. The
+   * legacy authedProcedure requires a wallet, which social callers need not own.
    */
-  create: authedProcedure.input(createCallInput).mutation(({ ctx, input }) => {
+  create: publicProcedure.input(createCallInput).mutation(({ ctx, input }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
@@ -250,7 +249,7 @@ const callsNamespace = router({
    *                no escrow, no transaction — checked at runtime by
    *                `assertMoneyFree`, not merely by the type.
    */
-  respond: authedProcedure.input(respondInput).mutation(({ ctx, input }) => {
+  respond: publicProcedure.input(respondInput).mutation(({ ctx, input }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
@@ -269,7 +268,7 @@ const callsNamespace = router({
   }),
 
   /** Invitations addressed to the caller. No escrow, ever. Takes no input. */
-  invitations: authedProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
+  invitations: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => rt.service.invitations(await requireViewer(rt, ctx)));
   }),

@@ -48,7 +48,8 @@ import type { AppConfig } from "../config.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import { isNotificationsError, type NotificationsErrorCode } from "../notifications/errors.ts";
 import { notificationsRuntimeFor, type NotificationsRuntime } from "../notifications/runtime.ts";
-import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
+import { guard, router } from "./trpc.ts";
+import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 
 // ── calls error -> transport error ───────────────────────────────────────────
 
@@ -130,7 +131,7 @@ const notificationsNamespace = router({
    * and `.strict()` makes an attempt to add one a loud BAD_REQUEST rather than
    * a silently stripped key (§8 findings 3 and 4).
    */
-  list: authedProcedure
+  list: publicProcedure
     .input(
       z
         .object({
@@ -154,7 +155,7 @@ const notificationsNamespace = router({
     }),
 
   /** The unread badge, for the caller's own inbox and nobody else's. */
-  unreadCount: authedProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
+  unreadCount: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const viewer = await requireViewer(rt, ctx);
@@ -169,7 +170,7 @@ const notificationsNamespace = router({
    * message as one that does not exist, so this is not a membership oracle for
    * other people's inboxes.
    */
-  markRead: authedProcedure
+  markRead: publicProcedure
     .input(
       z
         .object({ ids: z.array(z.string().min(1).max(256)).max(200).nullish() })
@@ -198,7 +199,7 @@ const recordNamespace = router({
    * `"accuracy"`. Both arms carry `incorrect`, so no rendering path can show a
    * record with the misses left out.
    */
-  mine: authedProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
+  mine: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => rt.service.myRecord(await requireViewer(rt, ctx)));
   }),

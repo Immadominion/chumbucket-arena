@@ -126,7 +126,7 @@ async function trpcFailure(fn: () => Promise<unknown>): Promise<{ code: string; 
 }
 
 describe("authRouter — surface", () => {
-  test("exposes exactly five procedures, none of which reads another user's rows", async () => {
+  test("exposes six procedures, including explicit self-only profile onboarding", async () => {
     const names = Object.keys(
       (authRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
     ).sort();
@@ -135,7 +135,7 @@ describe("authRouter — surface", () => {
     // this test fails and the addition has to be argued for rather than
     // arriving quietly — which is how a private table becomes a public one.
     expect(names).toEqual(
-      ["claimLegacyIdentity", "identityStatus", "linkWallet", "requestWalletNonce", "whoami"].sort(),
+      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami"].sort(),
     );
   });
 

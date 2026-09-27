@@ -164,6 +164,14 @@ export class FakeIdentityStore implements IdentityStore {
     return this.users.get(authUserId) ?? null;
   }
 
+  async createPersonForAuthUser(authUserId: string, _displayName: string): Promise<string> {
+    const existing = this.users.get(authUserId);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    this.users.set(authUserId, id);
+    return id;
+  }
+
   async issueWalletNonce(input: IssueNonceInput): Promise<StoreResult> {
     if (![...this.users.values()].includes(input.userId)) {
       return { ok: false, reason: "unknown_user" };

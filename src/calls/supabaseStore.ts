@@ -304,6 +304,14 @@ export class SupabaseCallsStore implements CallsStore {
     return this.mirror.getPerson(userId);
   }
 
+  /** Read through only on a directory miss; never creates/merges an identity. */
+  async refreshPerson(userId: string): Promise<Person | undefined> {
+    const rows = await this.pg.select<UserRow>(USERS_TABLE, new URLSearchParams({
+      id: `eq.${userId}`, select: USER_COLUMNS, limit: "1",
+    }));
+    return rows[0] ? this.mirror.upsertPerson(personFromRow(rows[0])) : undefined;
+  }
+
   getPersonByHandle(handle: string): Person | undefined {
     return this.mirror.getPersonByHandle(handle);
   }

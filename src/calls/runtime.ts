@@ -41,9 +41,8 @@ import { ResolutionSync } from "./ResolutionSync.ts";
 import { InMemoryCallsStore, type CallsStore } from "./store.ts";
 import { SupabaseCallsStore } from "./supabaseStore.ts";
 import {
-  chainViewerResolvers,
+  anonymousViewerResolver,
   supabaseViewerResolver,
-  walletDirectoryViewerResolver,
   type ViewerResolver,
 } from "./viewer.ts";
 
@@ -177,13 +176,19 @@ export function buildCallsRuntime(
     maxPagesPerPass: config.syncMaxPagesPerPass,
   });
 
-  // Session -> canonical public.users.id. Supabase first (Packet A's path),
-  // then the already-verified wallet credential. Neither accepts a client id.
-  const viewer =
+  // A social session never falls back to DevAuth's unverified wallet string.
+  // Legacy wallet routes remain independent and keep their own auth gate.
+  const identityViewer =
     overrides.viewer ??
-    (appConfig
-      ? chainViewerResolvers(supabaseViewerResolver(appConfig), walletDirectoryViewerResolver(store))
-      : walletDirectoryViewerResolver(store));
+    (appConfig ? supabaseViewerResolver(appConfig) : anonymousViewerResolver);
+  const viewer: ViewerResolver = {
+    async resolve(ctx) {
+      const id = await identityViewer.resolve(ctx);
+      // A profile may have been created after boot, or on another replica.
+      if (id && durable && !store.getPerson(id)) await durable.refreshPerson(id);
+      return id;
+    },
+  };
 
   if (social) {
     console.log(`[persist] calls store: ${persistence.persisting ? "supabase" : "in-memory"} — ${persistence.reason}`);

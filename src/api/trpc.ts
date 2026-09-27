@@ -15,7 +15,7 @@ export interface Context {
   app: App;
   wallet?: Wallet;
   /**
-   * Raw Supabase access token from `x-supabase-authorization`.
+   * Raw Supabase access token from Authorization (or x-supabase-authorization).
    *
    * Carried, never trusted: Packet A verifies it against GoTrue on every
    * use. Without it `supabaseViewerResolver` always returned null, so a

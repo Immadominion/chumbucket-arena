@@ -78,6 +78,8 @@ export interface IdentityStore {
   readonly enabled: boolean;
   /** auth.uid() -> exactly one public.users.id, or null when unlinked. */
   userIdForAuthUser(authUserId: string): Promise<string | null>;
+  /** Verified auth subject only. Idempotent; never merges legacy accounts. */
+  createPersonForAuthUser(authUserId: string, displayName: string): Promise<string>;
   issueWalletNonce(input: IssueNonceInput): Promise<StoreResult>;
   consumeWalletNonce(input: ConsumeNonceInput): Promise<StoreResult>;
   attachVerifiedWallet(input: AttachWalletInput): Promise<StoreResult>;
@@ -90,6 +92,9 @@ export class NoopIdentityStore implements IdentityStore {
   readonly enabled = false;
   async userIdForAuthUser(): Promise<string | null> {
     return null;
+  }
+  async createPersonForAuthUser(): Promise<string> {
+    throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
   }
   async issueWalletNonce(): Promise<StoreResult> {
     return { ok: false, reason: "identity store is not configured" };
@@ -131,6 +136,17 @@ export class SupabaseIdentityStore implements IdentityStore {
     const rows = await this.getRows<{ id: string }>("users", params);
     if (rows.length > 1) throw new AuthIdentityError("AUTH_USER_AMBIGUOUS");
     return rows[0]?.id ?? null;
+  }
+
+  async createPersonForAuthUser(authUserId: string, displayName: string): Promise<string> {
+    const id = await this.rpc<unknown>("create_social_person_v1", {
+      p_auth_user_id: authUserId,
+      p_display_name: displayName,
+    });
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new AuthIdentityError("IDENTITY_STORE_ERROR", "profile RPC returned no canonical id");
+    }
+    return id;
   }
 
   async issueWalletNonce(input: IssueNonceInput): Promise<StoreResult> {

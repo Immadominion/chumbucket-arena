@@ -26,10 +26,11 @@ const tokenFrom = (req: IncomingMessage | undefined): string | undefined => {
   return Array.isArray(w) ? w[0] : w;
 };
 
-/** The Supabase session, kept in its OWN header so it never shares a slot with
- *  the wallet/Privy bearer that `Authorization` already carries. */
+/** Social clients use the standard bearer header. The separate header remains
+ * available for a request proving BOTH a legacy and a Supabase session.
+ * This merely transports the token; GoTrue must verify it before use. */
 const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined => {
-  const h = req?.headers?.["x-supabase-authorization"];
+  const h = req?.headers?.["x-supabase-authorization"] ?? req?.headers?.authorization;
   const v = Array.isArray(h) ? h[0] : h;
   if (!v) return undefined;
   return v.startsWith("Bearer ") ? v.slice(7) : v;

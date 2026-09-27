@@ -103,6 +103,21 @@ const solanaAddress = z.string().min(32).max(44);
 const purpose = z.enum(["link_wallet", "transfer_wallet"]);
 
 export const authRouter = router({
+  /** Explicit onboarding, not an email/wallet-based legacy account claim. */
+  completeProfile: publicProcedure
+    .input(z.object({
+      supabaseAccessToken: accessToken,
+      displayName: z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f]+$/),
+    }).strict())
+    .mutation(({ ctx, input }) => run(async () => {
+      const rt = authIdentityRuntimeFor(ctx.app.config);
+      if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+      const session = await rt.verifier.verify(input.supabaseAccessToken);
+      if (!session) throw new AuthIdentityError("AUTH_TOKEN_INVALID");
+      const userId = await rt.store.createPersonForAuthUser(session.authUserId, input.displayName);
+      return { userId, authUserId: session.authUserId };
+    })),
+
   /**
    * Everything a client needs to construct a request, and nothing else. No key,
    * no URL, no token. The allowed domains are already public — they appear in
