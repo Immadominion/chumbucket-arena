@@ -531,7 +531,10 @@ describe("the database fights back, and the write is fixed rather than the const
     await r.sync.runOnce();
     await r.prediction.flush();
 
-    // The venue resolves BEFORE the call is made.
+    const onTime = r.service.createCall({ marketId: OPEN_MARKET, side: "YES" }, UUIDS.alice);
+    await r.calls.flush();
+
+    // The venue resolves BEFORE the second call is made.
     r.prediction.recordResolution(
       {
         marketId: OPEN_MARKET,
@@ -547,12 +550,16 @@ describe("the database fights back, and the write is fixed rather than the const
     );
     await r.prediction.flush();
 
-    // The mirror has no view of `market_resolutions` (that is Packet B's
-    // store), so it accepts the call and Postgres is the layer that refuses.
-    r.service.createCall({ marketId: OPEN_MARKET, side: "YES" }, UUIDS.alice);
+    // Refuse before acknowledging anything. Then deliberately bypass the
+    // service to prove the database guard still catches another writer.
+    expect(() => r.service.createCall({ marketId: OPEN_MARKET, side: "YES" }, UUIDS.bob)).toThrow();
+    r.calls.insertCall({
+      ...onTime.call, id: crypto.randomUUID(), userId: UUIDS.bob,
+      hiddenAt: null, hiddenReason: null,
+    });
     await r.queue.drain();
 
-    expect(r.fake.rows("calls")).toHaveLength(0);
+    expect(r.fake.rows("calls")).toHaveLength(1);
     const refusal = r.failures.find((f) => f.label.startsWith("insert calls/"));
     expect(refusal?.sqlState).toBe("P0001");
     expect(refusal?.refused).toBe(true);

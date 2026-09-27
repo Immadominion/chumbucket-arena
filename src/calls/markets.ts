@@ -60,4 +60,7 @@ export const emptyMarketReader: VenueMarketReader = {
 };
 
 /** A market that accepts new calls. Only OPEN does (§3 MarketStatus). */
-export const acceptsNewCalls = (m: VenueMarket): boolean => m.status === "OPEN";
+export const acceptsNewCalls = (m: VenueMarket, now: number): boolean =>
+  m.status === "OPEN" &&
+  (m.opensAt === null || m.opensAt <= now) &&
+  (m.closesAt === null || m.closesAt > now);

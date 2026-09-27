@@ -135,7 +135,8 @@ export class CallsService {
   openMarkets(args: { category?: string | null } = {}): VenueMarket[] {
     return this.markets
       .listMarkets()
-      .filter(acceptsNewCalls)
+      .filter((m) => acceptsNewCalls(m, this.clock.now()))
+      .filter((m) => this.markets.getResolution(m.id) === undefined)
       .filter((m) => this.markets.latestSnapshot(m.id) !== undefined)
       .filter((m) => (args.category ? m.category === args.category : true))
       .sort((a, b) => (a.closesAt ?? Number.MAX_SAFE_INTEGER) - (b.closesAt ?? Number.MAX_SAFE_INTEGER));
@@ -209,10 +210,12 @@ export class CallsService {
    */
   createCall(input: CreateCallInput, actorUserId: string): CallFeedEntry {
     const market = this.requireMarket(input.marketId);
-    if (!acceptsNewCalls(market)) {
+    if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
       throw new CallsError(
         "CALL_MARKET_CLOSED",
-        `This market is ${humanStatus(market.status)}, so it is not taking new calls.`,
+        market.status === "OPEN"
+          ? "This market is outside its call window or already has a venue result."
+          : `This market is ${humanStatus(market.status)}, so it is not taking new calls.`,
         { details: { marketId: market.id, status: market.status } },
       );
     }
@@ -271,10 +274,10 @@ export class CallsService {
     }
 
     // back = the same side. fade = the other side. Those are the words.
-    if (!acceptsNewCalls(market)) {
+    if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
       throw new CallsError(
         "CALL_MARKET_CLOSED",
-        `This market is ${humanStatus(market.status)}, so you can't ${input.kind} this call any more.`,
+        `This market is not accepting new calls, so you can't ${input.kind} this call any more.`,
         { details: { marketId: market.id, status: market.status } },
       );
     }

@@ -230,7 +230,7 @@ describe("resolution sync: idempotent, cursor-backed, restart-safe", () => {
     );
   });
 
-  test("a call made AFTER its market resolved is settled by the repair sweep", () => {
+  test("a call AFTER resolution is refused even when the catalog is still OPEN", () => {
     const h = harness({ people: [person("u1"), person("u2")], markets: [market("m")] });
     h.rt.service.createCall({ marketId: "m", side: "YES" }, "u1");
     h.resolve("m", "YES");
@@ -238,11 +238,11 @@ describe("resolution sync: idempotent, cursor-backed, restart-safe", () => {
 
     // u2 goes on record late, on a market the cursor has already passed.
     h.venue.upsertMarket(market("m", { status: "OPEN" }), null);
-    const late = h.rt.service.createCall({ marketId: "m", side: "NO" }, "u2");
-    expect(h.calls.getResult(late.call.id)!.outcome).toBe("INCORRECT"); // stamped at lock
+    expect(() => h.rt.service.createCall({ marketId: "m", side: "NO" }, "u2")).toThrow();
+    expect(h.calls.listResults()).toHaveLength(1);
 
     const report = h.rt.sync.runOnce();
-    expect(h.calls.getResult(late.call.id)!.outcome).toBe("INCORRECT");
+    expect(h.calls.listResults()[0]!.outcome).toBe("CORRECT");
     expect(report.resultsSettled).toBe(0); // already right; nothing to do
   });
 
