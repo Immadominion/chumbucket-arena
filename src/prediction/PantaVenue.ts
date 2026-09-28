@@ -43,6 +43,11 @@ const rowSchema = z.object({
   onChain: chainSchema.nullish(),
 }).passthrough();
 type Row = z.infer<typeof rowSchema>;
+/** Store/SQL evidence parity while keeping Panta wire-field parsing here. */
+export function pantaPriceEvidenceMatches(body: unknown, prices: { yesPrice: string | null; noPrice: string | null }): boolean {
+  const parsed = rowSchema.pick({ yesPrice: true, noPrice: true }).safeParse(body);
+  return parsed.success && parsed.data.yesPrice === prices.yesPrice && parsed.data.noPrice === prices.noPrice;
+}
 const pageSchema = z.object({ items: z.array(z.unknown()), nextCursor: address.nullish() });
 type Detail = { row: Row; raw: RawPayload; fetchedAt: number };
 export interface PantaVenueConfig {

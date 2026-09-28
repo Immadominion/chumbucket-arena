@@ -28,6 +28,7 @@
 
 import { deriveCallOutcome, type MarketResolutionRecord } from "../prediction/types.ts";
 import { CallsError } from "./errors.ts";
+import { parseSharePrice, usableSharePrice } from "../prediction/sharePrices.ts";
 import type {
   Call,
   CallRecord,
@@ -197,6 +198,13 @@ export class InMemoryCallsStore implements CallsStore {
   // ── calls ─────────────────────────────────────────────────────────────────
 
   insertCall(rec: CallRecord): CallRecord {
+    if (rec.entryPrice) {
+      const price = parseSharePrice(rec.entryPrice);
+      if (price.marketId !== rec.marketId || !usableSharePrice(price, rec.lockedAt) || rec.entryProbability !== null || rec.snapshotId !== null) {
+        throw new CallsError("CALL_INVALID", "A Panta call must retain its own fresh share-price snapshot, never probability evidence.");
+      }
+      rec = { ...rec, entryPrice: price };
+    }
     if (this.calls.has(rec.id)) {
       throw new CallsError("CALL_INVALID", `call ${rec.id} already exists`, { details: { callId: rec.id } });
     }
@@ -228,6 +236,7 @@ export class InMemoryCallsStore implements CallsStore {
         );
       }
     }
+    rec = Object.freeze({ ...rec });
     this.calls.set(rec.id, rec);
     return rec;
   }

@@ -50,6 +50,7 @@
  * the market's state at the instant of the INSERT, and the database's own NOW().
  */
 
+import { parseSharePrice } from "../prediction/sharePrices.ts";
 import {
   fromTimestamptz,
   isUuid,
@@ -429,6 +430,7 @@ export class SupabaseCallsStore implements CallsStore {
             thesis: rec.thesis,
             entry_probability: rec.entryProbability,
             snapshot_id: snapshotId,
+            ...(rec.entryPrice ? { share_price_snapshot_id: rec.entryPrice.id, entry_price: rec.entryPrice } : {}),
             visibility: rec.visibility,
             created_at: toTimestamptz(rec.createdAt),
             locked_at: toTimestamptz(rec.lockedAt),
@@ -726,7 +728,7 @@ interface FollowRow {
 }
 
 const CALL_COLUMNS =
-  "id,user_id,market_id,side,confidence,thesis,entry_probability,snapshot_id,visibility,created_at,locked_at,parent_call_id,funding_state,hidden_at,hidden_reason";
+  "id,user_id,market_id,side,confidence,thesis,entry_probability,snapshot_id,entry_price,visibility,created_at,locked_at,parent_call_id,funding_state,hidden_at,hidden_reason";
 
 interface CallRow {
   id: string;
@@ -737,6 +739,7 @@ interface CallRow {
   thesis: string | null;
   entry_probability: unknown;
   snapshot_id: string | null;
+  entry_price?: unknown;
   visibility: string;
   created_at: string;
   locked_at: string;
@@ -756,6 +759,7 @@ export function callFromRow(row: CallRow): CallRecord {
     thesis: row.thesis,
     entryProbability: parseNumeric(row.entry_probability),
     snapshotId: row.snapshot_id,
+    ...(row.entry_price ? { entryPrice: parseSharePrice(row.entry_price) } : {}),
     visibility: row.visibility as CallVisibility,
     createdAt: fromTimestamptz(row.created_at, `${CALLS_TABLE}.created_at`),
     lockedAt: fromTimestamptz(row.locked_at, `${CALLS_TABLE}.locked_at`),

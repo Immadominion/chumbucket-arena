@@ -23,6 +23,7 @@
 
 import { systemClock, type Clock } from "../prediction/clock.ts";
 import type { MarketResolutionRecord } from "../prediction/types.ts";
+import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { CallsError } from "./errors.ts";
 import { acceptsNewCalls, type VenueMarketReader } from "./markets.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
@@ -52,6 +53,8 @@ import {
 export type FeedMode = "global" | "following";
 
 export interface CallsServiceDeps {
+  /** Local integration seam; production runtime remains gated until release approval. */
+  allowPantaCalls?: boolean;
   store: CallsStore;
   markets: VenueMarketReader;
   clock?: Clock;
@@ -72,8 +75,10 @@ export class CallsService {
   private readonly maxPageSize: number;
   private readonly newId: (kind: "call" | "response") => string;
   private seq = 0;
+  private readonly allowPantaCalls: boolean;
 
   constructor(deps: CallsServiceDeps) {
+    this.allowPantaCalls = deps.allowPantaCalls === true;
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock ?? systemClock;
@@ -137,7 +142,9 @@ export class CallsService {
       .listMarkets()
       .filter((m) => acceptsNewCalls(m, this.clock.now()))
       .filter((m) => this.markets.getResolution(m.id) === undefined)
-      .filter((m) => this.markets.latestSnapshot(m.id) !== undefined)
+      .filter((m) => m.venue === "panta"
+        ? this.allowPantaCalls && usableSharePrice(this.markets.latestSharePrice?.(m.id), this.clock.now())
+        : this.markets.latestSnapshot(m.id) !== undefined)
       .filter((m) => (args.category ? m.category === args.category : true))
       .sort((a, b) => (a.closesAt ?? Number.MAX_SAFE_INTEGER) - (b.closesAt ?? Number.MAX_SAFE_INTEGER));
   }
@@ -157,7 +164,8 @@ export class CallsService {
 
     return {
       market,
-      snapshot: this.markets.latestSnapshot(market.id) ?? null,
+      snapshot: market.venue === "panta" ? null : this.markets.latestSnapshot(market.id) ?? null,
+      ...(market.venue === "panta" ? { sharePrice: this.markets.latestSharePrice?.(market.id) ?? null } : {}),
       viewerCall: viewerCall ? this.entryOf(viewerCall, viewerUserId) : null,
       crowdSplit: viewerCall ? this.crowdSplitOf(market.id) : null,
       servedAt: this.clock.now(),
@@ -211,7 +219,7 @@ export class CallsService {
   createCall(input: CreateCallInput, actorUserId: string): CallFeedEntry {
     const market = this.requireMarket(input.marketId);
     this.assertCurrentVenue(market);
-    if (market.venue === "panta") {
+    if (market.venue === "panta" && !this.allowPantaCalls) {
       throw new CallsError("CALL_INVALID", "Panta market reads are available, but Panta calls and share-price receipts are not enabled yet.");
     }
     if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
@@ -251,6 +259,9 @@ export class CallsService {
     }
     const market = this.requireMarket(target.marketId);
     this.assertCurrentVenue(market);
+    if (market.venue === "panta" && !this.allowPantaCalls) {
+      throw new CallsError("CALL_INVALID", "Panta calls and share-price receipts are not enabled yet.");
+    }
     const at = this.clock.now();
 
     if (input.kind === "challenge") {
@@ -392,8 +403,12 @@ export class CallsService {
       throw new CallsError("CALL_INVALID", `Keep your thesis to ${THESIS_MAX} characters.`);
     }
 
-    const snapshot = this.markets.latestSnapshot(args.market.id);
     const at = this.clock.now();
+    const entryPrice = args.market.venue === "panta" ? this.markets.latestSharePrice?.(args.market.id) : undefined;
+    if (args.market.venue === "panta" && !usableSharePrice(entryPrice, at)) {
+      throw new CallsError("CALL_INVALID", "Panta prices are missing or stale. Refresh before locking your call.");
+    }
+    const snapshot = args.market.venue === "panta" ? undefined : this.markets.latestSnapshot(args.market.id);
     const call = this.store.insertCall({
       id: this.newId("call"),
       userId: args.actorUserId,
@@ -404,6 +419,7 @@ export class CallsService {
       // Server-stamped. A client cannot assert the price it says it saw.
       entryProbability: snapshot ? snapshot.yesProbability : null,
       snapshotId: snapshot ? snapshotIdOf(snapshot.marketId, snapshot.observedAt, snapshot.source) : null,
+      ...(entryPrice ? { entryPrice } : {}),
       visibility: args.visibility,
       createdAt: at,
       lockedAt: at,

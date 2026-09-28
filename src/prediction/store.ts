@@ -17,6 +17,7 @@
  */
 
 import { VenueError } from "./errors.ts";
+import { assertSharePriceEvidence, parseSharePrice, type SharePriceSnapshot } from "./sharePrices.ts";
 import type { UnsignedOrder, VenueOrder, VenuePosition, RawPayload } from "./PredictionVenue.ts";
 import type {
   BaseUnits,
@@ -98,6 +99,8 @@ export interface PredictionStore {
   appendSnapshot(s: MarketSnapshot): void;
   latestSnapshot(marketId: string): MarketSnapshot | undefined;
   snapshots(marketId: string): MarketSnapshot[];
+  appendSharePrice(s: SharePriceSnapshot, raw: RawPayload | null): void;
+  latestSharePrice(marketId: string): SharePriceSnapshot | undefined;
 
   recordResolution(r: Omit<MarketResolutionRecord, "id" | "recordedAt">, recordedAt: number): MarketResolutionRecord;
   getResolution(marketId: string): MarketResolutionRecord | undefined;
@@ -119,6 +122,7 @@ export interface PredictionStore {
 export class InMemoryPredictionStore implements PredictionStore {
   private readonly markets = new Map<string, VenueMarketRecord>();
   private readonly snaps = new Map<string, MarketSnapshot[]>();
+  private readonly sharePrices = new Map<string, SharePriceSnapshot[]>();
   private readonly resolutions = new Map<string, MarketResolutionRecord>();
   private readonly orders = new Map<string, OrderRecord>();
   private readonly idemIndex = new Map<string, string>();
@@ -206,6 +210,27 @@ export class InMemoryPredictionStore implements PredictionStore {
   }
 
   // ── resolutions: append-only venue evidence ───────────────────────────────
+
+  appendSharePrice(input: SharePriceSnapshot, raw: RawPayload | null): void {
+    const s = parseSharePrice(input);
+    const market = this.getMarket(s.marketId)?.market;
+    if (!market || market.venue !== "panta") throw new VenueError("VENUE_SCHEMA", "Share-price market must be Panta", {});
+    assertSharePriceEvidence(s, raw, market.venueMarketId);
+    const rows = this.sharePrices.get(s.marketId) ?? [];
+    const previous = rows.find((r) => r.id === s.id);
+    if (previous) {
+      if (JSON.stringify(previous) !== JSON.stringify(s)) throw new VenueError("INVALID_TRANSITION", "A share-price observation is immutable", {});
+      return;
+    }
+    rows.push(s);
+    rows.sort((a, b) => a.observedAt - b.observedAt);
+    if (rows.length > this.maxSnapshotsPerMarket) rows.splice(0, rows.length - this.maxSnapshotsPerMarket);
+    this.sharePrices.set(s.marketId, rows);
+  }
+
+  latestSharePrice(marketId: string): SharePriceSnapshot | undefined {
+    return this.sharePrices.get(marketId)?.at(-1);
+  }
 
   recordResolution(
     r: Omit<MarketResolutionRecord, "id" | "recordedAt">,

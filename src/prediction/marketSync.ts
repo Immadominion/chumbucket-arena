@@ -51,7 +51,8 @@
 
 import { systemClock, type Clock } from "./clock.ts";
 import { isVenueError } from "./errors.ts";
-import { capturesRaw, readsResolutions } from "./PredictionVenue.ts";
+import { capturesRaw, readsResolutions, readsIndicativePrices } from "./PredictionVenue.ts";
+import { sharePriceFromIndicative } from "./sharePrices.ts";
 import type { EventFilters, PredictionVenue, RawPayload } from "./PredictionVenue.ts";
 import type { PredictionStore } from "./store.ts";
 import { isSettledStatus, type VenueId, type VenueMarket } from "./types.ts";
@@ -230,10 +231,16 @@ export class MarketSync {
     for (const { market } of byClosingSoonest) {
       if (budget <= 0) break;
       if (market.status !== "OPEN") continue; // a settled price will never move again
-      const known = this.store.latestSnapshot(market.id);
+      const known = market.venue === "panta" ? this.store.latestSharePrice(market.id) : this.store.latestSnapshot(market.id);
       if (known && now - known.observedAt < this.snapshotMaxAgeMs) continue;
       budget--;
       try {
+        if (market.venue === "panta" && readsIndicativePrices(this.venue)) {
+          const prices = await this.venue.getIndicativePrices(market.venueMarketId);
+          this.store.appendSharePrice(sharePriceFromIndicative(prices), this.rawFor(market.venueMarketId));
+          report.snapshotsRecorded++;
+          continue;
+        }
         const book = await this.venue.getOrderbook(market.venueMarketId);
         if (!book.snapshot) continue; // the venue published no price; inventing one is worse
         this.store.appendSnapshot(book.snapshot);

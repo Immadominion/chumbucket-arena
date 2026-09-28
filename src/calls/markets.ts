@@ -15,12 +15,14 @@
  */
 
 import type { PredictionStore } from "../prediction/store.ts";
+import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
 import type { MarketResolutionRecord, MarketSnapshot, VenueMarket } from "../prediction/types.ts";
 
 export interface VenueMarketReader {
   getMarket(marketId: string): VenueMarket | undefined;
   listMarkets(): VenueMarket[];
   latestSnapshot(marketId: string): MarketSnapshot | undefined;
+  latestSharePrice?(marketId: string): SharePriceSnapshot | undefined;
   /** Venue evidence, or undefined. NEVER an inference (§0.2). */
   getResolution(marketId: string): MarketResolutionRecord | undefined;
   /** Every venue resolution recorded at or after `since`, oldest first. */
@@ -40,6 +42,7 @@ export function predictionStoreReader(store: PredictionStore): VenueMarketReader
     getMarket: (marketId) => store.getMarket(marketId)?.market,
     listMarkets: () => store.listMarkets().map((r) => r.market),
     latestSnapshot: (marketId) => store.latestSnapshot(marketId),
+    latestSharePrice: (marketId) => store.latestSharePrice(marketId),
     getResolution: (marketId) => store.getResolution(marketId),
     resolutionsSince: (since) =>
       store
@@ -63,9 +66,6 @@ export const emptyMarketReader: VenueMarketReader = {
 export const acceptsNewCalls = (m: VenueMarket, now: number): boolean =>
   // Historical rows stay readable, but cannot become a second live catalog.
   (m.venue === "panta" || m.venue === "fixture") &&
-  // Panta reads are implemented; its independent share-price call/receipt
-  // schema and mobile presentation are not. Never pin them as 1-p odds.
-  m.venue !== "panta" &&
   m.status === "OPEN" &&
   (m.opensAt === null || m.opensAt <= now) &&
   (m.closesAt === null || m.closesAt > now);

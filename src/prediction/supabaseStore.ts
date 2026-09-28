@@ -47,6 +47,7 @@
  */
 
 import { systemClock, type Clock } from "./clock.ts";
+import { parseSharePrice, type SharePriceSnapshot } from "./sharePrices.ts";
 import {
   fromTimestamptz,
   isUuid,
@@ -114,6 +115,7 @@ export const PERSISTABLE_VENUES: ReadonlySet<VenueId> = new Set<VenueId>([
   "jupiter",
   "polymarket",
   "fixture",
+  "panta", // requires 20260928210000_panta_share_price_evidence.sql; runtime still gated
 ]);
 
 export const isPersistableVenue = (venue: VenueId): boolean => PERSISTABLE_VENUES.has(venue);
@@ -137,7 +139,7 @@ export interface SupabasePredictionStoreOptions {
   /** Shared with SupabaseCallsStore so cross-table FKs are written parent-first. */
   queue?: WriteQueue;
   mirror?: InMemoryPredictionStore;
-  /** Pages of 1000 to walk when hydrating the latest snapshot per market. */
+  /** Pages of 1000 to walk in each price series when hydrating. */
   maxSnapshotPages?: number;
   /** Safety bound; hydration throws rather than serving a truncated mirror. */
   maxRowsPerTable?: number;
@@ -279,6 +281,23 @@ export class SupabasePredictionStore implements PredictionStore {
       if (rows.length < 1000) break;
     }
     report.marketsWithoutSnapshot = wanted.size - seen.size;
+
+    // A separate series: native USDC/share prices are never probability rows.
+    if (this.mirror.listMarkets().some((r) => r.market.venue === "panta")) {
+      const priced = new Set<string>();
+      for (let page = 0; page < this.maxSnapshotPages; page++) {
+        const rows = await this.pg.select<{ snapshot: unknown; raw_evidence: RawPayload }>(
+          "market_share_price_snapshots", new URLSearchParams({ select: "snapshot,raw_evidence",
+            order: "observed_at.desc", limit: "1000", offset: String(page * 1000) }));
+        for (const row of rows) {
+          const s = parseSharePrice(row.snapshot);
+          if (priced.has(s.marketId)) continue;
+          this.mirror.appendSharePrice(s, row.raw_evidence);
+          priced.add(s.marketId);
+        }
+        if (rows.length < 1000) break;
+      }
+    }
 
     // ── orders + positions (funded_positions is OFF by default, §7) ──
     for (const row of await this.page<OrderRow>(ORDERS_TABLE, () => {
@@ -438,6 +457,19 @@ export class SupabasePredictionStore implements PredictionStore {
 
   snapshots(marketId: string): MarketSnapshot[] {
     return this.mirror.snapshots(marketId);
+  }
+
+  appendSharePrice(s: SharePriceSnapshot, raw: RawPayload | null): void {
+    this.mirror.appendSharePrice(s, raw);
+    this.queue.push(`insert market_share_price_snapshots/${s.id}`, async () => {
+      await this.pg.insert("market_share_price_snapshots", [{ id: s.id, market_id: s.marketId,
+        observed_at: toTimestamptz(s.observedAt), snapshot: s, raw_evidence: raw }],
+        { onConflict: "id", ignoreDuplicates: true });
+    });
+  }
+
+  latestSharePrice(marketId: string): SharePriceSnapshot | undefined {
+    return this.mirror.latestSharePrice(marketId);
   }
 
   // ── resolutions: append-only venue evidence ───────────────────────────────

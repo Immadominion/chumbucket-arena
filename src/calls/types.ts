@@ -11,9 +11,9 @@
  * Wire rules that travel with these types (§3):
  *   - every timestamp is unix MILLISECONDS, integer, UTC
  *   - every probability is a `number` in [0,1]
- *   - there is NO money anywhere in this file, and there must never be. A call
- *     is not a trade (§0.1); a funded venue position is a separate Packet B
- *     artefact that REFERENCES a call.
+ *   - no user stake, payout or transaction. Optional Panta entryPrice is a
+ *     non-executable venue unit-price observation, not money put at risk.
+ *     A funded venue position remains a separate artefact referencing a call.
  */
 
 import type {
@@ -24,6 +24,7 @@ import type {
   Side,
   VenueMarket,
 } from "../prediction/types.ts";
+import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
 
 export type { CallOutcome, FundingState, MarketSnapshot, Resolution, Side, VenueMarket };
 
@@ -48,6 +49,8 @@ export interface Call {
   thesis: string | null;
   entryProbability: number | null;
   snapshotId: string | null;
+  /** Panta's immutable observed unit prices; not a stake or executable quote. */
+  entryPrice?: SharePriceSnapshot | null;
   visibility: CallVisibility;
   createdAt: number;
   /** immutable from this instant */
@@ -159,6 +162,7 @@ export interface CallFeedPage {
 export interface MarketDetail {
   market: VenueMarket;
   snapshot: MarketSnapshot | null;
+  sharePrice?: SharePriceSnapshot | null;
   viewerCall: CallFeedEntry | null;
   /** null until the viewer has locked a call on this market */
   crowdSplit: CrowdSplit | null;

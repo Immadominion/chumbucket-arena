@@ -71,6 +71,9 @@ const TABLES: Record<string, TableSpec> = {
       },
     ],
   },
+  // Transport coverage only for this new table; real constraints are exercised
+  // against disposable PostgreSQL in pantaPrices.postgres.test.ts.
+  market_share_price_snapshots: { pk: ["id"], uuid: ["id", "market_id"] },
   market_resolutions: {
     pk: ["id"],
     uuid: ["id", "market_id", "supersedes_id"],
@@ -117,7 +120,7 @@ const TABLES: Record<string, TableSpec> = {
 // Tracks 20260917120000_venue_market_allow_polymarket.sql. This fake is only
 // worth anything while it transcribes the REAL constraints — if it drifts from
 // the migrations it starts proving things about a schema nobody runs.
-const PERSISTABLE_VENUES = new Set(["jupiter", "polymarket", "fixture"]);
+const PERSISTABLE_VENUES = new Set(["jupiter", "polymarket", "fixture", "panta"]);
 
 class SqlError extends Error {
   constructor(

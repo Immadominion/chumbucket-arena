@@ -19,6 +19,7 @@
 import { assertCacheTtls, DEFAULT_CACHE_TTLS, TtlCache, ttlForStatus, type CacheTtls } from "./cache.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { VenueError } from "./errors.ts";
+import { sharePriceFromIndicative } from "./sharePrices.ts";
 import { capturesRaw, readsResolutions, readsIndicativePrices, type IndicativePrices } from "./PredictionVenue.ts";
 import type {
   Capabilities,
@@ -141,7 +142,13 @@ export class PredictionService {
   async getIndicativePrices(venueMarketId: string): Promise<IndicativePrices | null> {
     const venue = this.venue;
     if (!readsIndicativePrices(venue)) return null;
-    return this.cache.load(`prices:${venueMarketId}`, () => venue.getIndicativePrices(venueMarketId), this.ttls.orderbook);
+    return this.cache.load(`prices:${venueMarketId}`, async () => {
+      const prices = await venue.getIndicativePrices(venueMarketId);
+      // Parent before evidence, through the shared durable write queue.
+      this.persist(await venue.getMarket(venueMarketId));
+      this.store.appendSharePrice(sharePriceFromIndicative(prices), capturesRaw(venue) ? venue.rawPayload(venueMarketId) ?? null : null);
+      return prices;
+    }, this.ttls.orderbook);
   }
 
   /**

@@ -48,6 +48,7 @@ import type { StoredEvent } from "../domain/events.ts";
 import type { Wallet } from "../domain/ids.ts";
 import type { CallOutcome, Resolution, Side, VenueId, VenueMarket } from "../prediction/types.ts";
 import { assertMoneyFree, type Call, type CallResult } from "./types.ts";
+import { parseSharePrice, type SharePriceSnapshot } from "../prediction/sharePrices.ts";
 
 /** Where a receipt came from. An arena-era receipt is not venue evidence. */
 export type ReceiptOrigin = "venue" | "arena";
@@ -68,6 +69,7 @@ export interface ReceiptMarketRef {
  * stake removed and venue provenance added.
  */
 export interface CallReceiptMade {
+  entryPrice?: SharePriceSnapshot;
   type: "CallMade";
   origin: ReceiptOrigin;
   callId: string;
@@ -89,6 +91,7 @@ export interface CallReceiptMade {
  * §3 already has one type that covers both: `CallOutcome`.
  */
 export interface CallReceiptSettled {
+  entryPrice?: SharePriceSnapshot;
   type: "CallSettled";
   origin: ReceiptOrigin;
   callId: string;
@@ -109,6 +112,7 @@ export type CallReceiptEvent = CallReceiptMade | CallReceiptSettled;
 
 /** One person's receipt for one call: what they said, and what became of it. */
 export interface CallReceiptView {
+  entryPrice?: SharePriceSnapshot;
   callId: string;
   userId: string;
   origin: ReceiptOrigin;
@@ -162,6 +166,7 @@ export class CallReceiptsProjection {
       market: marketRef(call.marketId, market),
       side: call.side,
       entryProbability: call.entryProbability,
+      ...(call.entryPrice ? { entryPrice: call.entryPrice } : {}),
       thesis: call.thesis,
       lockedAt: call.lockedAt,
       fundingState: "NONE",
@@ -180,6 +185,7 @@ export class CallReceiptsProjection {
       market: marketRef(call.marketId, market),
       side: call.side,
       entryProbability: call.entryProbability,
+      ...(call.entryPrice ? { entryPrice: call.entryPrice } : {}),
       outcome: result.outcome,
       resolution: result.resolution,
       resolvedAt: result.resolvedAt,
@@ -305,7 +311,16 @@ export class CallReceiptsProjection {
     // A receipt may never carry money, whatever it was generalised FROM. An
     // arena CallMade has a `stake` (Frost) and a CallSettled has a `payout`;
     // this is the guarantee that neither can reach a receipt.
-    assertMoneyFree(event, "a call receipt");
+    // The only exception is a strictly validated, non-executable UNIT PRICE.
+    // Stakes, balances, fees, signatures and arbitrary nested fields still fail.
+    const { entryPrice, ...moneyFree } = event;
+    assertMoneyFree(moneyFree, "a call receipt");
+    if (entryPrice) {
+      parseSharePrice(entryPrice);
+      if (event.market.venue !== "panta" || entryPrice.marketId !== event.market.marketId || event.entryProbability !== null) {
+        throw new Error("Panta receipt price provenance mismatch");
+      }
+    }
 
     const existing = this.byCall.get(event.callId);
     const view: CallReceiptView =
@@ -317,6 +332,7 @@ export class CallReceiptsProjection {
             market: event.market,
             side: event.side,
             entryProbability: event.entryProbability,
+            ...(entryPrice ? { entryPrice } : {}),
             thesis: event.thesis,
             lockedAt: event.lockedAt,
             outcome: "PENDING",
@@ -333,6 +349,7 @@ export class CallReceiptsProjection {
             market: event.market,
             side: event.side,
             entryProbability: event.entryProbability,
+            ...(entryPrice ? { entryPrice } : {}),
             thesis: existing?.thesis ?? null,
             lockedAt: event.lockedAt,
             outcome: event.outcome,

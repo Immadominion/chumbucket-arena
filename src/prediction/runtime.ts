@@ -111,7 +111,7 @@ export function buildPredictionRuntime(
   if (config.venue === "panta" && social && !overrides.store) {
     // No Panta schema/client migration has been approved. Do not silently
     // replace a configured durable backend with a volatile in-memory mirror.
-    throw new VenueError("VENUE_MISCONFIGURED", "Panta durable app traffic is not enabled: schema and share-price receipt integration are pending", { venue: "panta" });
+    throw new VenueError("VENUE_MISCONFIGURED", "Panta durable app traffic is not enabled: migration review and device release validation are pending", { venue: "panta" });
   }
   let persistence = supabasePersistenceDecision({ social, venue: config.venue });
 

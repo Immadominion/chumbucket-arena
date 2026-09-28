@@ -75,6 +75,8 @@ export interface BuildCallsRuntimeOverrides {
   config?: CallsConfig;
   store?: CallsStore;
   markets?: VenueMarketReader;
+  /** Explicit local integration seam; never read from deployment env. */
+  allowPantaCalls?: boolean;
   clock?: Clock;
   viewer?: ViewerResolver;
   newId?: (kind: "call" | "response") => string;
@@ -157,6 +159,7 @@ export function buildCallsRuntime(
   });
 
   const service = new CallsService({
+    allowPantaCalls: overrides.allowPantaCalls,
     store,
     markets,
     clock,
