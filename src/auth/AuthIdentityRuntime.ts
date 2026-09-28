@@ -17,6 +17,7 @@
  */
 
 import type { AppConfig } from "../config.ts";
+import { SupabaseExistingAccountStore, type ExistingAccountStore } from "./ExistingAccountStore.ts";
 import {
   NoopIdentityStore,
   SupabaseIdentityStore,
@@ -62,6 +63,7 @@ interface AuthIdentityConfigBlock {
 }
 
 export interface AuthIdentityRuntime {
+  existingAccounts?: ExistingAccountStore;
   store: IdentityStore;
   verifier: SupabaseJwtVerifier;
   policy: AuthIdentityPolicy;
@@ -97,6 +99,7 @@ function storeConfig(config: AppConfig): IdentityStoreConfig | undefined {
 export function buildAuthIdentityRuntime(config: AppConfig): AuthIdentityRuntime {
   const sc = storeConfig(config);
   return {
+    ...(sc ? { existingAccounts: new SupabaseExistingAccountStore(sc) } : {}),
     store: sc ? new SupabaseIdentityStore(sc) : new NoopIdentityStore(),
     verifier: sc ? new GoTrueJwtVerifier(sc) : new UnconfiguredJwtVerifier(),
     policy: resolveAuthIdentityPolicy(config),

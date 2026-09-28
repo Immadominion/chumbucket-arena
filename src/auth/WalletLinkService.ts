@@ -63,10 +63,12 @@ export interface AuthedIdentity {
   userId: string;
 }
 
+type WalletPurpose = Exclude<SiwsPurpose, "claim_account">;
+
 export interface RequestNonceInput {
   accessToken: string;
   address: string;
-  purpose?: SiwsPurpose;
+  purpose?: WalletPurpose;
   domain: string;
   uri: string;
 }
@@ -88,7 +90,7 @@ export interface LinkWalletInput {
   address: string;
   message: string;
   signature: string;
-  purpose?: SiwsPurpose;
+  purpose?: WalletPurpose;
 }
 
 export interface LinkWalletResult {
@@ -158,7 +160,8 @@ export class WalletLinkService {
   async requestWalletNonce(input: RequestNonceInput): Promise<RequestNonceResult> {
     const identity = await this.authenticate(input.accessToken);
     const policy = this.deps.policy;
-    const purpose: SiwsPurpose = input.purpose ?? "link_wallet";
+    const purpose = input.purpose ?? "link_wallet";
+    if (purpose !== "link_wallet" && purpose !== "transfer_wallet") failAuth("SIWS_PURPOSE_MISMATCH");
 
     if (!isSolanaAddress(input.address)) failAuth("SIWS_ADDRESS_MISMATCH", "not a Solana address");
     if (!policy.allowedDomains.includes(input.domain)) failAuth("SIWS_DOMAIN_NOT_ALLOWED");
@@ -216,7 +219,8 @@ export class WalletLinkService {
   async linkWallet(input: LinkWalletInput): Promise<LinkWalletResult> {
     const identity = await this.authenticate(input.accessToken);
     const policy = this.deps.policy;
-    const purpose: SiwsPurpose = input.purpose ?? "link_wallet";
+    const purpose = input.purpose ?? "link_wallet";
+    if (purpose !== "link_wallet" && purpose !== "transfer_wallet") failAuth("SIWS_PURPOSE_MISMATCH");
 
     if (!isSolanaAddress(input.address)) failAuth("SIWS_ADDRESS_MISMATCH", "not a Solana address");
 

@@ -29,6 +29,7 @@ import { z } from "zod";
 import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdentityError.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import { WalletLinkService } from "../auth/WalletLinkService.ts";
+import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
@@ -46,6 +47,10 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   AUTH_USER_UNLINKED: "FORBIDDEN",
   AUTH_USER_AMBIGUOUS: "INTERNAL_SERVER_ERROR",
   IDENTITY_NOT_CONFIGURED: "PRECONDITION_FAILED",
+  ACCOUNT_CLAIMS_DISABLED: "PRECONDITION_FAILED",
+  ACCOUNT_CLAIM_UNAVAILABLE: "PRECONDITION_FAILED",
+  ACCOUNT_CLAIM_CONFLICT: "CONFLICT",
+  ACCOUNT_CLAIM_RATE_LIMITED: "TOO_MANY_REQUESTS",
 
   SIWS_MALFORMED_MESSAGE: "BAD_REQUEST",
   SIWS_UNSUPPORTED_VERSION: "BAD_REQUEST",
@@ -96,6 +101,14 @@ function serviceFor(config: AppConfig): WalletLinkService {
   return new WalletLinkService({ store: rt.store, verifier: rt.verifier, policy: rt.policy });
 }
 
+function existingAccountService(config: AppConfig): ExistingAccountClaimService {
+  const rt = authIdentityRuntimeFor(config);
+  return new ExistingAccountClaimService({
+    enabled: config.authIdentity?.existingAccountClaimsEnabled === true,
+    store: rt.existingAccounts, verifier: rt.verifier, policy: rt.policy,
+  });
+}
+
 const accessToken = z.string().min(1).max(8192);
 // Base58 32-byte key: 32–44 chars. The real check is bs58-decode-to-32 bytes in
 // WalletLinkService; this only keeps obvious junk out of the service.
@@ -103,6 +116,21 @@ const solanaAddress = z.string().min(32).max(44);
 const purpose = z.enum(["link_wallet", "transfer_wallet"]);
 
 export const authRouter = router({
+  // POST only. No client-selected user id, auth subject, evidence or review flag.
+  requestExistingAccountProof: publicProcedure.input(z.object({
+    supabaseAccessToken: accessToken, address: solanaAddress,
+    domain: z.string().min(1).max(253), uri: z.string().min(1).max(2048),
+  }).strict()).mutation(({ ctx, input }) => run(() => existingAccountService(ctx.app.config).request({
+    accessToken: input.supabaseAccessToken, address: input.address, domain: input.domain, uri: input.uri,
+  }))),
+
+  claimExistingAccount: publicProcedure.input(z.object({
+    supabaseAccessToken: accessToken, address: solanaAddress,
+    message: z.string().min(1).max(4096), signature: z.string().min(1).max(256),
+  }).strict()).mutation(({ ctx, input }) => run(() => existingAccountService(ctx.app.config).claim({
+    accessToken: input.supabaseAccessToken, address: input.address,
+    message: input.message, signature: input.signature,
+  }))),
   /** Explicit onboarding, not an email/wallet-based legacy account claim. */
   completeProfile: publicProcedure
     .input(z.object({
@@ -127,6 +155,7 @@ export const authRouter = router({
     const rt = authIdentityRuntimeFor(ctx.app.config);
     return {
       enabled: rt.store.enabled,
+      existingAccountClaimsEnabled: ctx.app.config.authIdentity?.existingAccountClaimsEnabled === true && !!rt.existingAccounts,
       network: rt.policy.network,
       proofVersion: SIWS_PROOF_VERSION,
       allowedDomains: [...rt.policy.allowedDomains],

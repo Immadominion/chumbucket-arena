@@ -27,6 +27,10 @@ export type AuthIdentityErrorCode =
   | "AUTH_USER_AMBIGUOUS"
   /** No Supabase project configured on this server. */
   | "IDENTITY_NOT_CONFIGURED"
+  | "ACCOUNT_CLAIMS_DISABLED"
+  | "ACCOUNT_CLAIM_UNAVAILABLE"
+  | "ACCOUNT_CLAIM_CONFLICT"
+  | "ACCOUNT_CLAIM_RATE_LIMITED"
 
   // ── SIWS message shape and bindings ──────────────────────────────────────
   | "SIWS_MALFORMED_MESSAGE"
@@ -45,7 +49,7 @@ export type AuthIdentityErrorCode =
   | "NONCE_UNKNOWN"
   | "NONCE_REUSED"
   | "NONCE_EXPIRED"
-  /** The nonce was issued to a DIFFERENT canonical user. */
+  /** Issued to a different canonical user (wallet link) or auth subject (claim). */
   | "NONCE_USER_MISMATCH"
   | "NONCE_ISSUE_FAILED"
 

@@ -40,7 +40,7 @@ export const SIWS_PROOF_VERSION = 1;
 const SIWS_SPEC_VERSION = "1";
 
 export type SiwsNetwork = "devnet" | "mainnet-beta";
-export type SiwsPurpose = "link_wallet" | "transfer_wallet";
+export type SiwsPurpose = "link_wallet" | "transfer_wallet" | "claim_account";
 
 const HEADER_SUFFIX = " wants you to sign in with your Solana account:";
 const RESOURCE_PREFIX = "- chumbucket:purpose:";
@@ -56,7 +56,7 @@ export const CHAIN_IDS: Record<SiwsNetwork, string> = {
 };
 
 /**
- * The statement is server-owned and purpose-derived, never client text. Both
+ * The statement is server-owned and purpose-derived, never client text. Each
  * spell out what the signature does NOT authorise, because the single biggest
  * risk in a sign-message flow is a user approving something they believe is a
  * login and that is actually a transfer.
@@ -66,6 +66,8 @@ export const STATEMENTS: Record<SiwsPurpose, string> = {
     "Link this Solana wallet to your Chumbucket account. This request does not authorise any transaction, transfer or spend.",
   transfer_wallet:
     "Move this Solana wallet to this Chumbucket account. This request does not authorise any transaction, transfer or spend.",
+  claim_account:
+    "Connect your signed-in account to your existing Chumbucket profile. This request does not create a profile or authorise any transaction, transfer or spend.",
 };
 
 export interface SiwsFields {
@@ -168,7 +170,7 @@ export function parseSiwsMessage(message: string): SiwsFields {
   const resource = lines[12] as string;
   if (!resource.startsWith(RESOURCE_PREFIX)) failAuth("SIWS_MALFORMED_MESSAGE", "missing purpose resource");
   const purposeRaw = resource.slice(RESOURCE_PREFIX.length);
-  if (purposeRaw !== "link_wallet" && purposeRaw !== "transfer_wallet") {
+  if (purposeRaw !== "link_wallet" && purposeRaw !== "transfer_wallet" && purposeRaw !== "claim_account") {
     failAuth("SIWS_PURPOSE_MISMATCH", "unknown purpose");
   }
 

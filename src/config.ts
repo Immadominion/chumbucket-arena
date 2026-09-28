@@ -78,6 +78,8 @@ export interface AppConfig {
    * deny-by-default fixture allowlist in src/auth/AuthIdentityRuntime.ts.
    */
   authIdentity?: {
+    /** Off until reviewed migration anchors and legacy security gates are ready. */
+    existingAccountClaimsEnabled?: boolean;
     siwsDomains?: string[];
     siwsUris?: string[];
     nonceTtlSeconds?: number;
@@ -260,8 +262,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (env.HELIUS_WEBHOOK_AUTH) {
     cfg.indexer = { heliusWebhookAuth: env.HELIUS_WEBHOOK_AUTH };
   }
-  if (env.SIWS_DOMAINS || env.SIWS_URIS || env.SIWS_NONCE_TTL_SECONDS) {
+  if (env.SIWS_DOMAINS || env.SIWS_URIS || env.SIWS_NONCE_TTL_SECONDS || env.EXISTING_ACCOUNT_CLAIMS_ENABLED) {
     cfg.authIdentity = {
+      existingAccountClaimsEnabled: env.EXISTING_ACCOUNT_CLAIMS_ENABLED === "true",
       ...(env.SIWS_DOMAINS
         ? { siwsDomains: env.SIWS_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean) }
         : {}),
