@@ -19,7 +19,7 @@
 import { assertCacheTtls, DEFAULT_CACHE_TTLS, TtlCache, ttlForStatus, type CacheTtls } from "./cache.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { VenueError } from "./errors.ts";
-import { capturesRaw, readsResolutions } from "./PredictionVenue.ts";
+import { capturesRaw, readsResolutions, readsIndicativePrices, type IndicativePrices } from "./PredictionVenue.ts";
 import type {
   Capabilities,
   EventFilters,
@@ -136,6 +136,12 @@ export class PredictionService {
 
   async getTradingStatus(): Promise<TradingStatus> {
     return this.cache.load("status", () => this.venue.getTradingStatus(), this.ttls.tradingStatus);
+  }
+
+  async getIndicativePrices(venueMarketId: string): Promise<IndicativePrices | null> {
+    const venue = this.venue;
+    if (!readsIndicativePrices(venue)) return null;
+    return this.cache.load(`prices:${venueMarketId}`, () => venue.getIndicativePrices(venueMarketId), this.ttls.orderbook);
   }
 
   /**

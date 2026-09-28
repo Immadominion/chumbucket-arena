@@ -1001,6 +1001,7 @@ function predictionConfig(venue: "fixture" | "jupiter" | "polymarket"): Predicti
     venue,
     jupiter: null,
     polymarket: null,
+    panta: null,
     flags: { fundedPositions: false },
     cache: DEFAULT_CACHE_TTLS,
     circuit: { failureThreshold: 3, resetAfterMs: 1000, halfOpenMaxCalls: 1 },

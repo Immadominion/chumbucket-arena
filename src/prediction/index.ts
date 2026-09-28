@@ -15,6 +15,7 @@ export * from "./http.ts";
 export * from "./PredictionVenue.ts";
 export * from "./JupiterVenue.ts";
 export * from "./PolymarketVenue.ts";
+export * from "./PantaVenue.ts";
 export * from "./FixtureVenue.ts";
 export * from "./store.ts";
 export * from "./pgrest.ts";

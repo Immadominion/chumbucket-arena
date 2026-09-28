@@ -42,8 +42,11 @@ export type FundingState =
  * 'polymarket' is a READ-ONLY venue: real markets, real prices, real
  * resolutions, but no trading through us. It exists because it needs no API
  * key, so the product can run on real data before a Jupiter key exists.
+ * 'panta' is read-only too, but its independent share prices are exposed
+ * separately and never written as a probability snapshot. Social calls and
+ * durable Panta traffic remain gated pending the matching schema/client work.
  */
-export type VenueId = "jupiter" | "polymarket" | "fixture";
+export type VenueId = "jupiter" | "polymarket" | "panta" | "fixture";
 
 export interface VenueMarket {
   id: string; // Chumbucket UUID — the stable id everything references

@@ -21,11 +21,13 @@ import { DEFAULT_RETRY } from "./backoff.ts";
 import { POLYMARKET_BASE_URL, POLYMARKET_VENUE_ID } from "./PolymarketVenue.ts";
 import { registerSecret } from "./redact.ts";
 import type { VenueId } from "./types.ts";
+import { VenueError } from "./errors.ts";
 
 export interface PredictionConfigInput {
   /** Which adapter to serve. Defaults to 'fixture' unless a Jupiter key is present. */
   venue?: VenueId;
   jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
+  panta?: { apiKey: string; timeoutMs?: number };
   /** Public, unauthenticated, read-only. There is no key and none is accepted. */
   polymarket?: { baseUrl?: string; timeoutMs?: number };
   flags?: { fundedPositions?: boolean };
@@ -42,6 +44,7 @@ export interface PredictionAppConfig {
 export interface PredictionConfig {
   venue: VenueId;
   jupiter: { baseUrl: string; apiKey: string; timeoutMs: number } | null;
+  panta: { apiKey: string; timeoutMs: number } | null;
   polymarket: { baseUrl: string; timeoutMs: number } | null;
   flags: { fundedPositions: boolean };
   cache: CacheTtls;
@@ -89,19 +92,10 @@ export function resolvePredictionConfig(
     timeoutMs: fromApp?.polymarket?.timeoutMs ?? num(env.POLYMARKET_TIMEOUT_MS, 8_000),
   };
 
-  // The integration-owned src/config.ts collapses PREDICTION_VENUE to
-  // 'jupiter' | 'fixture' before this resolver ever sees it (it predates this
-  // adapter), so an explicit PREDICTION_VENUE=polymarket in the environment has
-  // to win over that coerced AppConfig value. The patch that teaches
-  // src/config.ts about the venue is filed in
-  // docs/contracts/integration-requests/packet-poly.md; once it lands this
-  // branch becomes redundant rather than wrong.
-  const asked =
-    env.PREDICTION_VENUE === POLYMARKET_VENUE_ID
-      ? POLYMARKET_VENUE_ID
-      : (fromApp?.venue ?? env.PREDICTION_VENUE);
+  // AppConfig now understands every supported venue: explicit app config wins.
+  const asked = fromApp?.venue ?? env.PREDICTION_VENUE;
   const requested: VenueId | undefined =
-    asked === "jupiter" || asked === "fixture"
+    asked === "jupiter" || asked === "fixture" || asked === "panta"
       ? asked
       : asked === POLYMARKET_VENUE_ID
         ? POLYMARKET_VENUE_ID
@@ -114,13 +108,20 @@ export function resolvePredictionConfig(
   //    beats serving errors, and demo data can never be mistaken for live.
   //  - asking for nothing serves whatever is actually configured.
   const venue: VenueId =
-    requested === POLYMARKET_VENUE_ID
+    requested === "panta" ? "panta" : requested === POLYMARKET_VENUE_ID
       ? POLYMARKET_VENUE_ID
       : requested === "fixture"
         ? "fixture"
         : jupiter
           ? "jupiter"
           : "fixture";
+
+  const pantaKey = fromApp?.panta?.apiKey ?? env.PANTA_API_KEY;
+  if (pantaKey) registerSecret(pantaKey);
+  if (venue === "panta" && (!pantaKey || !/^pk_live_[A-Za-z0-9_-]+$/.test(pantaKey))) {
+    // No silent substitution with another venue or invented fixture markets.
+    throw new VenueError("VENUE_MISCONFIGURED", "Panta selected without a live server key", { venue: "panta" });
+  }
 
   const cache = assertCacheTtls({
     eventList: fromApp?.cache?.eventList ?? num(env.PREDICTION_TTL_EVENTS_MS, DEFAULT_CACHE_TTLS.eventList),
@@ -135,10 +136,11 @@ export function resolvePredictionConfig(
   return {
     venue,
     jupiter: venue === "jupiter" ? jupiter : null,
+    panta: venue === "panta" ? { apiKey: pantaKey!, timeoutMs: fromApp?.panta?.timeoutMs ?? num(env.PANTA_TIMEOUT_MS, 8_000) } : null,
     polymarket: venue === POLYMARKET_VENUE_ID ? polymarket : null,
     flags: {
       // contracts §7: funded_positions defaults OFF and is enforced server-side.
-      fundedPositions: fromApp?.flags?.fundedPositions ?? bool(env.FUNDED_POSITIONS, false),
+      fundedPositions: venue !== "panta" && (fromApp?.flags?.fundedPositions ?? bool(env.FUNDED_POSITIONS, false)),
     },
     cache,
     circuit: {
@@ -166,6 +168,7 @@ export function describePredictionConfig(cfg: PredictionConfig): {
   fundedPositions: boolean;
   jupiterConfigured: boolean;
   polymarketConfigured: boolean;
+  pantaConfigured: boolean;
   cache: CacheTtls;
 } {
   return {
@@ -175,6 +178,7 @@ export function describePredictionConfig(cfg: PredictionConfig): {
     jupiterConfigured: cfg.jupiter !== null,
     // Presence only, and there is no key here to hide in the first place.
     polymarketConfigured: cfg.polymarket !== null,
+    pantaConfigured: cfg.panta !== null,
     cache: cfg.cache,
   };
 }

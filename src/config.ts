@@ -90,8 +90,9 @@ export interface AppConfig {
    * fundedPositions flag is the server-side kill switch and defaults OFF.
    */
   predictions?: {
-    venue?: "jupiter" | "polymarket" | "fixture";
+    venue?: "jupiter" | "polymarket" | "panta" | "fixture";
     jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
+    panta?: { apiKey: string; timeoutMs?: number };
     flags?: { fundedPositions?: boolean };
   };
   /** TxLINE — live World Cup data + on-chain settlement verification. Unset → mock data, verification stubbed to always-pass. */
@@ -282,13 +283,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     // Polymarket needs no key — it is read-only real data, so it is selectable
     // on its name alone. Jupiter additionally requires a key; without one it
     // would be a venue that cannot answer, so it falls back rather than
-    // pretending. Anything else is the clearly-labelled demo catalog.
+    // pretending. Panta requires a live server key and is read-only; its runtime
+    // refuses missing/sandbox keys instead of substituting another venue.
     venue:
-      env.PREDICTION_VENUE === "polymarket"
-        ? "polymarket"
-        : env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY
-          ? "jupiter"
-          : "fixture",
+      env.PREDICTION_VENUE === "panta"
+        ? "panta"
+        : env.PREDICTION_VENUE === "polymarket"
+          ? "polymarket"
+          : env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY
+            ? "jupiter"
+            : "fixture",
     ...(env.JUPITER_API_KEY
       ? {
           jupiter: {
@@ -298,7 +302,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
           },
         }
       : {}),
-    flags: { fundedPositions: env.FUNDED_POSITIONS === "true" },
+    ...(env.PANTA_API_KEY ? { panta: { apiKey: env.PANTA_API_KEY, timeoutMs: num(env.PANTA_TIMEOUT_MS, 8_000) } } : {}),
+    flags: { fundedPositions: env.PREDICTION_VENUE !== "panta" && env.FUNDED_POSITIONS === "true" },
   };
   if (env.TXLINE_API_BASE_URL && env.TXLINE_PROGRAM_ID && env.TXLINE_API_TOKEN && env.TXLINE_JWT) {
     cfg.txline = {

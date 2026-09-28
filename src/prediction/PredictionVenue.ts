@@ -91,7 +91,7 @@ export interface Capabilities {
   stream: boolean;
   geoGate: boolean;
   kyc: boolean;
-  executionModel: "orderbook" | "amm" | "rfq" | "demo";
+  executionModel: "orderbook" | "amm" | "rfq" | "hybrid" | "demo";
   minimumOrder: BaseUnits;
   claimMode: "manual" | "automatic" | "none";
   /** true for the fixture catalog. Never omit — the UI keys its demo banner off it. */
@@ -244,3 +244,24 @@ export interface ResolutionReader {
 
 export const readsResolutions = (v: PredictionVenue): v is PredictionVenue & ResolutionReader =>
   typeof (v as Partial<ResolutionReader>).publishedResolution === "function";
+
+/** Independent venue share prices, not complementary outcome probabilities.
+ * Decimal strings preserve precision and may exceed 1 USDC. Never executable. */
+export interface IndicativePrices {
+  marketId: string;
+  venue: VenueId;
+  venueMarketId: string;
+  currency: "USDC";
+  unit: "per_share";
+  yesPrice: string | null;
+  noPrice: string | null;
+  observedAt: number;
+  executable: false;
+  attribution: string;
+  demo: boolean;
+}
+export interface IndicativePriceReader {
+  getIndicativePrices(venueMarketId: string): Promise<IndicativePrices>;
+}
+export const readsIndicativePrices = (v: PredictionVenue): v is PredictionVenue & IndicativePriceReader =>
+  typeof (v as Partial<IndicativePriceReader>).getIndicativePrices === "function";

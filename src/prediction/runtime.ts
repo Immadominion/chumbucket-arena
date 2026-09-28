@@ -29,10 +29,12 @@
 import type { AppConfig } from "../config.ts";
 import { FixtureVenue } from "./FixtureVenue.ts";
 import { JupiterVenue } from "./JupiterVenue.ts";
+import { PantaVenue } from "./PantaVenue.ts";
 import { POLYMARKET_VENUE_ID, PolymarketVenue } from "./PolymarketVenue.ts";
 import { CircuitBreaker } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { resolvePredictionConfig, type PredictionConfig } from "./config.ts";
+import { VenueError } from "./errors.ts";
 import { MarketSync, type MarketSyncDeps } from "./marketSync.ts";
 import type { FetchImpl, WriteQueue } from "./pgrest.ts";
 import { PredictionService } from "./PredictionService.ts";
@@ -109,6 +111,10 @@ export interface BuildRuntimeOverrides {
 const POLYMARKET_RAW_CACHE_SIZE = 1_200;
 
 function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
+  if (config.venue === "panta" && config.panta) {
+    return new PantaVenue({ ...config.panta, clock, retry: config.retry,
+      circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "panta", name: "panta" }) });
+  }
   if (config.venue === POLYMARKET_VENUE_ID && config.polymarket) {
     return new PolymarketVenue({
       baseUrl: config.polymarket.baseUrl,
@@ -156,6 +162,11 @@ export function buildPredictionRuntime(
   const venue = overrides.venue ?? buildVenue(config, clock);
 
   const social = overrides.social ?? appConfig?.social;
+  if (config.venue === "panta" && social && !overrides.store) {
+    // No Panta schema/client migration has been approved. Do not silently
+    // replace a configured durable backend with a volatile in-memory mirror.
+    throw new VenueError("VENUE_MISCONFIGURED", "Panta durable app traffic is not enabled: schema and share-price receipt integration are pending", { venue: "panta" });
+  }
   let persistence = supabasePersistenceDecision({ social, venue: config.venue });
 
   let durable: SupabasePredictionStore | null = null;

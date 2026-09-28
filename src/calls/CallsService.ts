@@ -210,6 +210,9 @@ export class CallsService {
    */
   createCall(input: CreateCallInput, actorUserId: string): CallFeedEntry {
     const market = this.requireMarket(input.marketId);
+    if (market.venue === "panta") {
+      throw new CallsError("CALL_INVALID", "Panta market reads are available, but Panta calls and share-price receipts are not enabled yet.");
+    }
     if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
       throw new CallsError(
         "CALL_MARKET_CLOSED",

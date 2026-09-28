@@ -150,6 +150,11 @@ export const predictionsRouter = router({
       return call(() => rt.service.getOrderbook(input.venueMarketId));
     }),
 
+  /** Independent USDC/share prices; never a complementary probability or quote. */
+  indicativePrices: publicProcedure
+    .input(z.object({ venueMarketId: z.string().min(1).max(256) }).strict())
+    .query(({ ctx, input }) => call(() => runtime(ctx.app.config).service.getIndicativePrices(input.venueMarketId))),
+
   tradingStatus: publicProcedure.query(({ ctx }) => {
     const rt = runtime(ctx.app.config);
     return call(async () => {
