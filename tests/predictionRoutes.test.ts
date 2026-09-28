@@ -346,27 +346,24 @@ describe("the module-level memo (contracts §6)", () => {
     resetPredictionRuntimes();
   });
 
-  test("buildPredictionRuntime falls back to the fixture venue with no key configured", () => {
-    const rt = buildPredictionRuntime(withPredictionConfig(loadConfig({}), {}));
-    expect(rt.config.venue).toBe("fixture");
-    expect(rt.config.jupiter).toBeNull();
-    expect(rt.config.flags.fundedPositions).toBe(false); // contracts §7 default
+  test("buildPredictionRuntime refuses missing Panta config instead of falling back", () => {
+    expect(() => buildPredictionRuntime(loadConfig({ PANTA_API_KEY: "" }))).toThrow("live server key");
   });
 
-  test("a configured Jupiter key never appears in the describe() output", () => {
+  test("a configured Panta key never appears in the describe() output", () => {
     const rt = buildPredictionRuntime(
       withPredictionConfig(loadConfig({}), {
-        venue: "jupiter",
-        jupiter: { apiKey: "jup_live_sk_route_test_value" },
+        venue: "panta",
+        panta: { apiKey: "pk_live_synthetic_route_test_value" },
         flags: { fundedPositions: true },
       }),
     );
-    expect(rt.config.venue).toBe("jupiter");
-    expect(JSON.stringify(rt.config.jupiter)).toContain("jup_live_sk_route_test_value"); // held server-side…
+    expect(rt.config.venue).toBe("panta");
+    expect(JSON.stringify(rt.config.panta)).toContain("pk_live_synthetic_route_test_value"); // held server-side…
     const described = JSON.stringify({
       venue: rt.config.venue,
-      jupiterConfigured: rt.config.jupiter !== null,
+      pantaConfigured: rt.config.panta !== null,
     });
-    expect(described).not.toContain("jup_live_sk_route_test_value"); // …never described outward
+    expect(described).not.toContain("pk_live_synthetic_route_test_value"); // …never described outward
   });
 });

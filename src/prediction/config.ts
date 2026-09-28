@@ -1,14 +1,9 @@
 /**
  * Prediction-BFF configuration.
  *
- * Read through `ctx.app.config` (contracts §6) — that is the seam new modules
- * are supposed to use, and it is what `resolvePredictionConfig` takes. `AppConfig`
- * is integration-owned, so Packet B cannot add its own `predictions` block to
- * src/config.ts; the exact patch that adds it is filed in
- * docs/contracts/integration-requests/packet-b.md. Until it lands, this resolver
- * falls back to the environment, which keeps this packet buildable and testable
- * without editing a file it does not own. Once the patch lands, `ctx.app.config
- * .predictions` simply wins and nothing here changes.
+ * Panta is the only live provider. An explicit in-code fixture config remains
+ * for isolated tests; the environment cannot select it or another provider.
+ * Missing keys and stale provider config fail closed, never select a fallback.
  *
  * The API key never leaves this module in a readable form: `describe()` is the
  * only thing a route may put in a response, and it reports presence, not value.
@@ -18,17 +13,18 @@ import type { AppConfig } from "../config.ts";
 import { assertCacheTtls, DEFAULT_CACHE_TTLS, type CacheTtls } from "./cache.ts";
 import { DEFAULT_CIRCUIT } from "./circuit.ts";
 import { DEFAULT_RETRY } from "./backoff.ts";
-import { POLYMARKET_BASE_URL, POLYMARKET_VENUE_ID } from "./PolymarketVenue.ts";
 import { registerSecret } from "./redact.ts";
 import type { VenueId } from "./types.ts";
 import { VenueError } from "./errors.ts";
+import { livePredictionVenue } from "./venuePolicy.ts";
 
 export interface PredictionConfigInput {
-  /** Which adapter to serve. Defaults to 'fixture' unless a Jupiter key is present. */
+  /** Defaults to Panta. Historical live providers are refused; fixture is test-only. */
   venue?: VenueId;
+  /** Historical input compatibility only; ignored and never enables an adapter. */
   jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
   panta?: { apiKey: string; timeoutMs?: number };
-  /** Public, unauthenticated, read-only. There is no key and none is accepted. */
+  /** Historical input compatibility only; ignored and never enables an adapter. */
   polymarket?: { baseUrl?: string; timeoutMs?: number };
   flags?: { fundedPositions?: boolean };
   cache?: Partial<CacheTtls>;
@@ -52,16 +48,9 @@ export interface PredictionConfig {
   retry: { attempts: number; baseDelayMs: number; maxDelayMs: number };
 }
 
-const DEFAULT_JUPITER_BASE_URL = "https://prediction-api.jup.ag";
-
 const num = (v: string | undefined, fallback: number): number => {
   const n = v ? Number(v) : NaN;
   return Number.isFinite(n) ? n : fallback;
-};
-
-const bool = (v: string | undefined, fallback: boolean): boolean => {
-  if (v === undefined) return fallback;
-  return v === "true" || v === "1" || v === "on";
 };
 
 /**
@@ -74,47 +63,9 @@ export function resolvePredictionConfig(
 ): PredictionConfig {
   const fromApp = (appConfig as (AppConfig & PredictionAppConfig) | undefined)?.predictions;
 
-  const apiKey = fromApp?.jupiter?.apiKey ?? env.JUPITER_API_KEY;
-  const jupiter = apiKey
-    ? {
-        baseUrl: fromApp?.jupiter?.baseUrl ?? env.JUPITER_BASE_URL ?? DEFAULT_JUPITER_BASE_URL,
-        apiKey,
-        timeoutMs: fromApp?.jupiter?.timeoutMs ?? num(env.JUPITER_TIMEOUT_MS, 8_000),
-      }
-    : null;
-  // Registered the moment it is read, so it can never escape through an error.
-  if (jupiter) registerSecret(jupiter.apiKey);
-
-  // Polymarket's gamma API is public and unauthenticated, so it is ALWAYS
-  // available — there is nothing to configure and nothing to keep secret.
-  const polymarket = {
-    baseUrl: fromApp?.polymarket?.baseUrl ?? env.POLYMARKET_BASE_URL ?? POLYMARKET_BASE_URL,
-    timeoutMs: fromApp?.polymarket?.timeoutMs ?? num(env.POLYMARKET_TIMEOUT_MS, 8_000),
-  };
-
-  // AppConfig now understands every supported venue: explicit app config wins.
-  const asked = fromApp?.venue ?? env.PREDICTION_VENUE;
-  const requested: VenueId | undefined =
-    asked === "jupiter" || asked === "fixture" || asked === "panta"
-      ? asked
-      : asked === POLYMARKET_VENUE_ID
-        ? POLYMARKET_VENUE_ID
-        : undefined;
-
-  // Three deliberate defaults:
-  //  - asking for 'polymarket' always works: no key exists to be missing.
-  //  - asking for 'jupiter' with no key falls back to 'fixture' rather than
-  //    booting a venue that cannot answer. Serving clearly-labelled demo data
-  //    beats serving errors, and demo data can never be mistaken for live.
-  //  - asking for nothing serves whatever is actually configured.
-  const venue: VenueId =
-    requested === "panta" ? "panta" : requested === POLYMARKET_VENUE_ID
-      ? POLYMARKET_VENUE_ID
-      : requested === "fixture"
-        ? "fixture"
-        : jupiter
-          ? "jupiter"
-          : "fixture";
+  const venue = fromApp?.venue === "fixture"
+    ? "fixture"
+    : livePredictionVenue(fromApp?.venue ?? env.PREDICTION_VENUE);
 
   const pantaKey = fromApp?.panta?.apiKey ?? env.PANTA_API_KEY;
   if (pantaKey) registerSecret(pantaKey);
@@ -135,12 +86,13 @@ export function resolvePredictionConfig(
 
   return {
     venue,
-    jupiter: venue === "jupiter" ? jupiter : null,
+    jupiter: null,
     panta: venue === "panta" ? { apiKey: pantaKey!, timeoutMs: fromApp?.panta?.timeoutMs ?? num(env.PANTA_TIMEOUT_MS, 8_000) } : null,
-    polymarket: venue === POLYMARKET_VENUE_ID ? polymarket : null,
+    polymarket: null,
     flags: {
-      // contracts §7: funded_positions defaults OFF and is enforced server-side.
-      fundedPositions: venue !== "panta" && (fromApp?.flags?.fundedPositions ?? bool(env.FUNDED_POSITIONS, false)),
+      // Only synthetic fixture tests may exercise order transitions. No env flag
+      // can enable real money through this read-only Panta integration.
+      fundedPositions: venue === "fixture" && fromApp?.flags?.fundedPositions === true,
     },
     cache,
     circuit: {
@@ -176,7 +128,7 @@ export function describePredictionConfig(cfg: PredictionConfig): {
     demo: cfg.venue === "fixture",
     fundedPositions: cfg.flags.fundedPositions,
     jupiterConfigured: cfg.jupiter !== null,
-    // Presence only, and there is no key here to hide in the first place.
+    // Retained response fields for old clients; both retired providers are false.
     polymarketConfigured: cfg.polymarket !== null,
     pantaConfigured: cfg.panta !== null,
     cache: cfg.cache,
@@ -184,8 +136,8 @@ export function describePredictionConfig(cfg: PredictionConfig): {
 }
 
 /**
- * Attach a prediction block to an AppConfig without editing src/config.ts.
- * Used by tests today and by the integration owner's patch tomorrow.
+ * Explicit in-code injection for isolated tests, including the fixture venue.
+ * Deployment configuration must go through loadConfig(), which is Panta-only.
  */
 export function withPredictionConfig(base: AppConfig, predictions: PredictionConfigInput): AppConfig {
   return Object.assign({}, base, { predictions }) as AppConfig;

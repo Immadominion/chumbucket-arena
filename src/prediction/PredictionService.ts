@@ -13,7 +13,7 @@
  *     AND at the route layer.
  *
  * Backoff and the circuit breaker live inside the network adapter
- * (JupiterVenue), which is the only thing that can actually fail transiently.
+ * (PantaVenue for the live flow).
  */
 
 import { assertCacheTtls, DEFAULT_CACHE_TTLS, TtlCache, ttlForStatus, type CacheTtls } from "./cache.ts";

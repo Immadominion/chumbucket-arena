@@ -39,10 +39,9 @@ export type FundingState =
 /**
  * Which adapter produced a row. 'fixture' is ALWAYS demo data.
  *
- * 'polymarket' is a READ-ONLY venue: real markets, real prices, real
- * resolutions, but no trading through us. It exists because it needs no API
- * key, so the product can run on real data before a Jupiter key exists.
- * 'panta' is read-only too, but its independent share prices are exposed
+ * 'jupiter' and 'polymarket' remain for historical rows and adapter regression
+ * tests, not live provider selection. Panta is the only live provider.
+ * 'panta' is currently read-only; its independent share prices are exposed
  * separately and never written as a probability snapshot. Social calls and
  * durable Panta traffic remain gated pending the matching schema/client work.
  */

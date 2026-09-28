@@ -840,6 +840,7 @@ describe("degrading honestly", () => {
     expect(fake.log).toEqual([]);
 
     const pPoly = buildPredictionRuntime(undefined, {
+      venue: new FixtureVenue(), // storage compatibility test, not live provider selection
       social,
       fetchImpl: fake.fetchImpl,
       config: predictionConfig("polymarket"),
@@ -850,6 +851,7 @@ describe("degrading honestly", () => {
     // The honest fallback still exists — it is reached by an unconfigured
     // server, not by a venue the schema happens to dislike.
     const pNoSocial = buildPredictionRuntime(undefined, {
+      venue: new FixtureVenue(), // no live provider is exercised in persistence tests
       fetchImpl: fake.fetchImpl,
       config: predictionConfig("polymarket"),
     });
@@ -881,6 +883,7 @@ describe("wiring: the runtimes hand CallsService a durable store", () => {
     // The prediction runtime is passed in so the test's fetch reaches BOTH
     // stores; in production `buildCallsRuntime` takes it from the module memo.
     const prediction = buildPredictionRuntime(appConfig, {
+      config: predictionConfig("fixture"),
       social: fake.config,
       fetchImpl: fake.fetchImpl,
       clock,

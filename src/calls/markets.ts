@@ -61,6 +61,8 @@ export const emptyMarketReader: VenueMarketReader = {
 
 /** A market that accepts new calls. Only OPEN does (§3 MarketStatus). */
 export const acceptsNewCalls = (m: VenueMarket, now: number): boolean =>
+  // Historical rows stay readable, but cannot become a second live catalog.
+  (m.venue === "panta" || m.venue === "fixture") &&
   // Panta reads are implemented; its independent share-price call/receipt
   // schema and mobile presentation are not. Never pin them as 1-p odds.
   m.venue !== "panta" &&

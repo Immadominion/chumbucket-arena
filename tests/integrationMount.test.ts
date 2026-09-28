@@ -16,8 +16,9 @@ import { describe, expect, test } from "bun:test";
 import { appRouter } from "../src/api/router.ts";
 import { createApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
+import { withPredictionConfig } from "../src/prediction/config.ts";
 
-const app = await createApp({ config: loadConfig({}) });
+const app = await createApp({ config: withPredictionConfig(loadConfig({}), { venue: "fixture" }) });
 
 describe("pivot sub-routers are mounted on the root router", () => {
   test("auth and predictions are reachable namespaces", () => {
@@ -58,23 +59,23 @@ describe("pivot sub-routers are mounted on the root router", () => {
     expect(status).toBeDefined();
   });
 
-  test("loadConfig({}) yields the fixture venue and funded positions off", () => {
+  test("loadConfig({}) selects Panta and funded positions off", () => {
     const cfg = loadConfig({});
-    expect(cfg.predictions?.venue).toBe("fixture");
+    expect(cfg.predictions?.venue).toBe("panta");
     expect(cfg.predictions?.flags?.fundedPositions).toBe(false);
     expect(cfg.predictions?.jupiter).toBeUndefined();
   });
 
-  test("a Jupiter key selects the jupiter venue but never widens the flag", () => {
-    const cfg = loadConfig({ PREDICTION_VENUE: "jupiter", JUPITER_API_KEY: "test-key-not-real" });
-    expect(cfg.predictions?.venue).toBe("jupiter");
+  test("old provider keys cannot select another provider", () => {
+    const cfg = loadConfig({ JUPITER_API_KEY: "test-key-not-real" });
+    expect(cfg.predictions?.venue).toBe("panta");
     expect(cfg.predictions?.flags?.fundedPositions).toBe(false);
   });
 
-  test("FUNDED_POSITIONS is opt-in by exact string, not by truthiness", () => {
+  test("FUNDED_POSITIONS cannot enable the read-only Panta route", () => {
     expect(loadConfig({ FUNDED_POSITIONS: "1" }).predictions?.flags?.fundedPositions).toBe(false);
     expect(loadConfig({ FUNDED_POSITIONS: "yes" }).predictions?.flags?.fundedPositions).toBe(false);
-    expect(loadConfig({ FUNDED_POSITIONS: "true" }).predictions?.flags?.fundedPositions).toBe(true);
+    expect(loadConfig({ FUNDED_POSITIONS: "true" }).predictions?.flags?.fundedPositions).toBe(false);
   });
 
   test("the SIWS allowlist parses to a real list, and is absent when unset", () => {

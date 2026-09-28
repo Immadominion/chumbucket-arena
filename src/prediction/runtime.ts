@@ -19,18 +19,13 @@
  * a boot log prints. Nothing in this file can make a server look durable when
  * it is not.
  *
- * "Persistable venue" is not a preference: `venue_markets_venue_check` and its
- * three siblings are `CHECK (venue IN ('jupiter','fixture'))` in the LIVE
- * schema, so a polymarket row is refused by the database. Writing anyway would
- * queue rows Postgres throws away, which is the same lie in a more expensive
- * costume. See docs/contracts/integration-requests/packet-persist.md §1.
+ * Panta's durable schema and native-price receipt path are still gated below.
+ * Historical venue rows remain readable without reactivating their adapters.
  */
 
 import type { AppConfig } from "../config.ts";
 import { FixtureVenue } from "./FixtureVenue.ts";
-import { JupiterVenue } from "./JupiterVenue.ts";
 import { PantaVenue } from "./PantaVenue.ts";
-import { POLYMARKET_VENUE_ID, PolymarketVenue } from "./PolymarketVenue.ts";
 import { CircuitBreaker } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { resolvePredictionConfig, type PredictionConfig } from "./config.ts";
@@ -93,64 +88,15 @@ export interface BuildRuntimeOverrides {
   marketSync?: Partial<Omit<MarketSyncDeps, "venue" | "store">>;
 }
 
-/**
- * The venue selector. `PREDICTION_VENUE=polymarket` reaches here through
- * `resolvePredictionConfig`; unlike Jupiter it needs no key, so it never falls
- * back to the demo catalog.
- */
-/**
- * Raw payloads held by the Polymarket adapter at once.
- *
- * Sized against a single sync PAGE-BATCH rather than a whole pass, because
- * 8,000 full market JSONs pinned in memory was a real cost: this service grew
- * to 3.1 GB while every other service on the account sat under 0.3 GB.
- *
- * It only has to outlive the gap between normalizing a market and the durable
- * writer reading its payload back, which is bounded by maxPagesPerPass below.
- */
-const POLYMARKET_RAW_CACHE_SIZE = 1_200;
-
+/** Live composition has no other-provider or demo fallback. */
 function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
   if (config.venue === "panta" && config.panta) {
     return new PantaVenue({ ...config.panta, clock, retry: config.retry,
       circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "panta", name: "panta" }) });
   }
-  if (config.venue === POLYMARKET_VENUE_ID && config.polymarket) {
-    return new PolymarketVenue({
-      baseUrl: config.polymarket.baseUrl,
-      timeoutMs: config.polymarket.timeoutMs,
-      clock,
-      // Sized to hold a WHOLE market-sync pass, because the durable writer
-      // reads the raw payload back from this cache after the pass has moved on.
-      //
-      // The trap: MarketSync's pageSize bounds EVENTS, not markets, and gamma
-      // groups several markets under one event. 10 pages x 50 events was 2,274
-      // markets in production against a 500-entry LRU, so most payloads were
-      // evicted before the writer reached them — and venue_markets_live_rows_
-      // keep_raw then correctly refused the row rather than let a live market
-      // be stored with no record of what the venue actually said.
-      maxRawPayloads: POLYMARKET_RAW_CACHE_SIZE,
-      retry: config.retry,
-      cache: config.cache,
-      circuit: new CircuitBreaker({
-        ...config.circuit,
-        clock,
-        venue: POLYMARKET_VENUE_ID,
-        name: "polymarket",
-      }),
-    });
-  }
-  if (config.venue === "jupiter" && config.jupiter) {
-    return new JupiterVenue({
-      baseUrl: config.jupiter.baseUrl,
-      apiKey: config.jupiter.apiKey,
-      timeoutMs: config.jupiter.timeoutMs,
-      clock,
-      retry: config.retry,
-      circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "jupiter", name: "jupiter" }),
-    });
-  }
-  return new FixtureVenue({ clock });
+  // Only explicit in-code test injection can select fixtures, never env config.
+  if (config.venue === "fixture") return new FixtureVenue({ clock });
+  throw new VenueError("VENUE_MISCONFIGURED", "Panta is the only live prediction provider and requires a live server key", { venue: "panta" });
 }
 
 export function buildPredictionRuntime(

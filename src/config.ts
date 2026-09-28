@@ -6,6 +6,7 @@
 
 import type { Frost } from "./domain/ids.ts";
 import type { RateLimitConfig } from "./engine/RateLimiter.ts";
+import { livePredictionVenue } from "./prediction/venuePolicy.ts";
 
 export interface GameConfig {
   rakeBps: number; // basis points of the losers' pool → Manager's Pot
@@ -86,8 +87,10 @@ export interface AppConfig {
   };
   /**
    * Packet B — venue-backed prediction markets. The API key is SERVER-SIDE
-   * ONLY: it must never reach a response body, a log line or a client. The
-   * fundedPositions flag is the server-side kill switch and defaults OFF.
+   * ONLY: it must never reach a response body, a log line or a client.
+   * Panta is the only live provider; funded positions remain disabled.
+   * Historical venue names are retained in the type so stale config is refused
+   * explicitly. Fixture config is injected by tests, never selected from env.
    */
   predictions?: {
     venue?: "jupiter" | "polymarket" | "panta" | "fixture";
@@ -277,33 +280,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
         : {}),
     };
   }
-  // With no Jupiter key configured the BFF serves the clearly-labelled fixture
-  // catalog rather than failing; funded_positions stays OFF unless enabled.
+  // Panta only. Refuse stale provider selection instead of silently continuing
+  // to serve another venue. Missing Panta credentials fail at runtime creation.
   cfg.predictions = {
-    // Polymarket needs no key — it is read-only real data, so it is selectable
-    // on its name alone. Jupiter additionally requires a key; without one it
-    // would be a venue that cannot answer, so it falls back rather than
-    // pretending. Panta requires a live server key and is read-only; its runtime
-    // refuses missing/sandbox keys instead of substituting another venue.
-    venue:
-      env.PREDICTION_VENUE === "panta"
-        ? "panta"
-        : env.PREDICTION_VENUE === "polymarket"
-          ? "polymarket"
-          : env.PREDICTION_VENUE === "jupiter" && env.JUPITER_API_KEY
-            ? "jupiter"
-            : "fixture",
-    ...(env.JUPITER_API_KEY
-      ? {
-          jupiter: {
-            apiKey: env.JUPITER_API_KEY,
-            baseUrl: env.JUPITER_BASE_URL ?? "https://prediction-api.jup.ag",
-            timeoutMs: num(env.JUPITER_TIMEOUT_MS, 8_000),
-          },
-        }
-      : {}),
+    venue: livePredictionVenue(env.PREDICTION_VENUE),
     ...(env.PANTA_API_KEY ? { panta: { apiKey: env.PANTA_API_KEY, timeoutMs: num(env.PANTA_TIMEOUT_MS, 8_000) } } : {}),
-    flags: { fundedPositions: env.PREDICTION_VENUE !== "panta" && env.FUNDED_POSITIONS === "true" },
+    flags: { fundedPositions: false },
   };
   if (env.TXLINE_API_BASE_URL && env.TXLINE_PROGRAM_ID && env.TXLINE_API_TOKEN && env.TXLINE_JWT) {
     cfg.txline = {

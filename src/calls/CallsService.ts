@@ -210,6 +210,7 @@ export class CallsService {
    */
   createCall(input: CreateCallInput, actorUserId: string): CallFeedEntry {
     const market = this.requireMarket(input.marketId);
+    this.assertCurrentVenue(market);
     if (market.venue === "panta") {
       throw new CallsError("CALL_INVALID", "Panta market reads are available, but Panta calls and share-price receipts are not enabled yet.");
     }
@@ -249,6 +250,7 @@ export class CallsService {
       });
     }
     const market = this.requireMarket(target.marketId);
+    this.assertCurrentVenue(market);
     const at = this.clock.now();
 
     if (input.kind === "challenge") {
@@ -366,6 +368,12 @@ export class CallsService {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
+
+  private assertCurrentVenue(market: VenueMarket): void {
+    if (market.venue !== "panta" && market.venue !== "fixture") {
+      throw new CallsError("CALL_INVALID", "New calls and responses use Panta only. This historical call remains available to read and share.");
+    }
+  }
 
   /** The one place a call is created. Everything else routes through it. */
   private lockCall(args: {
