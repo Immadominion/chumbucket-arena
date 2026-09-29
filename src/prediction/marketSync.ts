@@ -96,6 +96,8 @@ export interface MarketSyncDeps {
   snapshotBudget?: number;
   /** Re-read a market's price only when the stored one is at least this old. */
   snapshotMaxAgeMs?: number;
+  /** Provider-scoped storage key; never feed another venue's page to this API. */
+  cursorKey?: string;
 }
 
 interface PersistedCursor {
@@ -114,11 +116,13 @@ export class MarketSync {
   private readonly maxPages: number;
   private readonly snapshotBudget: number;
   private readonly snapshotMaxAgeMs: number;
+  private readonly cursorKey: string;
 
   constructor(deps: MarketSyncDeps) {
     this.venue = deps.venue;
     this.store = deps.store;
     this.clock = deps.clock ?? systemClock;
+    this.cursorKey = deps.cursorKey ?? MARKET_SYNC_CURSOR;
     this.filters = deps.filters ?? { category: "crypto" };
     this.pageSize = clamp(deps.pageSize ?? 50, 1, 100);
     // Four pages is ~900 markets, which fits inside the adapter's raw cache
@@ -156,7 +160,7 @@ export class MarketSync {
 
   /** Forget the page cursor. The next pass re-walks and upserts onto the same ids. */
   resetCursor(): void {
-    this.store.setCursor(MARKET_SYNC_CURSOR, null);
+    this.store.setCursor(this.cursorKey, null);
   }
 
   async runOnce(): Promise<MarketSyncReport> {
@@ -303,7 +307,7 @@ export class MarketSync {
   }
 
   private readCursor(): PersistedCursor | null {
-    const raw = this.store.getCursor(MARKET_SYNC_CURSOR);
+    const raw = this.store.getCursor(this.cursorKey);
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw) as Partial<PersistedCursor>;
@@ -318,7 +322,7 @@ export class MarketSync {
   }
 
   private writeCursor(c: PersistedCursor): void {
-    this.store.setCursor(MARKET_SYNC_CURSOR, JSON.stringify(c));
+    this.store.setCursor(this.cursorKey, JSON.stringify(c));
   }
 }
 

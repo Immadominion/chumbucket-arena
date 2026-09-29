@@ -30,7 +30,7 @@ import { CircuitBreaker } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { resolvePredictionConfig, type PredictionConfig } from "./config.ts";
 import { VenueError } from "./errors.ts";
-import { MarketSync, type MarketSyncDeps } from "./marketSync.ts";
+import { MARKET_SYNC_CURSOR, MarketSync, type MarketSyncDeps } from "./marketSync.ts";
 import type { FetchImpl, WriteQueue } from "./pgrest.ts";
 import { PredictionService } from "./PredictionService.ts";
 import type { PredictionVenue } from "./PredictionVenue.ts";
@@ -145,7 +145,11 @@ export function buildPredictionRuntime(
     flags: config.flags,
   });
 
-  const marketSync = new MarketSync({ venue, store, clock, ...(overrides.marketSync ?? {}) });
+  const marketSync = new MarketSync({ venue, store, clock,
+    // Keep the old cursor intact for historical repair/rollback. Panta starts
+    // its own walk; numeric Polymarket offsets are not Solana market ids.
+    ...(config.venue === "panta" ? {cursorKey:`${MARKET_SYNC_CURSOR}:panta`} : {}),
+    ...(overrides.marketSync ?? {}) });
 
   // One line, at most once per runtime, only when somebody actually configured
   // Supabase — so a dev box with no keys stays quiet and a deployment that
