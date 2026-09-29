@@ -1,13 +1,12 @@
 /**
  * Supabase session verification.
  *
- * A Supabase access token is an HS256 JWT signed with the project's JWT secret.
- * That secret is not part of `AppConfig`, and `src/config.ts` is integration-
- * owned (contract §6), so this packet does NOT invent a local signature check
- * against a key it cannot legitimately obtain. Instead it asks the issuer:
+ * Supabase issues JWTs using the project's configured signing mechanism.
+ * This adapter does not assume an algorithm or trust locally decoded claims.
+ * Instead it asks the issuer:
  * `GET {supabaseUrl}/auth/v1/user` with the token as a Bearer credential.
- * GoTrue validates the signature, the expiry, and whether the session has been
- * revoked — which a local HS256 check could not do — and returns the user.
+ * GoTrue validates the credential and returns the user. Access-token revocation
+ * semantics remain the issuer's policy; this is not an instant-revocation claim.
  * `SocialStore.verifyOAuthUser` already uses exactly this pattern, so this is
  * the project's established way to turn a Supabase token into an identity.
  *
@@ -21,6 +20,7 @@
  */
 
 import type { IdentityStoreConfig } from "./IdentityStore.ts";
+import { AuthIdentityError } from "./AuthIdentityError.ts";
 
 export interface SupabaseSession {
   /** auth.users.id — what auth.uid() evaluates to inside Postgres. */
@@ -66,16 +66,23 @@ export class GoTrueJwtVerifier implements SupabaseJwtVerifier {
     if (!token) return null;
     if (!looksLikeLiveJwt(token, this.nowFn())) return null;
 
-    const res = await this.fetchImpl(`${this.authBase}/user`, {
-      headers: { apikey: this.cfg.serviceRoleKey, Authorization: `Bearer ${token}` },
-    });
-    // Any non-2xx from GoTrue is "not a valid session", full stop. We do not
-    // read the body on failure: it can echo the credential back.
-    if (!res.ok) return null;
+    try {
+      const res = await this.fetchImpl(`${this.authBase}/user`, {
+        headers: { apikey: this.cfg.serviceRoleKey, Authorization: `Bearer ${token}` },
+        redirect: "manual", signal: AbortSignal.timeout(10_000),
+      });
+      // A redirect cannot become another issuer or receive the credential.
+      // Do not read failure bodies: they can echo the request back.
+      if (!res.ok) return null;
 
-    const user = (await res.json()) as { id?: unknown; aud?: unknown };
-    if (typeof user.id !== "string" || user.id.length === 0) return null;
-    return { authUserId: user.id };
+      const user = (await res.json()) as { id?: unknown; aud?: unknown } | null;
+      if (!user || typeof user.id !== "string" || user.id.length === 0) return null;
+      return { authUserId: user.id };
+    } catch (_) {
+      // whoami/onboarding also use this verifier; all callers get only a
+      // fixed safe code, never a native exception containing headers/body.
+      throw new AuthIdentityError("IDENTITY_STORE_ERROR");
+    }
   }
 }
 

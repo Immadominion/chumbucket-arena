@@ -206,20 +206,33 @@ export class SupabaseIdentityStore implements IdentityStore {
   // ── PostgREST transport (same shape as SocialStore's, owned by this packet) ──
 
   private async rpc<T>(name: string, body: Record<string, unknown>): Promise<T> {
-    const res = await this.fetchImpl(`${this.restBase}/rpc/${name}`, {
+    return this.request<T>(`${this.restBase}/rpc/${name}`, {
       method: "POST",
       headers: this.headers({ prefer: "return=representation" }),
       body: JSON.stringify(body),
-    });
-    return this.decode<T>(res, `rpc/${name}`);
+    }, `rpc/${name}`);
   }
 
   private async getRows<T>(table: string, params: URLSearchParams): Promise<T[]> {
-    const res = await this.fetchImpl(`${this.restBase}/${table}?${params.toString()}`, {
+    return (await this.request<T[]>(`${this.restBase}/${table}?${params.toString()}`, {
       method: "GET",
       headers: this.headers(),
-    });
-    return (await this.decode<T[]>(res, table)) ?? [];
+    }, table)) ?? [];
+  }
+
+  private async request<T>(url: string, init: RequestInit, label: string): Promise<T> {
+    try {
+      // Service-role headers and proof bodies belong only to the configured
+      // issuer. Never follow even a same-host redirect; never return raw fetch
+      // or JSON parser errors (they may contain credentials/provider payloads).
+      const res = await this.fetchImpl(url, {
+        ...init, redirect: "manual", signal: AbortSignal.timeout(10_000),
+      });
+      return await this.decode<T>(res, label);
+    } catch (error) {
+      if (error instanceof AuthIdentityError) throw error;
+      throw new AuthIdentityError("IDENTITY_STORE_ERROR");
+    }
   }
 
   private headers(extra?: { prefer?: string }): Record<string, string> {

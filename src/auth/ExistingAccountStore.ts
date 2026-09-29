@@ -58,6 +58,7 @@ export class SupabaseExistingAccountStore implements ExistingAccountStore {
     try {
       const res = await this.fetchImpl(`${this.cfg.supabaseUrl.replace(/\/$/, "")}/rest/v1/rpc/${name}`, {
         method: "POST",
+        redirect: "manual",
         headers: { apikey: this.cfg.serviceRoleKey, Authorization: `Bearer ${this.cfg.serviceRoleKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
       });
