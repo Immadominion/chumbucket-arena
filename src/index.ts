@@ -6,6 +6,9 @@
 
 import { createApp } from "./app.ts";
 import { callsRuntimeFor } from "./calls/runtime.ts";
+import { CallResultWorker } from "./calls/CallResultWorker.ts";
+import { durableWriterNeedsRestart } from "./calls/durableFailure.ts";
+import { isVenueError } from "./prediction/errors.ts";
 import { startServer } from "./api/server.ts";
 import { OnchainKeeper } from "./keeper/onchainDriver.ts";
 
@@ -30,6 +33,27 @@ console.log(
   `   Persistence:     ${calls.persistence.persisting ? "SUPABASE" : "IN-MEMORY"} — ${calls.persistence.reason}`,
 );
 
+// A transport failure on one write quarantines the shared FIFO. Request
+// barriers then return 503, but /health does not inspect that writer. Fail
+// closed and let Railway's ON_FAILURE policy restart from Postgres instead
+// of leaving a superficially online social service stuck indefinitely.
+if (calls.durable) {
+  const queue = calls.durable.queue;
+  let restarting = false;
+  setInterval(() => {
+    if (restarting || queue.failures.length === 0) return;
+    restarting = true;
+    void durableWriterNeedsRestart(queue).then((needed) => {
+      if (!needed) {
+        restarting = false;
+        return;
+      }
+      console.error("[persist] durable writer failed; restarting to rehydrate from Postgres");
+      process.exit(1);
+    });
+  }, 15_000);
+}
+
 // Keep venue_markets / market_snapshots / market_resolutions fresh. Without
 // this the catalog only ever contains markets somebody happened to browse, and
 // calls_guard_insert refuses a call on a market it cannot see. Idempotent and
@@ -38,18 +62,28 @@ console.log(
 // configured, off with one env var.
 if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_ENABLED !== "false") {
   const marketSyncTickMs = Number(process.env.MARKET_SYNC_TICK_MS ?? 60_000);
+  const resultWorker = new CallResultWorker({ calls, prediction: calls.prediction });
   const marketSyncTick = async () => {
     try {
-      const report = await calls.prediction!.marketSync.runOnce();
-      if (report.marketsUpserted || report.snapshotsRecorded || report.resolutionsRecorded) {
-        console.log("[marketSync]", JSON.stringify(report));
+      const report = await resultWorker.runOnce();
+      if (report.catalog.marketsUpserted || report.catalog.snapshotsRecorded ||
+          report.catalog.resolutionsRecorded || report.calledResolutionsRecorded ||
+          report.results.resultsSettled) {
+        console.log("[callResultSync]", JSON.stringify({
+          markets: report.catalog.marketsUpserted,
+          prices: report.catalog.snapshotsRecorded,
+          catalogResolutions: report.catalog.resolutionsRecorded,
+          calledResolutions: report.calledResolutionsRecorded,
+          resultsSettled: report.results.resultsSettled,
+          calledMarketsUnavailable: report.calledMarketsUnavailable,
+        }));
       }
-      await calls.prediction!.durable?.flush();
     } catch (err) {
-      console.error("[marketSync] tick failed:", err instanceof Error ? err.message : String(err));
+      // No provider response body, signed bytes or private database cause in logs.
+      console.error("[callResultSync] tick failed:", isVenueError(err) ? err.code : "DURABILITY_OR_WORKER_FAILURE");
     }
   };
-  console.log(`   Market sync:     ENABLED (tick every ${marketSyncTickMs}ms)`);
+  console.log(`   Market/call result sync: ENABLED (tick every ${marketSyncTickMs}ms)`);
   setInterval(marketSyncTick, marketSyncTickMs);
   void marketSyncTick();
 }

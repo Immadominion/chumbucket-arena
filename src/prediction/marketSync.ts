@@ -50,12 +50,12 @@
  */
 
 import { systemClock, type Clock } from "./clock.ts";
-import { isVenueError } from "./errors.ts";
+import { isVenueError, schemaError } from "./errors.ts";
 import { capturesRaw, readsResolutions, readsIndicativePrices } from "./PredictionVenue.ts";
 import { sharePriceFromIndicative } from "./sharePrices.ts";
 import type { EventFilters, PredictionVenue, RawPayload } from "./PredictionVenue.ts";
 import type { PredictionStore } from "./store.ts";
-import { isSettledStatus, type VenueId, type VenueMarket } from "./types.ts";
+import { isSettledStatus, marketUuid, type VenueId, type VenueMarket } from "./types.ts";
 
 /** Cursor name, shared by the mirror and `public.indexer_cursors`. */
 export const MARKET_SYNC_CURSOR = "venue_markets:sync";
@@ -81,6 +81,12 @@ export interface MarketSyncReport {
   watermark: number;
   startedAt: number;
   finishedAt: number;
+}
+
+export interface CalledMarketRefreshReport {
+  marketId: string;
+  resolutionRecorded: boolean;
+  resolutionUnevidenced: boolean;
 }
 
 export interface MarketSyncDeps {
@@ -268,30 +274,9 @@ export class MarketSync {
     if (readsResolutions(this.venue)) {
       for (const { market, raw } of pending) {
         if (!isSettledStatus(market.status)) continue;
-        if (this.store.getResolution(market.id)) continue; // append-only; already recorded
-        const published = this.venue.publishedResolution(market.venueMarketId, raw);
-        if (!published) continue; // CLOSED_PENDING_RESOLUTION: no answer yet, and we do not guess
-        const evidence = raw?.body ?? null;
-        if (evidence === null) {
-          // `market_resolutions_requires_evidence` forbids an unevidenced row,
-          // and rightly: a resolution with no payload behind it is a guess.
-          report.resolutionsUnevidenced++;
-          continue;
-        }
-        this.store.recordResolution(
-          {
-            marketId: market.id,
-            venue: market.venue,
-            venueMarketId: market.venueMarketId,
-            resolution: published.resolution,
-            resolvedAt: published.resolvedAt ?? market.resolvesAt ?? this.clock.now(),
-            evidenceSource: market.resolutionSource ?? market.rawStatus,
-            rawEvidence: evidence,
-            demo: market.venue === "fixture",
-          },
-          this.clock.now(),
-        );
-        report.resolutionsRecorded++;
+        const result = this.recordPublishedResolution(market, raw);
+        if (result.recorded) report.resolutionsRecorded++;
+        if (result.unevidenced) report.resolutionsUnevidenced++;
       }
     }
 
@@ -299,6 +284,51 @@ export class MarketSync {
     report.watermark = this.watermark();
     report.finishedAt = this.clock.now();
     return report;
+  }
+
+  /** Revisit a specifically called Panta market even when the venue no longer
+   *  includes it in catalog pages. Its current detail payload is the sole source
+   *  of finality; an old status or deadline never supplies the result. */
+  async refreshCalledMarket(venueMarketId: string): Promise<CalledMarketRefreshReport> {
+    const market = await this.venue.getMarket(venueMarketId);
+    const raw = this.rawFor(venueMarketId);
+    if (market.venue !== "panta" || market.venueMarketId !== venueMarketId ||
+        market.id !== marketUuid("panta", venueMarketId) ||
+        raw?.venue !== "panta" || raw.venueMarketId !== venueMarketId || !raw.body) {
+      throw schemaError("panta", "called-market identity or raw evidence");
+    }
+    this.store.upsertMarket(market, raw);
+    const result = isSettledStatus(market.status)
+      ? this.recordPublishedResolution(market, raw)
+      : { recorded: false, unevidenced: false };
+    return { marketId: market.id, resolutionRecorded: result.recorded, resolutionUnevidenced: result.unevidenced };
+  }
+
+  private recordPublishedResolution(
+    market: VenueMarket,
+    raw: RawPayload | null,
+  ): { recorded: boolean; unevidenced: boolean } {
+    if (!readsResolutions(this.venue) || this.store.getResolution(market.id)) {
+      return { recorded: false, unevidenced: false };
+    }
+    const published = this.venue.publishedResolution(market.venueMarketId, raw);
+    if (!published) return { recorded: false, unevidenced: false };
+    const evidence = raw?.body ?? null;
+    if (evidence === null) return { recorded: false, unevidenced: true };
+    this.store.recordResolution(
+      {
+        marketId: market.id,
+        venue: market.venue,
+        venueMarketId: market.venueMarketId,
+        resolution: published.resolution,
+        resolvedAt: published.resolvedAt ?? market.resolvesAt ?? this.clock.now(),
+        evidenceSource: market.resolutionSource ?? market.rawStatus,
+        rawEvidence: evidence,
+        demo: market.venue === "fixture",
+      },
+      this.clock.now(),
+    );
+    return { recorded: true, unevidenced: false };
   }
 
   private rawFor(venueMarketId: string): RawPayload | null {
