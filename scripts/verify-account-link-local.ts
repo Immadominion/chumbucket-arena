@@ -1,7 +1,8 @@
 /** Explicit opt-in, synthetic-only cross-language account-continuity check.
  * Real Flutter session/client -> mounted BFF -> real PostgREST -> fresh PG.
  * Only Google/MWA approval and the GoTrue issuer are replaced. Never loads .env,
- * accepts a database URL, touches a phone, or seeds a production ownership anchor.
+ * accepts a database URL, or seeds a production ownership anchor. --device
+ * exposes synthetic fixtures over loopback for a separately-packaged UI test.
  * Run with bun --no-env-file; POSTGREST_BIN and FLUTTER_BIN are executable paths.
  */
 import { SQL } from "bun";
@@ -18,10 +19,11 @@ import { startServer } from "../src/api/server.ts";
 import { loadConfig } from "../src/config.ts";
 
 if (process.argv[2] !== "--run") throw new Error("Explicit --run required; local synthetic data only");
+const deviceMode = process.argv.includes("--device");
 const pgBin = process.env.POSTGRES_BIN_DIR ?? "/opt/homebrew/opt/postgresql@15/bin";
 const restBin = process.env.POSTGREST_BIN;
 const flutter = process.env.FLUTTER_BIN;
-if (!restBin || !flutter) throw new Error("Set POSTGREST_BIN and FLUTTER_BIN to local executable paths");
+if (!restBin || (!deviceMode && !flutter)) throw new Error("Set POSTGREST_BIN and (for host tests) FLUTTER_BIN to local executable paths");
 const mobile = resolve(import.meta.dir, "../../chumbucket-social-calls");
 const root = realpathSync(mkdtempSync(join(tmpdir(), "chumbucket-account-flow-")));
 const data = join(root, "isolated-db");
@@ -64,6 +66,11 @@ const fixtures = ["success", "cancel", "unavailable", "conflict", "retry"].map((
 const authRequests = new Map<string, number>();
 const rpcRequests = new Map<string, number>();
 const serviceToken = jwt({ role: "service_role" });
+const anonToken = jwt({ role: "anon" });
+let finishDevice!: () => void;
+const deviceFinished = new Promise<void>(resolve => { finishDevice = resolve; });
+const deviceReports = new Set<string>();
+let bffBase = "";
 try {
   phase = "disposable PostgreSQL";
   const pgPort = await freePort();
@@ -86,13 +93,21 @@ try {
   `);
   await db.unsafe(`
     CREATE TABLE public.users(id uuid PRIMARY KEY, wallet_address text UNIQUE,
-      full_name text, handle text UNIQUE, history jsonb DEFAULT '[]');
+      full_name text, handle text UNIQUE, history jsonb DEFAULT '[]',
+      bio text DEFAULT 'My original Chumbucket account', privy_id text,
+      profile_image_id integer DEFAULT 1);
     CREATE TABLE public.old_receipts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id uuid REFERENCES public.users(id), body text);
     GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
     GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
   `);
+  // Representative legacy read RPC used by the EXISTING ProfileProvider.
+  // Read-only and limited to this newly-created synthetic cluster.
+  await db.unsafe(`CREATE FUNCTION public.fetch_user_profile(p_privy_id text)
+    RETURNS SETOF public.users LANGUAGE sql STABLE AS $$
+      SELECT * FROM public.users WHERE wallet_address = p_privy_id
+    $$;`);
   for (const file of ["20260913120000_auth_identity_auth_user_link.sql", "20260928120000_existing_account_claims.sql"]) {
     await db.unsafe(readFileSync(join(mobile, "supabase/migrations", file), "utf8"));
   }
@@ -100,8 +115,8 @@ try {
   await db`INSERT INTO auth.users(id) VALUES (${otherAuth})`;
   for (const f of fixtures) {
     await db`INSERT INTO auth.users(id) VALUES (${f.authId})`;
-    await db`INSERT INTO public.users(id,wallet_address,full_name,handle,history,auth_user_id)
-      VALUES (${f.userId},${f.address},${'Original ' + f.name},${f.name},'["old-history"]',${f.name === 'conflict' ? otherAuth : null})`;
+    await db`INSERT INTO public.users(id,wallet_address,full_name,handle,history,auth_user_id,privy_id)
+      VALUES (${f.userId},${f.address},${'Original ' + f.name},${f.name},'["old-history"]',${f.name === 'conflict' ? otherAuth : null},${f.address})`;
     await db`INSERT INTO public.old_receipts(user_id,body) VALUES (${f.userId},'Original receipt')`;
     if (f.name !== "unavailable") await db`INSERT INTO public.existing_account_anchors
       (user_id,wallet_address,network,evidence_sha256,review_ref,reviewed_by)
@@ -147,6 +162,18 @@ try {
   // forwarded unchanged to real PostgREST. Never log a header/body/query string.
   gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
+    if (deviceMode && url.pathname === "/__local_test/fixture" && request.method === "GET") {
+      return Response.json({ bffBase, supabaseBase: `http://127.0.0.1:${gateway!.port}`, anonToken, fixtures },
+        { headers: { "cache-control": "no-store" } });
+    }
+    if (deviceMode && url.pathname === "/__local_test/report" && request.method === "POST") {
+      const input = await request.json() as { name?: string };
+      if (!fixtures.some(f => f.name === input.name)) return Response.json({}, { status: 400 });
+      deviceReports.add(input.name!);
+      // The final SQL assertions below verify this claim independently.
+      if (deviceReports.size === fixtures.length) finishDevice();
+      return Response.json({ ok: true });
+    }
     if (url.pathname === "/auth/v1/user") {
       const f = fixtures.find(x => request.headers.get("authorization") === `Bearer ${x.token}`);
       if (!f || request.headers.get("apikey") !== serviceToken) return Response.json({}, { status: 401 });
@@ -167,20 +194,35 @@ try {
   bff = startServer(app, 0, "127.0.0.1");
   if (!bff.http.listening) await once(bff.http, "listening");
   const address = bff.http.address(); check(address && typeof address !== "string", "No BFF port");
-  const bffBase = `http://127.0.0.1:${address.port}`;
+  bffBase = `http://127.0.0.1:${address.port}`;
   phase = "Flutter -> BFF -> PostgREST -> PostgreSQL";
-  const child = Bun.spawn([flutter, "test", "--no-pub", "--reporter", "expanded", "test/existing_account_local_integration_test.dart"], {
-    cwd: mobile, env: { ...env, CHUM_LOCAL_ACCOUNT_FIXTURE: JSON.stringify({ bffBase, fixtures }) },
-    stdout: "pipe", stderr: "pipe",
-  });
-  const timeout = setTimeout(() => child.kill(), 90000);
-  const [code, output, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  clearTimeout(timeout);
-  // Test output is synthetic-only; scrub every generated token defensively.
-  let safe = output + error;
-  for (const token of [serviceToken, jwtSecret, ...fixtures.map(f => f.token)]) safe = safe.replaceAll(token, "<redacted>");
-  console.log(safe.trim());
-  check(code === 0, "Cross-language Flutter tests failed");
+  if (deviceMode) {
+    console.log(`DEVICE_LOCAL_GATEWAY=http://127.0.0.1:${gateway.port}`);
+    console.log(`DEVICE_LOCAL_BFF=${bffBase}`);
+    console.log("Waiting for five existing Profile/Settings device cases; synthetic approvals only");
+    const stop = () => finishDevice();
+    process.once("SIGINT", stop); process.once("SIGTERM", stop);
+    const timeout = setTimeout(stop, 15 * 60 * 1000);
+    await deviceFinished;
+    clearTimeout(timeout);
+    process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop);
+    check(deviceReports.size === fixtures.length, "Device run interrupted or incomplete");
+    check((rpcRequests.get("/rest/v1/rpc/fetch_user_profile") ?? 0) >= 10,
+      "Device did not reload original profiles through PostgREST before and after linking");
+  } else {
+    const child = Bun.spawn([flutter!, "test", "--no-pub", "--reporter", "expanded", "test/existing_account_local_integration_test.dart"], {
+      cwd: mobile, env: { ...env, CHUM_LOCAL_ACCOUNT_FIXTURE: JSON.stringify({ bffBase, fixtures }) },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const timeout = setTimeout(() => child.kill(), 90000);
+    const [code, output, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    clearTimeout(timeout);
+    // Test output is synthetic-only; scrub every generated token defensively.
+    let safe = output + error;
+    for (const token of [serviceToken, jwtSecret, ...fixtures.map(f => f.token)]) safe = safe.replaceAll(token, "<redacted>");
+    console.log(safe.trim());
+    check(code === 0, "Cross-language Flutter tests failed");
+  }
   phase = "database preservation assertions";
   const rows: Array<{ id: string; wallet_address: string; full_name: string; handle: string;
     history: unknown; auth_user_id: string | null }> =
@@ -213,5 +255,5 @@ try {
   if (started) pg("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"]);
   // Keep only this stopped synthetic cluster as an inspectable test artifact.
   console.log(`Local cluster stopped; synthetic artifacts retained at ${root}`);
-  if (succeeded) console.log("PASS account-link local integration; no live app/provider/database touched");
+  if (succeeded) console.log(`PASS account-link ${deviceMode ? "device/local" : "local"} integration; no live app/provider/database touched`);
 }
