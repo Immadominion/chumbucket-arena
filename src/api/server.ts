@@ -36,7 +36,7 @@ const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined
   return v.startsWith("Bearer ") ? v.slice(7) : v;
 };
 
-export function startServer(app: App, port: number) {
+export function startServer(app: App, port: number, host?: string) {
   const http = createHTTPServer({
     router: appRouter,
     createContext: (opts) => makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req)),
@@ -89,6 +89,8 @@ export function startServer(app: App, port: number) {
   });
 
   http.on("close", () => wsHandler.broadcastReconnectNotification());
-  http.listen(port);
+  // Local integration rigs bind loopback explicitly; deployed callers retain
+  // the existing default host when they omit this optional argument.
+  http.listen(port, host);
   return { http, wss, wsHandler };
 }
