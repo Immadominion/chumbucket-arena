@@ -89,6 +89,7 @@ const RESPONSES_TABLE = "call_responses";
 const RESULTS_TABLE = "call_results";
 const USERS_TABLE = "users";
 const FOLLOWS_TABLE = "follows";
+const PERSON_FOLLOWS_TABLE = "person_follows";
 const CURSORS_TABLE = "indexer_cursors";
 
 export interface SupabaseCallsStoreOptions {
@@ -197,6 +198,16 @@ export class SupabaseCallsStore implements CallsStore {
       if (!row.follower_user_id || !row.followee_user_id) continue;
       this.mirror.follow(row.follower_user_id, row.followee_user_id);
       report.follows++;
+    }
+
+    // Canonical, wallet-optional edges. Keep reading legacy edges above so an
+    // existing user's social graph survives the product update unchanged.
+    for (const row of await this.page<{ follower_user_id: string; followee_user_id: string }>(
+      PERSON_FOLLOWS_TABLE,
+      () => new URLSearchParams({ select: "follower_user_id,followee_user_id", order: "created_at.asc" }),
+    )) {
+      if (!this.mirror.isFollowing(row.follower_user_id, row.followee_user_id)) report.follows++;
+      this.mirror.follow(row.follower_user_id, row.followee_user_id);
     }
 
     // ── calls, oldest first so a Back/Fade's parent always exists already ──
@@ -325,33 +336,18 @@ export class SupabaseCallsStore implements CallsStore {
     return this.mirror.listPeople();
   }
 
-  // ── follow graph (public.follows) ─────────────────────────────────────────
+  // ── follow graph (canonical person_follows + legacy follows) ─────────────
 
   follow(followerUserId: string, followeeUserId: string): void {
     if (followerUserId === followeeUserId) return; // follows_not_self
     if (this.mirror.isFollowing(followerUserId, followeeUserId)) return; // idempotent
     this.mirror.follow(followerUserId, followeeUserId);
 
-    this.queue.push(`insert ${FOLLOWS_TABLE}/${followerUserId}->${followeeUserId}`, async () => {
-      // `follows.follower_wallet` / `followee_wallet` are NOT NULL with a
-      // not-empty CHECK — the table predates canonical ids. A wallet-less
-      // account therefore cannot be represented, and inventing a placeholder
-      // would put a string that authorises nothing into a column other code
-      // reads as a credential (§0.3). Refuse instead.
-      const follower = this.requireWallet(followerUserId);
-      const followee = this.requireWallet(followeeUserId);
+    this.queue.push(`insert ${PERSON_FOLLOWS_TABLE}/${followerUserId}->${followeeUserId}`, async () => {
       await this.pg.insert(
-        FOLLOWS_TABLE,
-        [
-          {
-            network: this.network,
-            follower_wallet: follower,
-            followee_wallet: followee,
-            follower_user_id: followerUserId,
-            followee_user_id: followeeUserId,
-          },
-        ],
-        { onConflict: "network,follower_wallet,followee_wallet", ignoreDuplicates: true },
+        PERSON_FOLLOWS_TABLE,
+        [{ follower_user_id: followerUserId, followee_user_id: followeeUserId }],
+        { onConflict: "follower_user_id,followee_user_id", ignoreDuplicates: true },
       );
     });
   }
@@ -359,6 +355,15 @@ export class SupabaseCallsStore implements CallsStore {
   unfollow(followerUserId: string, followeeUserId: string): void {
     if (!this.mirror.isFollowing(followerUserId, followeeUserId)) return;
     this.mirror.unfollow(followerUserId, followeeUserId);
+    this.queue.push(`delete ${PERSON_FOLLOWS_TABLE}/${followerUserId}->${followeeUserId}`, async () => {
+      await this.pg.remove(PERSON_FOLLOWS_TABLE, new URLSearchParams({
+        follower_user_id: `eq.${followerUserId}`,
+        followee_user_id: `eq.${followeeUserId}`,
+      }));
+    });
+    // A legacy edge may be the reason the person appeared as followed. Remove
+    // only this canonical pair on the configured network; do not touch any
+    // other wallet relationship or rewrite the legacy table's schema.
     this.queue.push(`delete ${FOLLOWS_TABLE}/${followerUserId}->${followeeUserId}`, async () => {
       await this.pg.remove(
         FOLLOWS_TABLE,
@@ -379,16 +384,6 @@ export class SupabaseCallsStore implements CallsStore {
     return this.mirror.followingOf(followerUserId);
   }
 
-  private requireWallet(userId: string): string {
-    const wallet = this.mirror.getPerson(userId)?.walletAddress;
-    if (!wallet) {
-      throw new PgrestError(
-        `[persist] ${FOLLOWS_TABLE}: user ${userId} has no linked wallet, and follows.follower_wallet/followee_wallet are NOT NULL with a non-empty CHECK. The follow is held in memory only; it cannot be persisted until the account has a wallet credential.`,
-        { sqlState: "23502", details: { userId } },
-      );
-    }
-    return wallet;
-  }
 
   // ── calls ─────────────────────────────────────────────────────────────────
 

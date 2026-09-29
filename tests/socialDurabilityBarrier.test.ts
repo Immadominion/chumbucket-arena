@@ -51,3 +51,27 @@ test("rejected persistence cannot be acknowledged or exposed later from the mirr
   await expect(r.caller.calls.feed({ mode: "global" })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   await expect(r.caller.calls.get({ callId: r.store.listCalls()[0]!.id })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 });
+
+test("a follow is not acknowledged until its canonical edge is durable", async () => {
+  let start!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => start = resolve);
+  const blocked = new Promise<void>(resolve => release = resolve);
+  const r = await rig((async () => {
+    start();
+    await blocked;
+    return Response.json([]);
+  }) as unknown as typeof fetch);
+  const target = crypto.randomUUID();
+  r.store.upsertPerson(person(target, { walletAddress: null }));
+  let acknowledged = false;
+  const following = r.caller.people.follow({ personRef: target }).then(state => {
+    acknowledged = true;
+    return state;
+  });
+  await started;
+  expect(acknowledged).toBe(false);
+  release();
+  expect(await following).toEqual({ personId: target, following: true });
+  expect(acknowledged).toBe(true);
+});

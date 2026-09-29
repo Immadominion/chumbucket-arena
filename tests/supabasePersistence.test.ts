@@ -779,7 +779,7 @@ describe("the database fights back, and the write is fixed rather than the const
     expect(r.failures[0]?.message).toContain("newId override in src/calls/runtime.ts");
   });
 
-  test("a follow for a wallet-less account is refused instead of inventing a credential", async () => {
+  test("a walletless follow persists by person id without inventing a credential", async () => {
     const r = await rig();
     seedUser(r.fake, UUIDS.carol, { handle: "carol", wallet: null });
     await r.calls.resync();
@@ -787,19 +787,24 @@ describe("the database fights back, and the write is fixed rather than the const
     r.calls.follow(UUIDS.alice, UUIDS.carol);
     await r.queue.drain();
     expect(r.fake.rows("follows")).toHaveLength(0);
-    expect(r.failures[0]?.sqlState).toBe("23502");
+    expect(r.fake.rows("person_follows")).toHaveLength(1);
+    expect(r.fake.rows("person_follows")[0]).toMatchObject({
+      follower_user_id: UUIDS.alice, followee_user_id: UUIDS.carol,
+    });
+    expect(r.failures).toEqual([]);
 
-    r.failures.length = 0;
     r.calls.follow(UUIDS.alice, UUIDS.bob);
     await r.queue.drain();
-    expect(r.fake.rows("follows")).toHaveLength(1);
+    expect(r.fake.rows("person_follows")).toHaveLength(2);
     expect(r.failures).toEqual([]);
 
     const after = await redeploy(r.fake, r.clock);
+    expect(after.calls.isFollowing(UUIDS.alice, UUIDS.carol)).toBe(true);
     expect(after.calls.isFollowing(UUIDS.alice, UUIDS.bob)).toBe(true);
     r.calls.unfollow(UUIDS.alice, UUIDS.bob);
     await r.queue.drain();
     expect(r.fake.rows("follows")).toHaveLength(0);
+    expect(r.fake.rows("person_follows")).toHaveLength(1);
   });
 });
 

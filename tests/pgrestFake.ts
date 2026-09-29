@@ -54,6 +54,10 @@ const TABLES: Record<string, TableSpec> = {
     pk: ["network", "follower_wallet", "followee_wallet"],
     uuid: ["follower_user_id", "followee_user_id"],
   },
+  person_follows: {
+    pk: ["follower_user_id", "followee_user_id"],
+    uuid: ["follower_user_id", "followee_user_id"],
+  },
   indexer_cursors: { pk: ["network", "source", "cursor_key"] },
   linked_wallets: { pk: ["wallet_address"], uuid: ["user_id"] },
   venue_markets: {
@@ -468,6 +472,12 @@ export class PgrestFake {
           throw new SqlError(400, "23502", `null value in column "${col}" violates not-null constraint`);
         }
       }
+    }
+    if (table === "person_follows") {
+      if (!this.exists("users", "id", row.follower_user_id) || !this.exists("users", "id", row.followee_user_id)) {
+        throw fk("person_follows_user_fkey");
+      }
+      if (row.follower_user_id === row.followee_user_id) throw check("person_follows_not_self", "self follow");
     }
 
     if (table === "calls") {

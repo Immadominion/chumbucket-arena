@@ -203,8 +203,23 @@ export class CallsService {
     return {
       person: this.decorate(person),
       calls: calls.map((c) => this.entryOf(c, viewerUserId)),
+      viewerIsFollowing: viewerUserId !== null && viewerUserId !== person.id
+        ? this.store.isFollowing(viewerUserId, person.id) : false,
       servedAt: this.clock.now(),
     };
+  }
+
+  /** The actor is supplied by the verified session, never by the request. */
+  setFollowing(args: { personRef: string; following: boolean }, actorUserId: string): {
+    personId: string; following: boolean;
+  } {
+    const person = this.resolvePerson(args.personRef);
+    if (person.id === actorUserId) {
+      throw new CallsError("FOLLOW_SELF", "You can't follow yourself.");
+    }
+    if (args.following) this.store.follow(actorUserId, person.id);
+    else this.store.unfollow(actorUserId, person.id);
+    return { personId: person.id, following: args.following };
   }
 
   // ── 6. calls.create ───────────────────────────────────────────────────────

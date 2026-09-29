@@ -178,6 +178,7 @@ export interface CallDetail {
 export interface PersonDetail {
   person: Person;
   calls: CallFeedEntry[];
+  viewerIsFollowing: boolean;
   servedAt: number;
 }
 

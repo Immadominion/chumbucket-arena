@@ -32,8 +32,8 @@ const patched = router({
 const pathsOf = (r: { _def: { procedures: Record<string, unknown> } }): string[] =>
   Object.keys(r._def.procedures).sort();
 
-describe("the integration patch composes to exactly the §5 surface", () => {
-  test("mounting the three sub-routers yields the eight declared paths", () => {
+describe("the integration patch keeps the original paths and adds canonical follow", () => {
+  test("mounting the three sub-routers yields the original eight plus two follow paths", () => {
     expect(pathsOf(patched)).toEqual([
       "calls.create",
       "calls.feed",
@@ -42,7 +42,9 @@ describe("the integration patch composes to exactly the §5 surface", () => {
       "calls.respond",
       "markets.detail",
       "markets.open",
+      "people.follow",
       "people.get",
+      "people.unfollow",
     ]);
   });
 

@@ -39,6 +39,7 @@ export type CallsErrorCode =
   | "RESPONSE_SELF"
   | "RESPONSE_DUPLICATE"
   | "PERSON_NOT_FOUND"
+  | "FOLLOW_SELF"
 
   // ── invariants the service must never be able to break (-> CallsFailure) ──
   /** An attempt to change a column §3 freezes after lockedAt. */
@@ -69,6 +70,7 @@ const REJECTED: ReadonlySet<CallsErrorCode> = new Set<CallsErrorCode>([
   "RESPONSE_SELF",
   "RESPONSE_DUPLICATE",
   "PERSON_NOT_FOUND",
+  "FOLLOW_SELF",
 ]);
 
 export interface CallsErrorInit {

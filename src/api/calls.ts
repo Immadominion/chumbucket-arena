@@ -1,12 +1,12 @@
 /**
  * `callsRouter` — Packet D's isolated tRPC surface.
  *
- * EXACTLY the eight procedures declared in
- * docs/contracts/integration-requests/packet-c.md §5, with those input and
- * output shapes:
+ * The original eight procedures declared in Packet C, with their paths and
+ * shapes preserved, plus walletless canonical people.follow/unfollow:
  *
  *   calls.feed · markets.open · markets.detail · calls.get
  *   people.get · calls.create · calls.respond · calls.invitations
+ *   people.follow · people.unfollow
  *
  * Deliberate properties:
  *  - it is ONE new file and touches no integration-owned file. Nesting it is
@@ -115,6 +115,7 @@ const CALLS_CODE_MAP: Record<CallsErrorCode, TRPC_ERROR_CODE_KEY> = {
   RESPONSE_SELF: "BAD_REQUEST",
   RESPONSE_DUPLICATE: "CONFLICT",
   PERSON_NOT_FOUND: "NOT_FOUND",
+  FOLLOW_SELF: "BAD_REQUEST",
 
   // invariants. Reaching one of these from a route means OUR bug, so it is
   // loud rather than dressed up as a user-facing refusal.
@@ -319,6 +320,28 @@ const peopleNamespace = router({
       return call(async () =>
         rt.service.getPerson({ personRef: input.personRef }, await viewerOf(rt, ctx)),
       );
+    }),
+  follow: publicProcedure
+    .input(z.object({ personRef: z.string().min(1).max(128) }).strict())
+    .mutation(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        const actor = await requireViewer(rt, ctx);
+        const state = rt.service.setFollowing({ personRef: input.personRef, following: true }, actor);
+        await rt.durable?.flush();
+        return state;
+      });
+    }),
+  unfollow: publicProcedure
+    .input(z.object({ personRef: z.string().min(1).max(128) }).strict())
+    .mutation(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        const actor = await requireViewer(rt, ctx);
+        const state = rt.service.setFollowing({ personRef: input.personRef, following: false }, actor);
+        await rt.durable?.flush();
+        return state;
+      });
     }),
 });
 

@@ -57,6 +57,33 @@ test("HTTP bearer -> verified walletless person -> immutable free call", async (
   expect(result.body.result.data.json.call.fundingState).toBe("NONE");
 });
 
+test("verified walletless person follows by canonical id, with no client-selected actor", async () => {
+  const r = await rig();
+  const privateCall = r.rt.service.createCall({ marketId: "btc", side: "YES", visibility: "followers" }, "victim");
+  expect(r.rt.service.getPerson({ personRef: "victim" }, "alice").calls).toHaveLength(0);
+  const first = await r.post("people.follow", { personRef: "victim" }, "alice-session");
+  expect(first.status).toBe(200);
+  expect(first.body.result.data.json).toEqual({ personId: "victim", following: true });
+  expect((await r.post("people.follow", { personRef: "victim" }, "alice-session")).status).toBe(200);
+  expect(r.rt.store.followingOf("alice")).toEqual(["victim"]);
+  expect(r.rt.service.getPerson({ personRef: "victim" }, "alice").calls[0]?.call.id).toBe(privateCall.call.id);
+  expect(r.rt.service.getPerson({ personRef: "victim" }, "alice").viewerIsFollowing).toBe(true);
+  expect(r.rt.service.getPerson({ personRef: "victim" }, null).calls).toHaveLength(0);
+  for (const input of [
+    { personRef: "victim", userId: "victim" },
+    { personRef: "victim", viewerUserId: "victim" },
+    { personRef: "victim", wallet: "Wallet_victim" },
+  ]) expect((await r.post("people.follow", input, "alice-session")).status).toBe(400);
+  expect((await r.post("people.follow", { personRef: "victim" }, "bob-session")).status).toBe(401);
+  expect((await r.post("people.follow", { personRef: "alice" }, "alice-session")).status).toBe(400);
+  expect((await r.post("people.follow", { personRef: "missing" }, "alice-session")).status).toBe(404);
+  const removed = await r.post("people.unfollow", { personRef: "victim" }, "alice-session");
+  expect(removed.status).toBe(200);
+  expect(removed.body.result.data.json).toEqual({ personId: "victim", following: false });
+  expect(r.rt.store.followingOf("alice")).toEqual([]);
+  expect(r.rt.service.getPerson({ personRef: "victim" }, "alice").calls).toHaveLength(0);
+});
+
 test("DevAuth wallet impersonation is never a social session", async () => {
   const r = await rig(true);
   for (const bearer of [undefined, "Wallet_victim", "invalid-session"]) {

@@ -1,7 +1,7 @@
 /**
  * The BFF-side store for the social-call layer. Mirrors, one-for-one, the three
  * tables added by the Packet D migrations (calls, call_responses, call_results)
- * plus the two pre-existing tables they read (public.users, public.follows), so
+ * plus the person directory and the legacy/canonical follow graphs, so
  * the in-memory implementation and the SQL implementation enforce the SAME
  * invariants:
  *
@@ -82,7 +82,7 @@ export interface CallsStore {
   getPersonByWallet(wallet: string): Person | undefined;
   listPeople(): Person[];
 
-  // ── follow graph (mirrors public.follows) ─────────────────────────────────
+  // ── follow graph (legacy follows + canonical person_follows) ─────────────
   follow(followerUserId: string, followeeUserId: string): void;
   unfollow(followerUserId: string, followeeUserId: string): void;
   isFollowing(followerUserId: string, followeeUserId: string): boolean;

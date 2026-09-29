@@ -1,5 +1,5 @@
 /**
- * The eight procedures, end to end through createCaller — and the two
+ * The original eight call procedures, end to end through createCaller — and the two
  * behaviours the client CANNOT enforce (integration-requests/packet-c.md §5):
  *
  *   1. `crowdSplit` is null until the CALLER has a locked call on that market.
@@ -40,8 +40,8 @@ async function scene() {
   };
 }
 
-describe("all eight procedures exist with the packet-c §5 shapes", () => {
-  test("the surface is EXACTLY the eight procedures packet-c §5 declares", () => {
+describe("the call procedures plus canonical follow actions", () => {
+  test("the original eight paths remain stable and person follow adds two paths", () => {
     // The dotted paths are what a caller types, and they must match the §5
     // table character for character: no more procedures, no fewer, no renames.
     expect(Object.keys(callsRouter._def.procedures).sort()).toEqual([
@@ -52,7 +52,9 @@ describe("all eight procedures exist with the packet-c §5 shapes", () => {
       "calls.respond",
       "markets.detail",
       "markets.open",
+      "people.follow",
       "people.get",
+      "people.unfollow",
     ]);
   });
 
