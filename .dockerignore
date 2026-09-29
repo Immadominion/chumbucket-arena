@@ -2,6 +2,10 @@ node_modules
 .git
 .env
 .env.local
+.env.*
+*.key
+sessions-wallet.json
+.gstack
 data
 *.sqlite
 *.sqlite-*
