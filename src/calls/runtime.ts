@@ -30,6 +30,7 @@
 import type { AppConfig } from "../config.ts";
 import type { EventStore } from "../core/eventstore/EventStore.ts";
 import { systemClock, type Clock } from "../prediction/clock.ts";
+import { VenueError } from "../prediction/errors.ts";
 import type { FetchImpl } from "../prediction/pgrest.ts";
 import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runtime.ts";
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
@@ -159,7 +160,7 @@ export function buildCallsRuntime(
   });
 
   const service = new CallsService({
-    allowPantaCalls: overrides.allowPantaCalls,
+    allowPantaCalls: overrides.allowPantaCalls ?? (appConfig?.predictions?.pantaSchemaReady === true),
     store,
     markets,
     clock,
@@ -204,16 +205,11 @@ export function buildCallsRuntime(
       ? (prediction?.ready ?? Promise.resolve()).then(() =>
           durable.hydrate().then(
             () => undefined,
-            (err: unknown) => {
-              console.error(
-                `[persist] calls hydrate FAILED; the mirror is empty and the feed will under-report until a resync succeeds: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              );
-            },
+            () => { throw new VenueError("VENUE_UNAVAILABLE", "Call database is unavailable; no empty-feed fallback", { venue: prediction?.config.venue }); },
           ),
         )
       : (prediction?.ready ?? Promise.resolve());
+  void ready.catch(() => undefined);
 
   let detach: (() => void) | null = null;
   return {

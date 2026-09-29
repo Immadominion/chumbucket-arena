@@ -48,6 +48,7 @@ test("market identity, seconds, exact chain rules and provider attribution survi
   expect(m.id).not.toBe(marketUuid('polymarket', id));
   expect(m.venueMarketId).toBe(id); expect(m.venue).toBe('panta');
   expect(m.closesAt).toBe(1_780_000_000_000);
+  expect(m.opensAt).toBeNull(); // native startTime is the event start, not trading availability
   expect(m.rulesText).toBe('Exact synthetic settlement rule.');
   expect(m.resolutionSource).toBe(`https://live-api.panta.market/api/v1/markets/${id}/`);
   expect(m.status).toBe('OPEN'); expect(venue.rawPayload(id)?.body).toEqual(row());
@@ -77,9 +78,20 @@ test("missing question/rules is unavailable, never replaced with invented metada
 });
 
 test("empty filtered pages retain the upstream cursor rather than stopping a sync", async () => {
-  const { venue, http } = rig({ items: [row({ title: '' })], nextCursor: id });
+  const { venue, http } = rig({ items: [row({ title: '', endTime: 1_750_000_001 })], nextCursor: id });
   expect(await venue.listEvents({})).toMatchObject({ events: [], nextCursor: id });
   expect(http.calls).toHaveLength(1);
+});
+
+test("blank live list titles are hydrated from detail, not silently removed from discovery", async () => {
+  const clock = new TestClock();
+  const http = stubFetch(url => url.pathname.endsWith('/markets/')
+    ? jsonResponse({items:[row({title:''})],nextCursor:null}) : jsonResponse(row()));
+  const venue = new PantaVenue({apiKey:key,clock,fetchImpl:http.fetch});
+  const page = await venue.listEvents({status:['OPEN'],query:'synthetic'});
+  expect(page.events).toHaveLength(1);
+  expect(page.events[0]!.title).toBe('Synthetic crypto question?');
+  expect(http.calls).toHaveLength(2);
 });
 
 for (const [label, patch] of [
@@ -233,10 +245,10 @@ test("all execution/portfolio methods refuse without network even if a caller fl
   expect((await venue.getTradingStatus()).tradingEnabled).toBe(false); expect(http.calls).toHaveLength(0);
 });
 
-test("config explicitly selects Panta, masks key, forces money off and refuses missing/test key", () => {
+test("config selects Panta, honors the native emergency switch and refuses missing/test key", () => {
   const app = loadConfig({ PREDICTION_VENUE: 'panta', PANTA_API_KEY: key, FUNDED_POSITIONS: 'true' });
   const cfg = resolvePredictionConfig(app, {});
-  expect(cfg.venue).toBe('panta'); expect(cfg.flags.fundedPositions).toBe(false);
+  expect(cfg.venue).toBe('panta'); expect(cfg.flags.fundedPositions).toBe(true);
   expect(buildPredictionRuntime(app).venue).toBeInstanceOf(PantaVenue);
   const described = describePredictionConfig(cfg);
   expect(described.pantaConfigured).toBe(true); expect(JSON.stringify(described)).not.toContain(key);

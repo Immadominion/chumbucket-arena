@@ -88,14 +88,17 @@ export interface AppConfig {
   /**
    * Packet B — venue-backed prediction markets. The API key is SERVER-SIDE
    * ONLY: it must never reach a response body, a log line or a client.
-   * Panta is the only live provider; funded positions remain disabled.
+   * Panta is the only live provider. Funded actions use signed native intents,
+   * not the legacy wallet-string order endpoints.
    * Historical venue names are retained in the type so stale config is refused
    * explicitly. Fixture config is injected by tests, never selected from env.
    */
   predictions?: {
     venue?: "jupiter" | "polymarket" | "panta" | "fixture";
     jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
-    panta?: { apiKey: string; timeoutMs?: number };
+    panta?: { apiKey: string; timeoutMs?: number; programId?: string; partnerUserId?: string };
+    pantaSchemaReady?: boolean;
+    maxAmountBaseUnits?: string;
     flags?: { fundedPositions?: boolean };
   };
   /** TxLINE — live World Cup data + on-chain settlement verification. Unset → mock data, verification stubbed to always-pass. */
@@ -284,8 +287,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   // to serve another venue. Missing Panta credentials fail at runtime creation.
   cfg.predictions = {
     venue: livePredictionVenue(env.PREDICTION_VENUE),
-    ...(env.PANTA_API_KEY ? { panta: { apiKey: env.PANTA_API_KEY, timeoutMs: num(env.PANTA_TIMEOUT_MS, 8_000) } } : {}),
-    flags: { fundedPositions: false },
+    ...(env.PANTA_API_KEY ? { panta: { apiKey: env.PANTA_API_KEY, timeoutMs: num(env.PANTA_TIMEOUT_MS, 8_000), programId: env.PANTA_PROGRAM_ID, partnerUserId: env.PANTA_PARTNER_USER_ID } } : {}),
+    pantaSchemaReady: env.PANTA_SCHEMA_READY === "true",
+    maxAmountBaseUnits: env.PANTA_MAX_AMOUNT_BASE_UNITS ?? "100000000",
+    flags: { fundedPositions: env.FUNDED_POSITIONS === "true" },
   };
   if (env.TXLINE_API_BASE_URL && env.TXLINE_PROGRAM_ID && env.TXLINE_API_TOKEN && env.TXLINE_JWT) {
     cfg.txline = {

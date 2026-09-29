@@ -25,6 +25,7 @@ import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
 import { verifyCallProof, verifyGenericAction, verifySocialAction } from "../auth/WalletSignature.ts";
 import { authRouter } from "./authRoutes.ts";
 import { predictionsRouter } from "./predictions.ts";
+import { pantaTradingRouter } from "./pantaTrading.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
@@ -64,6 +65,8 @@ export const appRouter = router({
 
   /** Packet B — venue-backed prediction markets, orders and reconciliation. */
   predictions: predictionsRouter,
+  /** Native Panta buys: canonical session + exact wallet-signed transaction. */
+  pantaTrading: pantaTradingRouter,
 
   /** Packet D — free social calls, venue-derived results and receipts.
    *  Three keys rather than one: the client contract names the paths

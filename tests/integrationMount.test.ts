@@ -72,10 +72,10 @@ describe("pivot sub-routers are mounted on the root router", () => {
     expect(cfg.predictions?.flags?.fundedPositions).toBe(false);
   });
 
-  test("FUNDED_POSITIONS cannot enable the read-only Panta route", () => {
+  test("FUNDED_POSITIONS requires exact true for the native signed-intent flow", () => {
     expect(loadConfig({ FUNDED_POSITIONS: "1" }).predictions?.flags?.fundedPositions).toBe(false);
     expect(loadConfig({ FUNDED_POSITIONS: "yes" }).predictions?.flags?.fundedPositions).toBe(false);
-    expect(loadConfig({ FUNDED_POSITIONS: "true" }).predictions?.flags?.fundedPositions).toBe(false);
+    expect(loadConfig({ FUNDED_POSITIONS: "true" }).predictions?.flags?.fundedPositions).toBe(true);
   });
 
   test("the SIWS allowlist parses to a real list, and is absent when unset", () => {

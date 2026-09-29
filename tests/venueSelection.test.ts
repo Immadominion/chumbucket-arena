@@ -17,7 +17,7 @@ describe("Panta is the only live provider", () => {
     expect(cfg.venue).toBe("panta");
     expect(cfg.jupiter).toBeNull(); expect(cfg.polymarket).toBeNull();
     expect(app.predictions?.jupiter).toBeUndefined();
-    expect(cfg.flags.fundedPositions).toBe(false);
+    expect(cfg.flags.fundedPositions).toBe(true);
     expect(buildPredictionRuntime(app).venue).toBeInstanceOf(PantaVenue);
   });
 

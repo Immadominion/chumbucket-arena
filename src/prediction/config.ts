@@ -23,7 +23,9 @@ export interface PredictionConfigInput {
   venue?: VenueId;
   /** Historical input compatibility only; ignored and never enables an adapter. */
   jupiter?: { baseUrl?: string; apiKey: string; timeoutMs?: number };
-  panta?: { apiKey: string; timeoutMs?: number };
+  panta?: { apiKey: string; timeoutMs?: number; programId?: string };
+  pantaSchemaReady?: boolean;
+  maxAmountBaseUnits?: string;
   /** Historical input compatibility only; ignored and never enables an adapter. */
   polymarket?: { baseUrl?: string; timeoutMs?: number };
   flags?: { fundedPositions?: boolean };
@@ -90,9 +92,10 @@ export function resolvePredictionConfig(
     panta: venue === "panta" ? { apiKey: pantaKey!, timeoutMs: fromApp?.panta?.timeoutMs ?? num(env.PANTA_TIMEOUT_MS, 8_000) } : null,
     polymarket: null,
     flags: {
-      // Only synthetic fixture tests may exercise order transitions. No env flag
-      // can enable real money through this read-only Panta integration.
-      fundedPositions: venue === "fixture" && fromApp?.flags?.fundedPositions === true,
+      // Native Panta execution additionally requires durable schema and a
+      // pinned program, and accepts only an exact wallet-signed transaction.
+      fundedPositions: venue === "fixture" ? fromApp?.flags?.fundedPositions === true
+        : (fromApp?.flags?.fundedPositions ?? (env.FUNDED_POSITIONS === "true")),
     },
     cache,
     circuit: {

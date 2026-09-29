@@ -108,10 +108,10 @@ export function buildPredictionRuntime(
   const venue = overrides.venue ?? buildVenue(config, clock);
 
   const social = overrides.social ?? appConfig?.social;
-  if (config.venue === "panta" && social && !overrides.store) {
-    // No Panta schema/client migration has been approved. Do not silently
+  if (config.venue === "panta" && social && !overrides.store && appConfig?.predictions?.pantaSchemaReady !== true) {
+    // A deployment must explicitly acknowledge the applied Panta schema. Do not silently
     // replace a configured durable backend with a volatile in-memory mirror.
-    throw new VenueError("VENUE_MISCONFIGURED", "Panta durable app traffic is not enabled: migration review and device release validation are pending", { venue: "panta" });
+    throw new VenueError("VENUE_MISCONFIGURED", "Panta durable app traffic is not enabled: apply and verify the Panta schema before setting PANTA_SCHEMA_READY", { venue: "panta" });
   }
   let persistence = supabasePersistenceDecision({ social, venue: config.venue });
 
@@ -158,15 +158,12 @@ export function buildPredictionRuntime(
     durable && overrides.hydrate === true
       ? durable.hydrate().then(
           () => undefined,
-          (err: unknown) => {
-            console.error(
-              `[persist] prediction hydrate FAILED; the mirror is empty and reads will under-report until a resync succeeds: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-          },
+          () => { throw new VenueError("VENUE_UNAVAILABLE", "Prediction database is unavailable; no empty-feed fallback", { venue: config.venue }); },
         )
       : Promise.resolve();
+  // Consumers await the ORIGINAL promise. Attach a handler immediately so a
+  // cold-start refusal does not become an unhandled rejection before first use.
+  void ready.catch(() => undefined);
 
   return { config, venue, store, service, persistence, durable, marketSync, ready };
 }

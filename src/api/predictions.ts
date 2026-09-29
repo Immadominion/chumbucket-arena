@@ -83,6 +83,11 @@ const runtime = (config: AppConfig): PredictionRuntime => predictionRuntimeFor(c
  * too; this layer exists so a route can never be added that forgets.
  */
 function requireFundedPositions(rt: PredictionRuntime): void {
+  if (rt.config.venue === "panta") {
+    // DevAuth can treat an x-wallet string as identity. Never activate that
+    // legacy surface for real Panta money, even when the native flag is on.
+    throw new TRPCError({ code: "FORBIDDEN", message: "Use the reviewed, wallet-signed Panta trading flow" });
+  }
   if (!rt.config.flags.fundedPositions) {
     throw new TRPCError({
       code: "FORBIDDEN",

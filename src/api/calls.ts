@@ -152,7 +152,8 @@ const SIGN_IN = "Sign in to do that.";
  * caller — reading must keep working (§ packet-c: "reading never requires a
  * session, only writing does").
  */
-function viewerOf(rt: CallsRuntime, ctx: ViewerContext): Promise<string | null> {
+async function viewerOf(rt: CallsRuntime, ctx: ViewerContext): Promise<string | null> {
+  await rt.ready;
   return rt.viewer.resolve(ctx);
 }
 
@@ -226,7 +227,7 @@ const callsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
-      return rt.service.createCall(
+      const entry = rt.service.createCall(
         {
           marketId: input.marketId,
           side: input.side,
@@ -238,6 +239,10 @@ const callsNamespace = router({
         },
         actor,
       );
+      // The returned immutable call must exist after a server restart, and the
+      // native funded ledger references the actual persisted call, not a ghost.
+      await rt.durable?.flush();
+      return entry;
     });
   }),
 
@@ -253,7 +258,7 @@ const callsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
-      return rt.service.respond(
+      const response = rt.service.respond(
         {
           targetCallId: input.targetCallId,
           kind: input.kind,
@@ -264,6 +269,8 @@ const callsNamespace = router({
         },
         actor,
       );
+      await rt.durable?.flush();
+      return response;
     });
   }),
 
@@ -282,7 +289,7 @@ const marketsNamespace = router({
     .input(z.object({ category: z.string().max(64).nullish() }).strict().default({}))
     .query(({ ctx, input }) => {
       const rt = runtime(ctx.app.config);
-      return call(() => rt.service.openMarkets({ category: input.category ?? null }));
+      return call(async () => { await rt.ready; return rt.service.openMarkets({ category: input.category ?? null }); });
     }),
 
   /**

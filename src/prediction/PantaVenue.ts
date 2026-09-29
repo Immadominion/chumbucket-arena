@@ -96,14 +96,20 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
       });
       const events: EventPage["events"] = [];
       const raw: RawPayload[] = [];
+      const seen = new Set<string>();
       for (const catalog of page.rows) {
-        // No fake title or invented rule text; incomplete catalog rows are not calls.
-        if (!catalog.title.trim()) continue;
+        if (seen.has(catalog.marketId)) continue;
+        seen.add(catalog.marketId);
+        // Live Panta can supply title/rules ONLY on detail. Hydrate plausible
+        // open rows even with blank list titles; skip stale untitled history to
+        // stay within the provider read budget. Never invent the missing text.
+        if (!catalog.title.trim() && (catalog.endTime === null || catalog.endTime * 1000 <= this.clock.now() ||
+            catalog.phase === "resolved" || catalog.phase === "cancelled")) continue;
         if (filters.category && catalog.category !== filters.category) continue;
-        if (filters.query && !catalog.title.toLowerCase().includes(filters.query.toLowerCase())) continue;
         const detail = await this.detail(catalog.marketId);
         const market = this.normalize(detail);
         if (!market.question.trim() || !market.rulesText.trim()) continue;
+        if (filters.query && !market.question.toLowerCase().includes(filters.query.toLowerCase())) continue;
         if (filters.status && !filters.status.includes(market.status)) continue;
         events.push({ venue: "panta", venueEventId: market.venueEventId, title: market.question,
           category: market.category, markets: [market], demo: false });
@@ -161,7 +167,7 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
       kyc: false, executionModel: "hybrid", minimumOrder: "0", claimMode: "none", demo: false };
   }
   async getTradingStatus(): Promise<TradingStatus> {
-    return { venue: "panta", tradingEnabled: false, reason: "Powered by Panta. Chumbucket's Panta integration is read-only; orders and claims are not enabled. Eligibility has not been established.",
+    return { venue: "panta", tradingEnabled: false, reason: "Powered by Panta. This generic venue endpoint is read-only. Native wallet-approved primary buys use pantaTrading.status; generic orders and claims are not supported.",
       geoBlocked: false, kycRequired: false, minimumOrderBaseUnits: "0", observedAt: this.clock.now(), demo: false };
   }
   async createBuyOrder(_o: CreateOrderInput): Promise<UnsignedOrder> { return this.noTrading(); }
@@ -212,7 +218,10 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
     return { id: marketUuid("panta", r.marketId), venue: "panta", venueEventId: r.marketId,
       venueMarketId: r.marketId, question: r.title, rulesText: c?.resolutionRule ?? "",
       category: r.category, outcomes: [{ side: "YES", label: "Yes" }, { side: "NO", label: "No" }],
-      status, rawStatus: r.status, opensAt: r.startTime === null ? null : r.startTime * 1000,
+      // Panta startTime is the EVENT start (create requires a future start).
+      // Primary buys are available before that time, as live quote/build confirms.
+      // No trading-open timestamp is published; keep the native event time in raw evidence.
+      status, rawStatus: r.status, opensAt: null,
       closesAt, resolvesAt: r.resolutionTime === null ? null : r.resolutionTime * 1000,
       resolutionSource: `${PANTA_BASE_URL}/markets/${r.marketId}/`,
       lastSyncedAt: d.fetchedAt, payloadVersion: PANTA_PAYLOAD_VERSION };
