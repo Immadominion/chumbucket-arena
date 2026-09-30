@@ -52,7 +52,7 @@
 import { systemClock, type Clock } from "./clock.ts";
 import { isVenueError, schemaError } from "./errors.ts";
 import { capturesRaw, readsResolutions, readsIndicativePrices } from "./PredictionVenue.ts";
-import { sharePriceFromIndicative } from "./sharePrices.ts";
+import { SHARE_PRICE_MAX_AGE_MS, sharePriceFromIndicative } from "./sharePrices.ts";
 import type { EventFilters, PredictionVenue, RawPayload } from "./PredictionVenue.ts";
 import type { PredictionStore } from "./store.ts";
 import { isSettledStatus, marketUuid, type VenueId, type VenueMarket } from "./types.ts";
@@ -141,10 +141,10 @@ export class MarketSync {
     // every tick — 150 rows a minute, ~216,000 a day, on a product with no
     // calls on it yet. Almost all of it was the same number written again.
     //
-    // Ten minutes keeps a price fresh enough to call on and keeps the "data
-    // age" the UI shows honest, at a tenth of the write volume. It is a cost
-    // decision as much as a correctness one: these rows live in the founder's
-    // Supabase.
+    // This remains the legacy snapshot floor. Panta's independent share-price
+    // series refreshes before its call-eligibility deadline, and missing prices
+    // retry sooner; a successful HTTP response with null prices is not a usable
+    // observation. Both remain bounded by the same per-pass request budget.
     this.snapshotMaxAgeMs = Math.max(0, deps.snapshotMaxAgeMs ?? 600_000);
   }
 
@@ -241,8 +241,19 @@ export class MarketSync {
     for (const { market } of byClosingSoonest) {
       if (budget <= 0) break;
       if (market.status !== "OPEN") continue; // a settled price will never move again
-      const known = market.venue === "panta" ? this.store.latestSharePrice(market.id) : this.store.latestSnapshot(market.id);
-      if (known && now - known.observedAt < this.snapshotMaxAgeMs) continue;
+      const sharePrice = market.venue === "panta" ? this.store.latestSharePrice(market.id) : undefined;
+      const known = market.venue === "panta" ? sharePrice : this.store.latestSnapshot(market.id);
+      // A temporary RPC outage can yield null side prices in an otherwise
+      // valid Panta detail. Do not freeze discovery for ten minutes after RPC
+      // recovers. Retry missing sides after a minute; refresh complete prices
+      // at half their validity window to leave headroom for polling latency.
+      // Never extend freshness, retain an obsolete price over a newer null, or
+      // infer either side. A provider that remains unavailable stays uncallable.
+      const refreshAfter = market.venue === "panta"
+        ? Math.min(this.snapshotMaxAgeMs, sharePrice?.yesPrice != null && sharePrice.noPrice != null
+          ? SHARE_PRICE_MAX_AGE_MS / 2 : 60_000)
+        : this.snapshotMaxAgeMs;
+      if (known && now >= known.observedAt && now - known.observedAt < refreshAfter) continue;
       budget--;
       try {
         if (market.venue === "panta" && readsIndicativePrices(this.venue)) {

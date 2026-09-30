@@ -12,6 +12,10 @@ import { createApp } from "../src/app.ts";
 import { marketUuid } from "../src/prediction/types.ts";
 import { asWallet } from "../src/domain/ids.ts";
 import { harness, market, person } from "./socialCallsFixtures.ts";
+import { CallsService } from "../src/calls/CallsService.ts";
+import { InMemoryCallsStore } from "../src/calls/store.ts";
+import { predictionStoreReader } from "../src/calls/markets.ts";
+import { SHARE_PRICE_MAX_AGE_MS, usableSharePrice } from "../src/prediction/sharePrices.ts";
 
 // Synthetic rows with the documented/observed field names, NOT live evidence.
 const id = "11111111111111111111111111111111";
@@ -286,6 +290,72 @@ test("sync uses final detail evidence and never synthesizes probability snapshot
   expect(report.resolutionsRecorded).toBe(1); expect(report.snapshotsRecorded).toBe(0);
   expect(store.getResolution(marketUuid('panta', id))?.resolution).toBe('YES');
   expect((await sync.runOnce()).resolutionsRecorded).toBe(0);
+});
+
+function priceSyncRig(initial: Record<string, unknown>) {
+  let current = row(initial);
+  const clock = new TestClock();
+  const http = stubFetch(url => jsonResponse(url.pathname.endsWith('/markets/')
+    ? { items: [current], nextCursor: null } : current));
+  const venue = new PantaVenue({ apiKey: key, fetchImpl: http.fetch, clock });
+  const store = new InMemoryPredictionStore();
+  const sync = new MarketSync({ venue, store, clock, snapshotBudget: 1 });
+  const calls = new InMemoryCallsStore();
+  calls.upsertPerson(person('alice'));
+  const service = new CallsService({ store: calls, markets: predictionStoreReader(store), clock, allowPantaCalls: true });
+  return { clock, store, sync, service, calls, change: (patch: Record<string, unknown>) => { current = row(patch); } };
+}
+
+for (const missing of [{ yesPrice: null, noPrice: null }, { yesPrice: null }, { noPrice: null }]) {
+  test(`sync retries missing Panta side prices within the next minute: ${Object.keys(missing)}`, async () => {
+    const h = priceSyncRig(missing);
+    expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
+    const before = h.store.latestSharePrice(marketUuid('panta', id))!;
+    expect(h.service.openMarkets()).toEqual([]);
+    expect(() => h.service.createCall({ marketId: before.marketId, side: 'YES' }, 'alice')).toThrow('missing or stale');
+    h.change({ yesPrice: '0.41', noPrice: '0.62' });
+    // A repeated tick must not create a request/write loop.
+    expect((await h.sync.runOnce()).snapshotsRecorded).toBe(0);
+    h.clock.advance(60_000);
+    expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
+    const after = h.store.latestSharePrice(before.marketId)!;
+    expect(after).toMatchObject({ yesPrice: '0.41', noPrice: '0.62' });
+    expect(after.observedAt).toBeGreaterThan(before.observedAt);
+    expect(h.service.openMarkets().map(m => m.id)).toEqual([before.marketId]);
+    const call = h.service.createCall({ marketId: before.marketId, side: 'YES' }, 'alice');
+    expect(call.call.entryPrice).toEqual(after);
+    expect(call.call.entryProbability).toBeNull();
+    expect(call.call.fundingState).toBe('NONE');
+  });
+}
+
+test('sync keeps missing Panta prices uncallable across repeated retries', async () => {
+  const h = priceSyncRig({ yesPrice: null, noPrice: null });
+  await h.sync.runOnce();
+  h.clock.advance(60_000);
+  expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
+  expect(h.store.latestSharePrice(marketUuid('panta', id))).toMatchObject({ yesPrice: null, noPrice: null });
+  expect(h.service.openMarkets()).toEqual([]);
+  expect(h.calls.listCalls()).toEqual([]);
+});
+
+test('sync refreshes complete Panta prices before expiry and does not preserve them over a newer null', async () => {
+  const h = priceSyncRig({});
+  await h.sync.runOnce();
+  const first = h.store.latestSharePrice(marketUuid('panta', id))!;
+  h.clock.advance(SHARE_PRICE_MAX_AGE_MS / 2 - 5_000);
+  expect((await h.sync.runOnce()).snapshotsRecorded).toBe(0);
+  expect(h.store.latestSharePrice(first.marketId)).toEqual(first);
+  h.clock.advance(6_000);
+  expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
+  const refreshed = h.store.latestSharePrice(first.marketId)!;
+  expect(refreshed.observedAt).toBeGreaterThan(first.observedAt);
+  expect(usableSharePrice(refreshed, h.clock.now())).toBe(true);
+  h.change({ yesPrice: null, noPrice: null });
+  h.clock.advance(SHARE_PRICE_MAX_AGE_MS / 2);
+  expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
+  expect(h.service.openMarkets()).toEqual([]);
+  expect(usableSharePrice(h.store.latestSharePrice(first.marketId), h.clock.now())).toBe(false);
 });
 
 test("existing tRPC exposes native prices with attribution and rejects funded orders", async () => {
