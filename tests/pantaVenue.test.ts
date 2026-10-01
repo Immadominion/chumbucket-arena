@@ -185,7 +185,7 @@ test("unsupported keys and path injection are rejected before any request", asyn
   }
   const { venue, http } = rig();
   await expect(venue.getMarket('../account/keys')).rejects.toMatchObject({ code: 'VENUE_BAD_REQUEST' });
-  await expect(venue.listEvents({}, 'cursor&key=bad')).rejects.toMatchObject({ code: 'VENUE_BAD_REQUEST' });
+  await expect(venue.listEvents({}, 'cursor\ninvalid')).rejects.toMatchObject({ code: 'VENUE_BAD_REQUEST' });
   expect(http.calls).toHaveLength(0);
 });
 

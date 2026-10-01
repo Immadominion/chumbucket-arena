@@ -48,7 +48,11 @@ export function pantaPriceEvidenceMatches(body: unknown, prices: { yesPrice: str
   const parsed = rowSchema.pick({ yesPrice: true, noPrice: true }).safeParse(body);
   return parsed.success && parsed.data.yesPrice === prices.yesPrice && parsed.data.noPrice === prices.noPrice;
 }
-const pageSchema = z.object({ items: z.array(z.unknown()), nextCursor: address.nullish() });
+// Pagination tokens are opaque, NOT market public keys. Live responses use
+// 134-character tokens (observed 2026-10-01); validating them as addresses
+// rejected the entire catalog before a single row could be read.
+const cursorSchema = z.string().min(1).max(512).regex(/^[^\s\u0000-\u001f\u007f]+$/);
+const pageSchema = z.object({ items: z.array(z.unknown()), nextCursor: cursorSchema.nullish() });
 type Detail = { row: Row; raw: RawPayload; fetchedAt: number };
 export interface PantaVenueConfig {
   apiKey: string;
@@ -82,7 +86,9 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
   }
 
   async listEvents(filters: EventFilters, cursor?: string): Promise<EventPage> {
-    if (cursor !== undefined) this.checkAddress(cursor);
+    if (cursor !== undefined && !cursorSchema.safeParse(cursor).success) {
+      throw new VenueError("VENUE_BAD_REQUEST", "Invalid Panta pagination cursor", { venue: "panta" });
+    }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(50, filters.limit ?? 20))) });
     if (cursor) params.set("cursor", cursor);
     if (filters.category) params.set("category", filters.category);

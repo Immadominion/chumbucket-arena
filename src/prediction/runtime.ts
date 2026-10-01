@@ -148,7 +148,9 @@ export function buildPredictionRuntime(
   const marketSync = new MarketSync({ venue, store, clock,
     // Keep the old cursor intact for historical repair/rollback. Panta starts
     // its own walk; numeric Polymarket offsets are not Solana market ids.
-    ...(config.venue === "panta" ? {cursorKey:`${MARKET_SYNC_CURSOR}:panta`} : {}),
+    // All Panta categories are discoverable. Start an independent cursor walk
+    // so the old crypto-only continuation cannot skip other categories.
+    ...(config.venue === "panta" ? {cursorKey:`${MARKET_SYNC_CURSOR}:panta:all`, filters: {}} : {}),
     ...(overrides.marketSync ?? {}) });
 
   // One line, at most once per runtime, only when somebody actually configured

@@ -114,6 +114,22 @@ export const predictionsRouter = router({
 
   // ── reads: unaffected by the kill switch ──────────────────────────────────
 
+  /** Discovery is independent of price availability and call/trade eligibility.
+   * Read the normalized durable mirror, not a fan-out to the venue per phone.
+   * The worker refreshes every category; never return another live provider. */
+  catalog: publicProcedure
+    .input(z.object({ cursor: z.string().max(256).optional(), limit: z.number().int().min(1).max(100).default(100) }).strict().default({}))
+    .query(({ ctx, input }) => call(async () => {
+      const rt = runtime(ctx.app.config);
+      await rt.ready;
+      const rows = rt.store.listMarkets().map(row => row.market)
+        .filter(m => m.venue === rt.config.venue && (m.venue === "panta" || m.venue === "fixture"))
+        .sort((a,b) => a.id.localeCompare(b.id))
+        .filter(m => !input.cursor || m.id.localeCompare(input.cursor) > 0);
+      const markets = rows.slice(0, input.limit);
+      return { markets, nextCursor: rows.length > input.limit ? markets.at(-1)!.id : null };
+    })),
+
   listEvents: publicProcedure
     .input(z.object({ filters: eventFilters.optional(), cursor: z.string().max(512).optional() }).optional())
     .query(({ ctx, input }) => {
