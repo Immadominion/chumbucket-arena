@@ -220,6 +220,21 @@ export class InMemoryNotificationsStore implements NotificationsStore {
     return { notification, created: true };
   }
 
+  /**
+   * Adopt a row read back from Postgres, as it was stored: its own id, its own
+   * read state. Hydration only — the database already applied every rule when
+   * the row was first written. Indexed by the same dedupe key a fresh draft
+   * would get, so re-deriving after a restart finds it rather than adding a
+   * second, unread copy. Returns false when that key is already present.
+   */
+  restore(n: SocialNotification): boolean {
+    const lookup = JSON.stringify([n.recipientUserId, dedupeKeyFor(n)]);
+    if (this.byDedupe.has(lookup) || this.byId.has(n.id)) return false;
+    this.byId.set(n.id, { ...n, dedupeKey: dedupeKeyFor(n) });
+    this.byDedupe.set(lookup, n.id);
+    return true;
+  }
+
   get(id: string): SocialNotification | undefined {
     return this.byId.get(id);
   }
@@ -321,6 +336,11 @@ export class InMemoryNotificationsStore implements NotificationsStore {
     };
     this.records.set(key, next);
     return next;
+  }
+
+  /** Adopt a record row read back from Postgres. Hydration only. */
+  restoreRecordRow(row: CategoryRecordRow): void {
+    this.records.set(recordKey(row.userId, row.category, row.fundingClass), row);
   }
 
   recordRowsFor(userId: string): CategoryRecordRow[] {

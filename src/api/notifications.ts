@@ -111,6 +111,23 @@ async function requireViewer(rt: NotificationsRuntime, ctx: ViewerContext): Prom
 }
 
 /**
+ * The inbox mirror, read back from Postgres, before anything derives into it
+ * or reads from it. Deriving into an empty mirror would hand out fresh copies
+ * of notifications the person has already read. If the read fails, say so;
+ * the next request tries again.
+ */
+async function inboxReady(rt: NotificationsRuntime): Promise<void> {
+  try {
+    await rt.ready();
+  } catch {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Your inbox is unavailable right now. Please try again shortly.",
+    });
+  }
+}
+
+/**
  * One derivation pass before an inbox read, when `deriveOnRead` is on (it is by
  * default). The pass is idempotent and bounded, so this is pull-to-refresh
  * semantics and not a write hidden in a query: running it twice produces the
@@ -146,6 +163,7 @@ const notificationsNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         const viewer = await requireViewer(rt, ctx);
+        await inboxReady(rt);
         refresh(rt);
         return rt.service.inbox(
           { cursor: input.cursor ?? null, limit: input.limit, unreadOnly: input.unreadOnly },
@@ -159,6 +177,7 @@ const notificationsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const viewer = await requireViewer(rt, ctx);
+      await inboxReady(rt);
       refresh(rt);
       return rt.service.unreadCount(viewer);
     });
@@ -181,6 +200,7 @@ const notificationsNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         const viewer = await requireViewer(rt, ctx);
+        await inboxReady(rt);
         return rt.service.markRead(input.ids ?? null, viewer);
       });
     }),
