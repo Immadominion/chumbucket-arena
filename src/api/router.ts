@@ -27,6 +27,7 @@ import { authRouter } from "./authRoutes.ts";
 import { predictionsRouter } from "./predictions.ts";
 import { pantaTradingRouter } from "./pantaTrading.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
+import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -74,6 +75,14 @@ export const appRouter = router({
   calls: socialCallsRouter,
   markets: socialMarketsRouter,
   people: socialPeopleRouter,
+
+  /** Packet F — the session-scoped calls inbox and call record. Mounted as
+   *  `inbox` rather than `notifications`: that root key is the legacy
+   *  wallet-keyed procedure, which installed apps still call, so it stays as
+   *  it is and nothing shipped breaks. Paths: inbox.list, inbox.unreadCount,
+   *  inbox.markRead, record.mine, record.get. */
+  inbox: socialNotificationsRouter,
+  record: socialRecordRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({
