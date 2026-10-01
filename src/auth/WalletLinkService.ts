@@ -116,6 +116,14 @@ export interface WalletLinkDeps {
   now?: () => number;
   /** Override only in tests. Production uses 32 bytes of CSPRNG. */
   makeNonce?: () => string;
+  /** See `resolveWalletProfileCarry`. Default off. */
+  walletProfileCarry?: boolean;
+}
+
+export interface CreateProfileInput {
+  accessToken: string;
+  displayName: string;
+  handle: string;
 }
 
 export class WalletLinkService {
@@ -142,10 +150,54 @@ export class WalletLinkService {
     const session = await this.deps.verifier.verify(token);
     if (!session) failAuth("AUTH_TOKEN_INVALID");
 
-    const userId = await this.deps.store.userIdForAuthUser(session.authUserId);
+    let userId = await this.deps.store.userIdForAuthUser(session.authUserId);
+    // A wallet sign-in reaches the account that wallet already has — once the
+    // old client-writable wallet mappings are closed (see the runtime flag).
+    if (!userId && session.solanaWallet && this.deps.walletProfileCarry === true) {
+      const carried = await this.deps.store.bindWalletSession(session.authUserId, session.solanaWallet);
+      if (carried.ok && typeof carried.user_id === "string") userId = carried.user_id;
+    }
     if (!userId) failAuth("AUTH_USER_UNLINKED");
 
     return { authUserId: session.authUserId, userId };
+  }
+
+  /**
+   * A verified sign-in with no account yet claims a @username. A wallet
+   * sign-in attaches the wallet Supabase Auth verified — never one the client
+   * names — and a wallet that already has an account is refused rather than
+   * given a second one.
+   */
+  async createProfile(input: CreateProfileInput): Promise<AuthedIdentity> {
+    if (!this.deps.store.enabled) failAuth("IDENTITY_NOT_CONFIGURED");
+    const token = (input.accessToken ?? "").trim();
+    if (!token) failAuth("AUTH_TOKEN_MISSING");
+    const session = await this.deps.verifier.verify(token);
+    if (!session) failAuth("AUTH_TOKEN_INVALID");
+
+    const result = await this.deps.store.createPersonWithUsername({
+      authUserId: session.authUserId,
+      displayName: input.displayName,
+      handle: input.handle,
+      walletAddress: session.solanaWallet ?? null,
+    });
+    if (result.ok && typeof result.user_id === "string") {
+      return { authUserId: session.authUserId, userId: result.user_id };
+    }
+    switch (result.reason) {
+      case "handle_invalid":
+        failAuth("USERNAME_INVALID");
+      case "handle_reserved":
+        failAuth("USERNAME_RESERVED");
+      case "handle_taken":
+        failAuth("USERNAME_TAKEN");
+      case "invalid_name":
+        failAuth("PROFILE_NAME_INVALID");
+      case "wallet_has_profile":
+        failAuth("WALLET_HAS_PROFILE");
+      default:
+        failAuth("IDENTITY_STORE_ERROR");
+    }
   }
 
   /**

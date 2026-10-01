@@ -79,6 +79,12 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   LEGACY_CLAIM_FAILED: "INTERNAL_SERVER_ERROR",
 
   IDENTITY_STORE_ERROR: "INTERNAL_SERVER_ERROR",
+
+  USERNAME_INVALID: "BAD_REQUEST",
+  USERNAME_RESERVED: "BAD_REQUEST",
+  USERNAME_TAKEN: "CONFLICT",
+  PROFILE_NAME_INVALID: "BAD_REQUEST",
+  WALLET_HAS_PROFILE: "CONFLICT",
 };
 
 /** Run a procedure body: DomainError -> transport via guard(), then our own
@@ -98,7 +104,12 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
  *  createApp; the runtime is memoised per config object. */
 function serviceFor(config: AppConfig): WalletLinkService {
   const rt = authIdentityRuntimeFor(config);
-  return new WalletLinkService({ store: rt.store, verifier: rt.verifier, policy: rt.policy });
+  return new WalletLinkService({
+    store: rt.store,
+    verifier: rt.verifier,
+    policy: rt.policy,
+    walletProfileCarry: rt.walletProfileCarry === true,
+  });
 }
 
 function existingAccountService(config: AppConfig): ExistingAccountClaimService {
@@ -136,8 +147,18 @@ export const authRouter = router({
     .input(z.object({
       supabaseAccessToken: accessToken,
       displayName: z.string().trim().min(1).max(60).regex(/^[^\u0000-\u001f\u007f]+$/),
+      /** The @username to claim. Builds that predate usernames omit it and
+       *  get the generated handle, exactly as before. */
+      handle: z.string().trim().min(1).max(40).optional(),
     }).strict())
     .mutation(({ ctx, input }) => run(async () => {
+      if (input.handle !== undefined) {
+        return serviceFor(ctx.app.config).createProfile({
+          accessToken: input.supabaseAccessToken,
+          displayName: input.displayName,
+          handle: input.handle,
+        });
+      }
       const rt = authIdentityRuntimeFor(ctx.app.config);
       if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
       const session = await rt.verifier.verify(input.supabaseAccessToken);
@@ -151,10 +172,29 @@ export const authRouter = router({
    * no URL, no token. The allowed domains are already public — they appear in
    * the message the user signs.
    */
+  /**
+   * Whether a @username can be claimed. Usernames are public, so this says
+   * nothing a profile page would not. Normalised to lowercase.
+   */
+  usernameStatus: publicProcedure
+    .input(z.object({ handle: z.string().trim().min(1).max(40) }).strict())
+    .query(({ ctx, input }) =>
+      run(async () => {
+        const rt = authIdentityRuntimeFor(ctx.app.config);
+        if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+        const handle = input.handle.toLowerCase();
+        return { handle, status: await rt.store.usernameStatus(handle) };
+      }),
+    ),
+
   identityStatus: publicProcedure.query(({ ctx }) => {
     const rt = authIdentityRuntimeFor(ctx.app.config);
     return {
       enabled: rt.store.enabled,
+      /** A wallet signature (Supabase Web3, Sign in with Solana) is a sign-in. */
+      walletSignIn: rt.store.enabled,
+      /** A wallet sign-in carries over the account already at that wallet. */
+      walletProfileCarry: rt.walletProfileCarry === true,
       existingAccountClaimsEnabled: ctx.app.config.authIdentity?.existingAccountClaimsEnabled === true && !!rt.existingAccounts,
       network: rt.policy.network,
       proofVersion: SIWS_PROOF_VERSION,

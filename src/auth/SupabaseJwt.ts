@@ -25,6 +25,41 @@ import { AuthIdentityError } from "./AuthIdentityError.ts";
 export interface SupabaseSession {
   /** auth.users.id — what auth.uid() evaluates to inside Postgres. */
   authUserId: string;
+  /**
+   * Present only for a Supabase Web3 (Sign in with Solana) session: the
+   * address whose signature Supabase Auth verified to create it. Read from the
+   * issuer's own answer, never from the client.
+   */
+  solanaWallet?: string;
+}
+
+const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const WEB3_SOLANA = "web3:solana:";
+
+/**
+ * The verified Solana address on a GoTrue user, or undefined. GoTrue records a
+ * Web3 sign-in as an identity with provider "web3" whose provider id is
+ * `web3:solana:<address>`, and also puts the address in its custom claims.
+ * When both are present they must agree, or neither is trusted.
+ */
+export function solanaWalletOf(identities: unknown): string | undefined {
+  if (!Array.isArray(identities)) return undefined;
+  for (const raw of identities) {
+    if (!raw || typeof raw !== "object") continue;
+    const identity = raw as Record<string, unknown>;
+    if (identity.provider !== "web3") continue;
+    const data = (identity.identity_data ?? {}) as Record<string, unknown>;
+    const claims = (data.custom_claims ?? {}) as Record<string, unknown>;
+    const providerId =
+      typeof data.sub === "string" ? data.sub : typeof identity.id === "string" ? identity.id : undefined;
+    const fromProviderId = providerId?.startsWith(WEB3_SOLANA) ? providerId.slice(WEB3_SOLANA.length) : undefined;
+    const fromClaims =
+      claims.chain === "solana" && typeof claims.address === "string" ? claims.address : undefined;
+    if (fromProviderId && fromClaims && fromProviderId !== fromClaims) continue;
+    const address = fromProviderId ?? fromClaims;
+    if (address && SOLANA_ADDRESS.test(address)) return address;
+  }
+  return undefined;
 }
 
 export interface SupabaseJwtVerifier {
@@ -75,9 +110,10 @@ export class GoTrueJwtVerifier implements SupabaseJwtVerifier {
       // Do not read failure bodies: they can echo the request back.
       if (!res.ok) return null;
 
-      const user = (await res.json()) as { id?: unknown; aud?: unknown } | null;
+      const user = (await res.json()) as { id?: unknown; aud?: unknown; identities?: unknown } | null;
       if (!user || typeof user.id !== "string" || user.id.length === 0) return null;
-      return { authUserId: user.id };
+      const solanaWallet = solanaWalletOf(user.identities);
+      return solanaWallet ? { authUserId: user.id, solanaWallet } : { authUserId: user.id };
     } catch (_) {
       // whoami/onboarding also use this verifier; all callers get only a
       // fixed safe code, never a native exception containing headers/body.

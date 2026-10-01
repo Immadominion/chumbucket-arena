@@ -126,7 +126,7 @@ async function trpcFailure(fn: () => Promise<unknown>): Promise<{ code: string; 
 }
 
 describe("authRouter — surface", () => {
-  test("exposes eight procedures, including gated existing-profile proof/claim", async () => {
+  test("exposes nine procedures, including gated existing-profile proof/claim", async () => {
     const names = Object.keys(
       (authRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
     ).sort();
@@ -134,8 +134,11 @@ describe("authRouter — surface", () => {
     // This assertion is a tripwire. If a future change adds a read route here,
     // this test fails and the addition has to be argued for rather than
     // arriving quietly — which is how a private table becomes a public one.
+    // usernameStatus (argued for): it answers only whether a @username can be
+    // claimed — available / invalid / reserved / taken. Usernames are public,
+    // and it returns no id, name, wallet or any other profile field.
     expect(names).toEqual(
-      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount"].sort(),
+      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus"].sort(),
     );
   });
 

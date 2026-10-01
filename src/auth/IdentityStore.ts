@@ -74,12 +74,28 @@ export interface ClaimLegacyInput {
   authUserId?: string;
 }
 
+export type UsernameStatus = "available" | "invalid" | "reserved" | "taken";
+
+export interface CreatePersonInput {
+  authUserId: string;
+  displayName: string;
+  handle: string;
+  /** Only ever the address Supabase Auth verified for this session. */
+  walletAddress: string | null;
+}
+
 export interface IdentityStore {
   readonly enabled: boolean;
   /** auth.uid() -> exactly one public.users.id, or null when unlinked. */
   userIdForAuthUser(authUserId: string): Promise<string | null>;
   /** Verified auth subject only. Idempotent; never merges legacy accounts. */
   createPersonForAuthUser(authUserId: string, displayName: string): Promise<string>;
+  /** 'available' | 'invalid' | 'reserved' | 'taken' (case-insensitive). */
+  usernameStatus(handle: string): Promise<UsernameStatus>;
+  /** A new account with a claimed @username; a wallet sign-in passes its verified wallet. */
+  createPersonWithUsername(input: CreatePersonInput): Promise<StoreResult>;
+  /** Carry the existing account whose wallet this is over to a wallet sign-in. */
+  bindWalletSession(authUserId: string, walletAddress: string): Promise<StoreResult>;
   issueWalletNonce(input: IssueNonceInput): Promise<StoreResult>;
   consumeWalletNonce(input: ConsumeNonceInput): Promise<StoreResult>;
   attachVerifiedWallet(input: AttachWalletInput): Promise<StoreResult>;
@@ -95,6 +111,15 @@ export class NoopIdentityStore implements IdentityStore {
   }
   async createPersonForAuthUser(): Promise<string> {
     throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+  }
+  async usernameStatus(): Promise<UsernameStatus> {
+    throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+  }
+  async createPersonWithUsername(): Promise<StoreResult> {
+    return { ok: false, reason: "identity store is not configured" };
+  }
+  async bindWalletSession(): Promise<StoreResult> {
+    return { ok: false, reason: "identity store is not configured" };
   }
   async issueWalletNonce(): Promise<StoreResult> {
     return { ok: false, reason: "identity store is not configured" };
@@ -147,6 +172,34 @@ export class SupabaseIdentityStore implements IdentityStore {
       throw new AuthIdentityError("IDENTITY_STORE_ERROR", "profile RPC returned no canonical id");
     }
     return id;
+  }
+
+  async usernameStatus(handle: string): Promise<UsernameStatus> {
+    const status = await this.rpc<unknown>("handle_status_v1", { p_handle: handle });
+    if (status === "available" || status === "invalid" || status === "reserved" || status === "taken") {
+      return status;
+    }
+    throw new AuthIdentityError("IDENTITY_STORE_ERROR", "username RPC returned no status");
+  }
+
+  async createPersonWithUsername(input: CreatePersonInput): Promise<StoreResult> {
+    return this.asResult(
+      await this.rpc<StoreResult>("create_social_person_v2", {
+        p_auth_user_id: input.authUserId,
+        p_display_name: input.displayName,
+        p_handle: input.handle,
+        p_wallet_address: input.walletAddress,
+      }),
+    );
+  }
+
+  async bindWalletSession(authUserId: string, walletAddress: string): Promise<StoreResult> {
+    return this.asResult(
+      await this.rpc<StoreResult>("bind_wallet_session_v1", {
+        p_auth_user_id: authUserId,
+        p_wallet_address: walletAddress,
+      }),
+    );
   }
 
   async issueWalletNonce(input: IssueNonceInput): Promise<StoreResult> {

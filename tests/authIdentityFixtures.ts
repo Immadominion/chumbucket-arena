@@ -23,6 +23,8 @@ import type {
   IdentityStore,
   IssueNonceInput,
   StoreResult,
+  CreatePersonInput,
+  UsernameStatus,
 } from "../src/auth/IdentityStore.ts";
 import type { SupabaseJwtVerifier, SupabaseSession } from "../src/auth/SupabaseJwt.ts";
 
@@ -49,16 +51,16 @@ export function signMessage(privateKey: KeyObject, message: string): string {
 
 /** Maps an opaque test token to an auth.users id. Stands in for GoTrue. */
 export class FakeJwtVerifier implements SupabaseJwtVerifier {
-  private readonly tokens = new Map<string, string>();
+  private readonly tokens = new Map<string, SupabaseSession>();
 
-  issue(token: string, authUserId: string): this {
-    this.tokens.set(token, authUserId);
+  /** `solanaWallet`: a Supabase Web3 (Sign in with Solana) session at that address. */
+  issue(token: string, authUserId: string, solanaWallet?: string): this {
+    this.tokens.set(token, solanaWallet ? { authUserId, solanaWallet } : { authUserId });
     return this;
   }
 
   async verify(accessToken: string): Promise<SupabaseSession | null> {
-    const id = this.tokens.get(accessToken);
-    return id ? { authUserId: id } : null;
+    return this.tokens.get(accessToken) ?? null;
   }
 }
 
@@ -170,6 +172,60 @@ export class FakeIdentityStore implements IdentityStore {
     const id = crypto.randomUUID();
     this.users.set(authUserId, id);
     return id;
+  }
+
+  // ── usernames and wallet sign-in: a model of handle_status_v1,
+  //    create_social_person_v2 and bind_wallet_session_v1 ──
+
+  /** lower(handle) -> public.users.id */
+  private readonly handles = new Map<string, string>();
+  /** public.users.wallet_address -> public.users.id */
+  private readonly accountWallets = new Map<string, string>();
+  /** public.users.id rows that some sign-in already reaches. */
+  private readonly boundAccounts = new Set<string>();
+
+  /** An existing account at a wallet, reachable by no sign-in yet. */
+  addWalletAccount(address: string, userId: string, handle?: string): this {
+    this.accountWallets.set(address, userId);
+    if (handle) this.handles.set(handle.toLowerCase(), userId);
+    return this;
+  }
+
+  async usernameStatus(handle: string): Promise<UsernameStatus> {
+    const h = handle.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,20}$/.test(h)) return "invalid";
+    if (["admin", "chumbucket", "support", "me", "you"].includes(h) || h.startsWith("caller_")) {
+      return "reserved";
+    }
+    return this.handles.has(h) ? "taken" : "available";
+  }
+
+  async createPersonWithUsername(input: CreatePersonInput): Promise<StoreResult> {
+    const existing = this.users.get(input.authUserId);
+    if (existing) return { ok: true, user_id: existing, outcome: "existing" };
+    if (!input.displayName.trim()) return { ok: false, reason: "invalid_name" };
+    const status = await this.usernameStatus(input.handle);
+    if (status !== "available") return { ok: false, reason: `handle_${status}` };
+    if (input.walletAddress && (this.accountWallets.has(input.walletAddress) || this.walletOwner(input.walletAddress))) {
+      return { ok: false, reason: "wallet_has_profile" };
+    }
+    const id = crypto.randomUUID();
+    this.users.set(input.authUserId, id);
+    this.boundAccounts.add(id);
+    this.handles.set(input.handle.trim().toLowerCase(), id);
+    if (input.walletAddress) this.accountWallets.set(input.walletAddress, id);
+    return { ok: true, user_id: id, outcome: "created" };
+  }
+
+  async bindWalletSession(authUserId: string, walletAddress: string): Promise<StoreResult> {
+    const existing = this.users.get(authUserId);
+    if (existing) return { ok: true, user_id: existing, outcome: "existing" };
+    const target = this.accountWallets.get(walletAddress);
+    if (!target) return { ok: false, reason: "no_profile" };
+    if (this.boundAccounts.has(target)) return { ok: false, reason: "owned" };
+    this.users.set(authUserId, target);
+    this.boundAccounts.add(target);
+    return { ok: true, user_id: target, outcome: "carried" };
   }
 
   async issueWalletNonce(input: IssueNonceInput): Promise<StoreResult> {

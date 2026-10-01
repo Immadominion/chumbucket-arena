@@ -60,6 +60,8 @@ interface AuthIdentityConfigBlock {
   siwsDomains?: string[];
   siwsUris?: string[];
   nonceTtlSeconds?: number;
+  /** See `resolveWalletProfileCarry`. */
+  walletProfileCarryEnabled?: boolean;
 }
 
 export interface AuthIdentityRuntime {
@@ -67,6 +69,22 @@ export interface AuthIdentityRuntime {
   store: IdentityStore;
   verifier: SupabaseJwtVerifier;
   policy: AuthIdentityPolicy;
+  /** Whether a wallet sign-in carries over the existing account at that wallet. Absent = off. */
+  walletProfileCarry?: boolean;
+}
+
+/**
+ * Carrying an existing account over to a wallet sign-in trusts
+ * `public.users.wallet_address`, which the old client paths can still write.
+ * Off until those paths are closed in production; then
+ * `WALLET_PROFILE_CARRY_ENABLED=true` (exact lowercase) turns it on.
+ */
+export function resolveWalletProfileCarry(
+  config: AppConfig,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const block = (config as AppConfig & { authIdentity?: AuthIdentityConfigBlock }).authIdentity;
+  return block?.walletProfileCarryEnabled ?? env.WALLET_PROFILE_CARRY_ENABLED === "true";
 }
 
 export function resolveAuthIdentityPolicy(config: AppConfig): AuthIdentityPolicy {
@@ -103,6 +121,7 @@ export function buildAuthIdentityRuntime(config: AppConfig): AuthIdentityRuntime
     store: sc ? new SupabaseIdentityStore(sc) : new NoopIdentityStore(),
     verifier: sc ? new GoTrueJwtVerifier(sc) : new UnconfiguredJwtVerifier(),
     policy: resolveAuthIdentityPolicy(config),
+    walletProfileCarry: resolveWalletProfileCarry(config),
   };
 }
 

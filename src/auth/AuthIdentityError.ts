@@ -64,7 +64,14 @@ export type AuthIdentityErrorCode =
   | "LEGACY_CLAIM_FAILED"
 
   // ── infrastructure ───────────────────────────────────────────────────────
-  | "IDENTITY_STORE_ERROR";
+  | "IDENTITY_STORE_ERROR"
+  // ── usernames / new accounts ──
+  | "USERNAME_INVALID"
+  | "USERNAME_RESERVED"
+  | "USERNAME_TAKEN"
+  | "PROFILE_NAME_INVALID"
+  /** The signed-in wallet already has an account; it is carried, never duplicated. */
+  | "WALLET_HAS_PROFILE";
 
 export class AuthIdentityError extends Error {
   readonly code: AuthIdentityErrorCode;
