@@ -190,3 +190,48 @@ describe("GET /ready over HTTP", () => {
     expect(text).not.toMatch(/supabase|railway|https?:\/\//i);
   });
 });
+
+describe("the real HTTP server", () => {
+  test("mounts /ready beside /health without touching tRPC", async () => {
+    const { once } = await import("node:events");
+    const { createApp } = await import("../src/app.ts");
+    const { startServer } = await import("../src/api/server.ts");
+    const { loadConfig } = await import("../src/config.ts");
+    const app = await createApp({
+      config: loadConfig({}),
+      auth: { verify: async () => null, fetchLinkedIdentities: async () => [] },
+    });
+    const server = startServer(app, 0, "127.0.0.1");
+    try {
+      if (!server.http.listening) await once(server.http, "listening");
+      const address = server.http.address();
+      if (!address || typeof address === "string") throw new Error("no port");
+      const base = `http://127.0.0.1:${address.port}`;
+
+      setReadinessSource(null);
+      const notYet = await fetch(`${base}/ready`);
+      expect(notYet.status).toBe(503);
+
+      const hb = new Heartbeats();
+      setReadinessSource({
+        hydrated: () => true,
+        persisting: () => false,
+        writer: () => null,
+        heartbeats: hb,
+        requireDurable: false,
+        startedAt: Date.now(),
+      });
+      const ready = await fetch(`${base}/ready`);
+      expect(ready.status).toBe(200);
+      expect(((await ready.json()) as { ready: boolean }).ready).toBe(true);
+
+      const health = await fetch(`${base}/health`);
+      expect(health.status).toBe(200);
+      expect(((await health.json()) as { result: { data: { json: { ok: boolean } } } }).result.data.json.ok).toBe(true);
+    } finally {
+      server.wss.close();
+      await new Promise<void>((resolve) => server.http.close(() => resolve()));
+      setReadinessSource(null);
+    }
+  });
+});
