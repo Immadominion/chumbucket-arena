@@ -13,7 +13,8 @@ import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { WebSocketServer } from "ws";
 import type { App } from "../app.ts";
 import { handleHeliusWebhook } from "../indexer/HeliusWebhook.ts";
-import { appRouter } from "./router.ts";
+import type { AnyRouter } from "@trpc/server";
+import { servedRouter } from "./router.ts";
 import { makeContext } from "./trpc.ts";
 
 /** Credential from the request: `Authorization: Bearer <privy token>`, or the
@@ -36,10 +37,49 @@ const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined
   return v.startsWith("Bearer ") ? v.slice(7) : v;
 };
 
-export function startServer(app: App, port: number, host?: string) {
+/**
+ * The caller's address, for per-IP write limits only — never for anything
+ * that decides who someone is.
+ *
+ * Railway's edge strips any X-Forwarded-For a client sends and writes its
+ * own, with the real connecting address FIRST; X-Real-IP, by contrast, holds
+ * the CDN's address whenever the CDN path is active, which would put every
+ * person in one bucket. So the default is the first X-Forwarded-For entry.
+ * Behind a proxy that appends instead, set CLIENT_IP_SOURCE=xff-last.
+ */
+export function clientIpFrom(
+  req: IncomingMessage | undefined,
+  source: string | undefined = process.env.CLIENT_IP_SOURCE,
+): string | undefined {
+  const header = (name: string): string | undefined => {
+    const v = req?.headers?.[name];
+    return (Array.isArray(v) ? v.join(",") : v)?.trim() || undefined;
+  };
+  const hops = (header("x-forwarded-for") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  const socket = req?.socket?.remoteAddress ?? undefined;
+  switch (source) {
+    case "socket":
+      return socket;
+    case "x-real-ip":
+      return header("x-real-ip") ?? socket;
+    case "xff-last":
+      return hops[hops.length - 1] ?? socket;
+    default:
+      return hops[0] ?? socket;
+  }
+}
+
+export interface StartServerOptions {
+  /** Default: `servedRouter()` — the calls BFF surface unless LEGACY_ARENA_ROUTES=true. */
+  router?: AnyRouter;
+}
+
+export function startServer(app: App, port: number, host?: string, options: StartServerOptions = {}) {
+  const router = options.router ?? servedRouter();
   const http = createHTTPServer({
-    router: appRouter,
-    createContext: (opts) => makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req)),
+    router,
+    createContext: (opts) =>
+      makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req), clientIpFrom(opts.req)),
     middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/webhooks/helius") {
@@ -76,7 +116,7 @@ export function startServer(app: App, port: number, host?: string) {
   const wss = new WebSocketServer({ server: http });
   const wsHandler = applyWSSHandler({
     wss,
-    router: appRouter,
+    router,
     createContext: (opts) =>
       makeContext(
         app,
@@ -85,6 +125,7 @@ export function startServer(app: App, port: number, host?: string) {
           tokenFrom(opts.req),
         (opts.info?.connectionParams?.supabaseAccessToken as string | undefined) ??
           supabaseTokenFrom(opts.req),
+        clientIpFrom(opts.req),
       ),
   });
 

@@ -30,6 +30,7 @@ import { marketCreationRouter } from "./marketCreation.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
 import { depositsRouter } from "./deposits.ts";
+import { accountRouter } from "./account.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -93,6 +94,10 @@ export const appRouter = router({
    *  legacy custodial `deposit`/`depositAddress` procedures below. Paths:
    *  deposits.status, .balance, .quote, .create, .order, .verifyWallet. */
   deposits: depositsRouter,
+
+  /** The signed-in person's own account: profile edits, friends by wallet,
+   *  push tokens. Session-keyed only (B1/M1/M9/B3). */
+  account: accountRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({
@@ -655,3 +660,44 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+
+/**
+ * The legacy Gaffer/Arena engine, its wallet-keyed social reads and its demo
+ * ops (B2, B12). The Arena product runs as its own service; the mobile app
+ * reaches these only through ARENA_BACKEND_URL, never through the calls BFF
+ * (verified 2 Oct 2026: `lib/features/arena/data/arena_backend_service.dart`
+ * is the only caller). So the calls BFF does not serve them unless
+ * LEGACY_ARENA_ROUTES=true. A deny-list, so routes other packages add to
+ * `appRouter` are served without a second edit here.
+ */
+export const LEGACY_ARENA_PROCEDURES: ReadonlySet<string> = new Set([
+  // engine reads + live views
+  "matchday", "match", "liveScore", "leaderboard", "managersPot", "socialStatus", "dossier", "me",
+  "challenge", "myChallenges", "settledCalls", "chatHistory", "touchline", "preBetRead",
+  "onMatch", "onChallenge", "onDossier", "onFeed",
+  // wallet-keyed public reads with no proof (B12)
+  "myPositions", "claimable", "activity", "followingFeed", "followCounts", "isFollowing",
+  "matchCallers", "socialLeaderboard", "profile", "notifications", "unreadCount",
+  "walletProfiles", "pendingTargets",
+  // wallet-signature legacy writes
+  "follow", "unfollow", "markNotificationsRead", "linkIdentity", "linkIdentityFromPrivy",
+  "createPendingTarget", "recordPredictionCall",
+  // the custodial engine (DevAuth-trusting in production)
+  "signContract", "deposit", "depositAddress", "syncDeposit", "claimWelcomeGrant", "withdraw",
+  "makeCall", "createChallenge", "acceptChallenge", "cancelChallenge", "declareHotTake",
+  "requestVerdict", "chat",
+  // demo / ops
+  "faucet", "resolveMatchNow", "reconcile",
+]);
+
+/** What the calls BFF serves by default: `appRouter` minus the legacy surface. */
+export const callsBffRouter = router(
+  Object.fromEntries(
+    Object.entries(appRouter._def.record).filter(([key]) => !LEGACY_ARENA_PROCEDURES.has(key)),
+  ) as Parameters<typeof router>[0],
+);
+
+/** LEGACY_ARENA_ROUTES=true (exact) serves the whole legacy surface again. */
+export function servedRouter(env: Record<string, string | undefined> = process.env) {
+  return env.LEGACY_ARENA_ROUTES === "true" ? appRouter : callsBffRouter;
+}

@@ -28,6 +28,7 @@ import { PrivyCustody } from "./ports/PrivyCustody.ts";
 import { PrivyDepositGateway, type DepositGateway } from "./ports/PrivyDepositGateway.ts";
 import type { Auth } from "./auth/Auth.ts";
 import { DevAuth } from "./auth/DevAuth.ts";
+import { NoLegacyAuth } from "./auth/NoLegacyAuth.ts";
 import { PrivyAuth } from "./auth/PrivyAuth.ts";
 import { MockMatchData, type MatchDataProvider } from "./ports/MatchData.ts";
 import { ApiFootballProvider } from "./ports/ApiFootballProvider.ts";
@@ -73,6 +74,10 @@ export interface CreateAppOptions {
   social?: SocialStore;
   /** Seed the Mock provider's fixtures (ignored if matchData is supplied). */
   now?: number;
+  /** Production posture. Default: NODE_ENV === "production" (the Dockerfile sets it). */
+  production?: boolean;
+  /** Explicit request for DevAuth. Default: ALLOW_DEV_AUTH === "true". Refused in production. */
+  allowDevAuth?: boolean;
 }
 
 /** wss:// companion of an https:// Solana RPC URL — the standard same-host convention. */
@@ -220,12 +225,28 @@ export async function createApp(opts: CreateAppOptions = {}): Promise<App> {
       : undefined;
   wiring.reconciler = reconciler ? "on" : "off";
 
+  // DevAuth makes ANY string a verified wallet. Never in production (B2): an
+  // explicit request for it refuses to boot, and without a verifying provider
+  // the production server accepts no legacy credential at all. The social and
+  // Panta paths verify Supabase sessions and never read this one.
+  const production = opts.production ?? process.env.NODE_ENV === "production";
+  const allowDevAuth = opts.allowDevAuth ?? process.env.ALLOW_DEV_AUTH === "true";
+  if (production && allowDevAuth && !opts.auth) {
+    throw new Error(
+      "Refusing to boot: DevAuth treats any x-wallet header as a verified wallet and is never allowed in production. Unset ALLOW_DEV_AUTH.",
+    );
+  }
   const auth: Auth =
     opts.auth ??
     (config.privy?.appSecret
       ? new PrivyAuth(config.privy.appId, config.privy.appSecret, config.privy.verificationKey)
-      : new DevAuth());
-  wiring.auth = opts.auth ? "custom" : config.privy?.appSecret ? "privy" : "dev";
+      : production
+        ? new NoLegacyAuth()
+        : new DevAuth());
+  wiring.auth = opts.auth ? "custom" : config.privy?.appSecret ? "privy" : production ? "none" : "dev";
+  if (wiring.auth === "none") {
+    console.log("[boot] auth: no verifying legacy provider in production; legacy wallet credentials are refused");
+  }
 
   const realCustody = wiring.custody === "solana" || wiring.custody === "privy";
 

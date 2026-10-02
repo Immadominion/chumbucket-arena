@@ -209,6 +209,7 @@ export class NotificationsService {
           handle: actorPerson?.handle ?? n.actorUserId,
           displayName: actorPerson?.displayName ?? n.actorUserId,
           avatarUrl: actorPerson?.avatarUrl ?? null,
+          avatarId: actorPerson?.avatarId ?? null,
         }
       : null;
 

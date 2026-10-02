@@ -10,6 +10,7 @@ import superjson from "superjson";
 import type { App } from "../app.ts";
 import { DomainError, type DomainErrorCode } from "../domain/errors.ts";
 import type { Wallet } from "../domain/ids.ts";
+import { chargeRequest } from "./writeLimits.ts";
 
 export interface Context {
   app: App;
@@ -28,6 +29,10 @@ export interface Context {
   /** The provider's own user id (e.g. Privy user id) — needed to ask the Auth
    *  port for that user's already-linked social identities (X/Google). */
   privyUserId?: string;
+  /** The caller's network address, for per-IP write limits. Absent in-process. */
+  clientIp?: string;
+  /** The verified legacy credential, for per-session write limits only. */
+  legacyCredential?: string;
 }
 
 /**
@@ -39,12 +44,16 @@ export async function makeContext(
   app: App,
   token: string | undefined,
   supabaseAccessToken?: string,
+  clientIp?: string,
 ): Promise<Context> {
   const user = await app.auth.verify(token ?? "");
-  if (!user) return { app, ...(supabaseAccessToken ? { supabaseAccessToken } : {}) };
+  const ip = clientIp ? { clientIp } : {};
+  if (!user) return { app, ...ip, ...(supabaseAccessToken ? { supabaseAccessToken } : {}) };
   return {
     app,
+    ...ip,
     ...(supabaseAccessToken ? { supabaseAccessToken } : {}),
+    ...(token ? { legacyCredential: token } : {}),
     wallet: user.wallet,
     ...(user.privyWalletId ? { privyWalletId: user.privyWalletId } : {}),
     ...(user.userId ? { privyUserId: user.userId } : {}),
@@ -90,7 +99,16 @@ const mapDomainErrors = t.middleware(async ({ next }) => {
   return res;
 });
 
-export const publicProcedure = t.procedure.use(mapDomainErrors);
+/**
+ * Every mutation pays its client address's and its session's write budget
+ * before it runs (B2). Queries are free; see `writeLimits.ts`.
+ */
+const limitWrites = t.middleware(({ ctx, type, path, next }) => {
+  if (type === "mutation") chargeRequest(ctx.app.config, path, ctx);
+  return next();
+});
+
+export const publicProcedure = t.procedure.use(mapDomainErrors).use(limitWrites);
 
 export const authedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.wallet) {

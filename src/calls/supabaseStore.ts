@@ -780,14 +780,17 @@ export class SupabaseCallsStore implements CallsStore {
 // `bio` and `created_at` are on `public.users` since the remote baseline and
 // are already granted to anon as public display columns
 // (20260719161500_security_hardening_pii_columns.sql), so reading them here
-// discloses nothing the profile row does not.
-const USER_COLUMNS = "id,handle,full_name,profile_picture,wallet_address,sns_domain,bio,created_at";
+// discloses nothing the profile row does not. `profile_image_id` is the app's
+// fixed avatar choice (1..5), rendered for other people too (lockdown).
+const USER_COLUMNS = "id,handle,full_name,profile_picture,profile_image_id,wallet_address,sns_domain,bio,created_at";
 
 interface UserRow {
   id: string;
   handle: string | null;
   full_name: string | null;
   profile_picture: string | null;
+  /** The app's fixed avatar (1..5); absent on rows read by older selects. */
+  profile_image_id?: number | null;
   wallet_address: string | null;
   sns_domain: string | null;
   bio?: string | null;
@@ -810,11 +813,15 @@ export function personFromRow(row: UserRow): Person {
   const handle = row.handle ?? row.sns_domain ?? `user-${row.id.slice(0, 8)}`;
   const bio = row.bio?.trim();
   const joinedAt = parseTimestamptz(row.created_at ?? null);
+  const avatarId = row.profile_image_id;
   return {
     id: row.id,
     handle,
     displayName: row.full_name ?? handle,
-    avatarUrl: row.profile_picture,
+    // Only a real URL is a URL. Legacy rows hold app asset paths here, which
+    // the client derives from avatarId instead.
+    avatarUrl: row.profile_picture && /^https:\/\//.test(row.profile_picture) ? row.profile_picture : null,
+    avatarId: typeof avatarId === "number" && Number.isInteger(avatarId) && avatarId >= 1 && avatarId <= 5 ? avatarId : null,
     walletAddress: row.wallet_address,
     settledCalls: 0,
     correctCalls: 0,

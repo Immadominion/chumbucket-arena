@@ -94,6 +94,8 @@ export interface NotificationActor {
   handle: string;
   displayName: string;
   avatarUrl: string | null;
+  /** One of the app's five fixed avatars, so the actor's own picture renders. */
+  avatarId: number | null;
 }
 
 /**
