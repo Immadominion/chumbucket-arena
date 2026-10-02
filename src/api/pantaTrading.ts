@@ -6,6 +6,8 @@ import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
 import { pantaTradingFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
 import { isVenueError } from "../prediction/errors.ts";
+import { trustRuntimeFor } from "../trust/runtime.ts";
+import { isTrustError } from "../trust/errors.ts";
 
 async function person(ctx: Context): Promise<string> {
   // In particular, ctx.wallet / x-wallet / DevAuth are not credentials here.
@@ -21,6 +23,7 @@ async function run<T>(ctx: Context, action: (userId: string) => Promise<T>): Pro
   try { return await action(await person(ctx)); }
   catch (error) {
     if (error instanceof TRPCError) throw error;
+    if (isTrustError(error)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
     if (isVenueError(error)) {
       const code = error.code === "FUNDED_POSITIONS_DISABLED" ? "FORBIDDEN" : error.code === "IDEMPOTENCY_CONFLICT" ? "CONFLICT"
         : error.code === "VENUE_NOT_FOUND" ? "NOT_FOUND" : error.code === "VENUE_RATE_LIMITED" ? "TOO_MANY_REQUESTS"
@@ -38,7 +41,11 @@ export const pantaTradingRouter = router({
     callId: z.string().uuid(), wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
     amountBaseUnits: z.string().regex(/^[1-9][0-9]{0,15}$/), idempotencyKey: z.string().min(8).max(128),
     maxSlippageBps: z.number().int().min(0).max(500).default(100),
-  }).strict()).mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config).prepare(userId, input))),
+  }).strict()).mutation(({ ctx, input }) => run(ctx, async userId => {
+    // 18+ / jurisdiction / venue terms, recorded server-side before the first funded trade.
+    await trustRuntimeFor(ctx.app.config).service.assertFundedTradingAccepted(userId);
+    return pantaTradingFor(ctx.app.config).prepare(userId, input);
+  })),
   submit: publicProcedure.input(z.object({ orderId, signedTransaction: z.string().min(1).max(1644) }).strict())
     .mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config).submit(userId, input.orderId, input.signedTransaction))),
   order: publicProcedure.input(z.object({ orderId }).strict())

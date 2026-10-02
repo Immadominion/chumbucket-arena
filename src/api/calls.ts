@@ -49,6 +49,9 @@ import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
 import { guard, router } from "./trpc.ts";
 import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
+import { isTrustError } from "../trust/errors.ts";
+import { trustRuntimeFor } from "../trust/runtime.ts";
+import { trustTrpcError } from "./trust.ts";
 
 // ── input schemas (the FROZEN §3 wire shapes, verbatim) ──────────────────────
 
@@ -137,6 +140,8 @@ function call<T>(fn: () => Promise<T> | T): Promise<T> {
       if (isCallsError(err)) {
         throw new TRPCError({ code: CALLS_CODE_MAP[err.code], message: err.message, cause: err });
       }
+      // Rate limits, the content policy and blocks (src/trust).
+      if (isTrustError(err)) throw trustTrpcError(err);
       throw err;
     }
   });
@@ -145,6 +150,7 @@ function call<T>(fn: () => Promise<T> | T): Promise<T> {
 // ── the memo (contracts §6) ──────────────────────────────────────────────────
 
 const runtime = (config: AppConfig): CallsRuntime => callsRuntimeFor(config);
+const safety = (config: AppConfig) => trustRuntimeFor(config).service;
 
 const SIGN_IN = "Sign in to do that.";
 
@@ -201,9 +207,12 @@ const callsNamespace = router({
       return call(async () => {
         const viewer =
           input.mode === "following" ? await requireViewer(rt, ctx) : await viewerOf(rt, ctx);
+        // People the viewer blocked or muted, and people who blocked them.
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
         return rt.service.feed(
           { mode: input.mode, cursor: input.cursor ?? null, limit: input.limit },
           viewer,
+          { excludeAuthors },
         );
       });
     }),
@@ -228,6 +237,9 @@ const callsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
+      const trust = safety(ctx.app.config);
+      trust.assertClean(input.thesis, "thesis");
+      trust.limiter.charge("calls.create", actor);
       const entry = rt.service.createCall(
         {
           marketId: input.marketId,
@@ -259,6 +271,12 @@ const callsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => {
       const actor = await requireViewer(rt, ctx);
+      const trust = safety(ctx.app.config);
+      trust.assertClean(input.thesis, "thesis");
+      trust.assertClean(input.note, "note");
+      const target = rt.store.getCall(input.targetCallId);
+      if (target && target.userId !== actor) await trust.assertNotBlocked(actor, target.userId, "respond");
+      trust.limiter.charge("calls.respond", actor);
       const response = rt.service.respond(
         {
           targetCallId: input.targetCallId,
@@ -278,7 +296,11 @@ const callsNamespace = router({
   /** Invitations addressed to the caller. No escrow, ever. Takes no input. */
   invitations: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
     const rt = runtime(ctx.app.config);
-    return call(async () => rt.service.invitations(await requireViewer(rt, ctx)));
+    return call(async () => {
+      const viewer = await requireViewer(rt, ctx);
+      const hidden = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+      return rt.service.invitations(viewer).filter((i) => !hidden.has(i.fromUserId));
+    });
   }),
 });
 
@@ -327,6 +349,10 @@ const peopleNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         const actor = await requireViewer(rt, ctx);
+        const trust = safety(ctx.app.config);
+        const target = rt.store.getPerson(input.personRef) ?? rt.store.getPersonByHandle(input.personRef);
+        if (target && target.id !== actor) await trust.assertNotBlocked(actor, target.id, "follow");
+        trust.limiter.charge("people.follow", actor);
         const state = rt.service.setFollowing({ personRef: input.personRef, following: true }, actor);
         await rt.durable?.flush();
         return state;
@@ -338,6 +364,7 @@ const peopleNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         const actor = await requireViewer(rt, ctx);
+        safety(ctx.app.config).limiter.charge("people.follow", actor);
         const state = rt.service.setFollowing({ personRef: input.personRef, following: false }, actor);
         await rt.durable?.flush();
         return state;

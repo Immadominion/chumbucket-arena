@@ -28,6 +28,7 @@ import { predictionsRouter } from "./predictions.ts";
 import { pantaTradingRouter } from "./pantaTrading.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
+import { trustRouter } from "./trust.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -83,6 +84,9 @@ export const appRouter = router({
    *  inbox.markRead, record.mine, record.get. */
   inbox: socialNotificationsRouter,
   record: socialRecordRouter,
+
+  /** Report, block, mute, legal attestation, web deletion requests, moderation. */
+  trust: trustRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({

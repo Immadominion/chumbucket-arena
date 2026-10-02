@@ -33,6 +33,9 @@ import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
+import { accountProcedures, trustTrpcError } from "./trust.ts";
+import { assertCleanText, isReservedHandle } from "../trust/contentFilter.ts";
+import { isTrustError } from "../trust/errors.ts";
 
 /**
  * One place where an identity failure becomes a transport status.
@@ -127,6 +130,9 @@ const solanaAddress = z.string().min(32).max(44);
 const purpose = z.enum(["link_wallet", "transfer_wallet"]);
 
 export const authRouter = router({
+  /** auth.deleteAccount and auth.exportData (src/api/trust.ts). */
+  ...accountProcedures,
+
   // POST only. No client-selected user id, auth subject, evidence or review flag.
   requestExistingAccountProof: publicProcedure.input(z.object({
     supabaseAccessToken: accessToken, address: solanaAddress,
@@ -152,6 +158,17 @@ export const authRouter = router({
       handle: z.string().trim().min(1).max(40).optional(),
     }).strict())
     .mutation(({ ctx, input }) => run(async () => {
+      // Names and usernames are public: no links, slurs or system names.
+      try {
+        assertCleanText(input.displayName, "name");
+        if (input.handle !== undefined) assertCleanText(input.handle, "handle");
+      } catch (e) {
+        if (isTrustError(e)) throw trustTrpcError(e);
+        throw e;
+      }
+      if (input.handle !== undefined && isReservedHandle(input.handle)) {
+        throw new AuthIdentityError("USERNAME_RESERVED");
+      }
       if (input.handle !== undefined) {
         return serviceFor(ctx.app.config).createProfile({
           accessToken: input.supabaseAccessToken,

@@ -50,6 +50,7 @@ import { isNotificationsError, type NotificationsErrorCode } from "../notificati
 import { notificationsRuntimeFor, type NotificationsRuntime } from "../notifications/runtime.ts";
 import { guard, router } from "./trpc.ts";
 import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
+import { trustRuntimeFor } from "../trust/runtime.ts";
 
 // ── calls error -> transport error ───────────────────────────────────────────
 
@@ -139,6 +140,22 @@ function refresh(rt: NotificationsRuntime): void {
   if (rt.config.flags.deriveOnRead) rt.deriver.runOnce();
 }
 
+/**
+ * Notifications from people the viewer blocked or muted (or who blocked
+ * them) are not shown. Their unread ones are marked read first, so the badge
+ * never counts something the inbox will not show.
+ */
+async function suppressHidden(rt: NotificationsRuntime, config: AppConfig, viewer: string): Promise<ReadonlySet<string>> {
+  const hidden = await trustRuntimeFor(config).service.hiddenAuthorsFor(viewer);
+  if (hidden.size === 0) return hidden;
+  const ids = rt.store
+    .listForRecipient(viewer, { unreadOnly: true })
+    .filter((n) => n.actorUserId !== null && hidden.has(n.actorUserId))
+    .map((n) => n.id);
+  if (ids.length > 0) rt.store.markRead(viewer, ids, Date.now());
+  return hidden;
+}
+
 // ── notifications.* ──────────────────────────────────────────────────────────
 
 const notificationsNamespace = router({
@@ -165,10 +182,14 @@ const notificationsNamespace = router({
         const viewer = await requireViewer(rt, ctx);
         await inboxReady(rt);
         refresh(rt);
-        return rt.service.inbox(
+        const hidden = await suppressHidden(rt, ctx.app.config, viewer);
+        const page = rt.service.inbox(
           { cursor: input.cursor ?? null, limit: input.limit, unreadOnly: input.unreadOnly },
           viewer,
         );
+        return hidden.size === 0
+          ? page
+          : { ...page, items: page.items.filter((n) => !n.actor || !hidden.has(n.actor.userId)) };
       });
     }),
 
@@ -179,6 +200,7 @@ const notificationsNamespace = router({
       const viewer = await requireViewer(rt, ctx);
       await inboxReady(rt);
       refresh(rt);
+      await suppressHidden(rt, ctx.app.config, viewer);
       return rt.service.unreadCount(viewer);
     });
   }),
