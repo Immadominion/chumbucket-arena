@@ -324,6 +324,33 @@ export interface TopCall {
   viewerHasCalled: boolean;
 }
 
+/** A person's latest live public call, for people.suggested. No money. */
+export interface LatestLiveCall {
+  callId: string;
+  side: Side;
+  marketId: string;
+  question: string;
+  closesAt: number | null;
+}
+
+/** Why someone is suggested. Evidence only — never money. */
+export type SuggestionReason = "ranked" | "top_call" | "building" | "recent" | "friend";
+
+export interface SuggestedPerson extends PersonCard {
+  latestLiveCall: LatestLiveCall | null;
+  reason: SuggestionReason;
+}
+
+/** people.suggested — who to follow during onboarding. */
+export interface SuggestedPeople {
+  /** The session's friends from the old app who are Chumbucket people.
+   *  Always empty for a signed-out caller. */
+  friends: SuggestedPerson[];
+  /** People with at least one public free call, best evidence first. */
+  people: SuggestedPerson[];
+  servedAt: number;
+}
+
 export interface TopCallsPage {
   entries: TopCall[];
   servedAt: number;

@@ -61,6 +61,7 @@ describe("the call procedures plus canonical follow actions", () => {
       "people.get",
       "people.leaderboard",
       "people.search",
+      "people.suggested",
       "people.unfollow",
     ]);
   });

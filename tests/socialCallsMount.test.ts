@@ -51,6 +51,7 @@ describe("the integration patch keeps the original paths and adds canonical foll
       "people.get",
       "people.leaderboard",
       "people.search",
+      "people.suggested",
       "people.unfollow",
     ]);
   });

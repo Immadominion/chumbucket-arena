@@ -51,7 +51,11 @@ import {
   type PeopleSearchResult,
   type Person,
   type PersonCard,
+  type LatestLiveCall,
   type PublicRecord,
+  type SuggestedPeople,
+  type SuggestedPerson,
+  type SuggestionReason,
   type TopCall,
   type TopCallsPage,
 } from "./types.ts";
@@ -390,9 +394,116 @@ export class PeopleDirectory {
     }
     return { entries, servedAt: now };
   }
+
+  // ── suggestions ───────────────────────────────────────────────────────────
+
+  /**
+   * Who to follow during onboarding: people with at least one public free
+   * call (so a follow leads somewhere), the viewer and anyone they already
+   * follow left out. Order: ranked (all time), then authors of top calls by
+   * response volume, then people building a record by decided calls, then
+   * the most recent callers. Nobody twice, nobody padded in, nobody ranked
+   * by money. `friendIds` (the session's friends from the old app) come back
+   * as `friends`, call or not, and are not repeated in `people`.
+   */
+  suggested(
+    args: { limit: number; friendIds?: readonly string[] },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): SuggestedPeople {
+    const hidden = hiddenBy(opts);
+    const now = this.clock.now();
+    const records = this.recordsByAuthor();
+    const none = recordFrom(emptyTally());
+    const latest = this.latestLiveCalls(now);
+    // The viewer, anyone already followed, anyone blocked or muted either way
+    // (src/trust), and deleted accounts: following any of them leads nowhere.
+    const excluded = (id: string): boolean =>
+      id === viewerUserId || hidden(id) || (viewerUserId !== null && this.store.isFollowing(viewerUserId, id));
+
+    const cardOf = (person: Person, reason: SuggestionReason): SuggestedPerson => ({
+      ...this.card(person, viewerUserId, records.get(person.id) ?? none),
+      latestLiveCall: latest.get(person.id) ?? null,
+      reason,
+    });
+
+    const friends: SuggestedPerson[] = [];
+    const friendSet = new Set<string>();
+    if (viewerUserId !== null) {
+      for (const id of args.friendIds ?? []) {
+        if (friendSet.has(id) || excluded(id)) continue;
+        const person = this.store.getPerson(id);
+        if (!person || isDeletedAccount(person)) continue;
+        friendSet.add(id);
+        friends.push(cardOf(person, "friend"));
+        if (friends.length >= args.limit) break;
+      }
+    }
+
+    const people: SuggestedPerson[] = [];
+    const seen = new Set<string>(friendSet);
+    const add = (userId: string, reason: SuggestionReason): void => {
+      if (people.length >= args.limit || seen.has(userId) || excluded(userId)) return;
+      const record = records.get(userId);
+      if (!record || record.counts.decided + record.counts.voided + record.counts.pending === 0) return;
+      const person = this.store.getPerson(userId);
+      if (!person || isDeletedAccount(person)) return;
+      seen.add(userId);
+      people.push(cardOf(person, reason));
+    };
+
+    const board = this.leaderboard({ window: "all", limit: 100 }, null, opts);
+    for (const row of board.ranked) add(row.person.id, "ranked");
+    for (const top of this.topCalls({ limit: 20 }, null, opts).entries) add(top.author.id, "top_call");
+    for (const row of board.building) add(row.person.id, "building");
+    const recent = this.store
+      .liveCalls()
+      .filter(countsTowardsPublicRecord)
+      .sort((a, b) => b.lockedAt - a.lockedAt || b.id.localeCompare(a.id));
+    for (const call of recent) add(call.userId, "recent");
+
+    return { friends, people, servedAt: now };
+  }
+
+  /** Each author's most recent live public free call on a market that still
+   *  takes calls and has no result. */
+  private latestLiveCalls(now: number): Map<string, LatestLiveCall> {
+    const out = new Map<string, { call: CallRecord; at: number }>();
+    for (const call of this.store.liveCalls()) {
+      if (!countsTowardsPublicRecord(call)) continue;
+      const market = this.markets.getMarket(call.marketId);
+      // The same cut-off calls.create and back/fade use (M14): a "latest live
+      // call" is one the viewer could still answer.
+      if (!market || !acceptsNewCalls(market, now, this.callCutoffMs) || this.markets.getResolution(market.id) !== undefined) {
+        continue;
+      }
+      const held = out.get(call.userId);
+      if (!held || call.lockedAt > held.at) out.set(call.userId, { call, at: call.lockedAt });
+    }
+    const latest = new Map<string, LatestLiveCall>();
+    for (const [userId, { call }] of out) {
+      const market = this.markets.getMarket(call.marketId)!;
+      latest.set(userId, {
+        callId: call.id,
+        side: call.side,
+        marketId: market.id,
+        question: market.question,
+        closesAt: market.closesAt,
+      });
+    }
+    return latest;
+  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * An account anonymised by account deletion (20261002180000: full_name
+ * "Deleted account", handle `deleted_<hex>` or none). Its calls stay public
+ * records, but it is never suggested as someone to follow.
+ */
+const isDeletedAccount = (person: Person): boolean =>
+  person.displayName === "Deleted account" && (!person.handle || person.handle.startsWith("deleted_"));
 
 /** Rule 1's scope, in one place. */
 export const countsTowardsPublicRecord = (call: CallRecord): boolean =>
