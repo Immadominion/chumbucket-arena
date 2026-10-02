@@ -60,6 +60,10 @@ export const READ_ONLY_MUTATIONS: ReadonlySet<string> = new Set([
   "deposits.order",
   // create-market: re-check a publishing market against Panta and the chain
   "marketCreation.refreshPublish",
+  // wallets: whether the SOL top-up is on, and what a wallet would need.
+  // solTopUp.order stays charged (each is a Jupiter quote); execute is a write.
+  "solTopUp.status",
+  "solTopUp.plan",
 ]);
 
 const num = (v: string | undefined, fallback: number): number => {
