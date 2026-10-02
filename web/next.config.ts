@@ -9,10 +9,22 @@ const here = dirname(fileURLToPath(import.meta.url));
 // webpack (build) nor Turbopack (dev) wastes time resolving / warning on them.
 const OPTIONAL_DEPS = ["@farcaster/mini-app-solana", "@stripe/crypto"];
 
+// Files the link-preview images (lib/ogCard.tsx) read at request time. Public
+// assets are not part of a serverless function unless traced, so every
+// opengraph-image route lists them explicitly.
+const OG_ASSET_FILES = [
+  "./public/fonts/PPNeueMachina-Regular.otf",
+  "./public/fonts/PPNeueMachina-Ultrabold.otf",
+  "./public/img/logo-192.png",
+];
+
 const nextConfig: NextConfig = {
   // This app lives in a monorepo (the Bun backend is the repo root). Pin the
   // file-tracing root to web/ so Next doesn't pick up the parent lockfile.
   outputFileTracingRoot: here,
+  outputFileTracingIncludes: {
+    "/**/opengraph-image": OG_ASSET_FILES,
+  },
   // External avatar/flag images are used directly via <img>, so no next/image
   // remote config is required. GLB models are served from /public/models.
   eslint: { ignoreDuringBuilds: true },

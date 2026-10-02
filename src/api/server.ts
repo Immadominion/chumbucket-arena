@@ -15,6 +15,8 @@ import type { App } from "../app.ts";
 import { handleHeliusWebhook } from "../indexer/HeliusWebhook.ts";
 import type { AnyRouter } from "@trpc/server";
 import { servedRouter } from "./router.ts";
+import { reportError } from "../ops/errorReporting.ts";
+import { handleReady } from "../ops/readiness.ts";
 import { makeContext } from "./trpc.ts";
 
 /** Credential from the request: `Authorization: Bearer <privy token>`, or the
@@ -82,6 +84,10 @@ export function startServer(app: App, port: number, host?: string, options: Star
       makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req), clientIpFrom(opts.req)),
     middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => {
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname === "/ready") {
+        handleReady(req, res);
+        return;
+      }
       if (url.pathname === "/webhooks/helius") {
         if (req.method !== "POST") {
           res.writeHead(405, { "content-type": "application/json" });
@@ -109,6 +115,8 @@ export function startServer(app: App, port: number, host?: string, options: Star
     onError: ({ error, path }) => {
       if (error.code === "INTERNAL_SERVER_ERROR") {
         console.error(`[trpc] ${path ?? "?"}:`, error.message);
+        // Path and error only; never the input, headers or session.
+        reportError(error.cause ?? error, { tags: { source: "trpc", path: path ?? "unknown" } });
       }
     },
   });

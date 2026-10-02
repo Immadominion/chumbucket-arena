@@ -51,7 +51,14 @@ export interface CallsConfig {
 /** Default call cut-off before a market closes. Override: CALLS_CLOSE_CUTOFF_MINUTES. */
 export const DEFAULT_CALL_CUTOFF_MINUTES = 30;
 
-const DEFAULT_SHARE_BASE_URL = "https://chumbucket.app";
+/**
+ * The owner's live site. chumbucket.fun serves the /c, /u and /m landing pages
+ * (real data from this BFF, OG receipt images, open-in-app/install fallback)
+ * and /.well-known/assetlinks.json for Android App Links. The old default,
+ * chumbucket.app, never resolved (NXDOMAIN): every link built on it was dead,
+ * and whoever registered it would have received them all.
+ */
+export const DEFAULT_SHARE_BASE_URL = "https://chumbucket.fun";
 
 const num = (v: string | undefined, fallback: number): number => {
   const n = v ? Number(v) : NaN;
@@ -109,3 +116,4 @@ export function withCallsConfig(base: AppConfig, calls: CallsConfigInput): AppCo
 export const shareLinkForCall = (cfg: CallsConfig, callId: string): string => `${cfg.shareBaseUrl}/c/${callId}`;
 export const shareLinkForPerson = (cfg: CallsConfig, handleOrId: string): string =>
   `${cfg.shareBaseUrl}/u/${handleOrId.replace(/^@/, "")}`;
+export const shareLinkForMarket = (cfg: CallsConfig, marketId: string): string => `${cfg.shareBaseUrl}/m/${marketId}`;

@@ -13,6 +13,15 @@ import { startServer } from "./api/server.ts";
 import { OnchainKeeper } from "./keeper/onchainDriver.ts";
 import { startNotificationScheduler } from "./notifications/scheduler.ts";
 import { pantaReconcilerFor, pantaTradingReadiness } from "./prediction/PantaTradingRuntime.ts";
+import { installErrorReporting, reportError } from "./ops/errorReporting.ts";
+import { heartbeats } from "./ops/heartbeats.ts";
+import { setReadinessSource } from "./ops/readiness.ts";
+
+// Sentry when SENTRY_DSN is set; absent = off and nothing changes.
+console.log(`   Error reporting: ${installErrorReporting().reason}`);
+
+const startedAt = Date.now();
+let callsHydrated = false;
 
 const app = await createApp();
 const { port } = app.config;
@@ -30,7 +39,17 @@ console.log(`   Sessions wallet: ${app.engine.custody.sessionsAddress()}`);
 // reading an empty feed. An empty feed on a database that has calls in it is a
 // lie, however brief. Resolves immediately on an in-memory server.
 const calls = callsRuntimeFor(app.config);
+// /ready reports from here on; until hydration finishes it answers 503.
+setReadinessSource({
+  hydrated: () => callsHydrated,
+  persisting: () => calls.persistence.persisting,
+  writer: () => calls.durable?.queue ?? null,
+  heartbeats,
+  requireDurable: process.env.READY_REQUIRE_DURABLE === "true",
+  startedAt,
+});
 await calls.ready;
+callsHydrated = true;
 console.log(
   `   Persistence:     ${calls.persistence.persisting ? "SUPABASE" : "IN-MEMORY"} — ${calls.persistence.reason}`,
 );
@@ -74,9 +93,11 @@ if (process.env.NOTIFICATIONS_SCHEDULER_ENABLED !== "false") {
 if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_ENABLED !== "false") {
   const marketSyncTickMs = Number(process.env.MARKET_SYNC_TICK_MS ?? 60_000);
   const resultWorker = new CallResultWorker({ calls, prediction: calls.prediction });
+  heartbeats.register("marketSync", { intervalMs: marketSyncTickMs, required: true });
   const marketSyncTick = async () => {
     try {
       const report = await resultWorker.runOnce();
+      heartbeats.success("marketSync");
       if (report.catalog.marketsUpserted || report.catalog.snapshotsRecorded ||
           report.catalog.resolutionsRecorded || report.calledResolutionsRecorded ||
           report.catalog.unlistedRefreshed || report.results.resultsSettled) {
@@ -94,7 +115,10 @@ if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_
       }
     } catch (err) {
       // No provider response body, signed bytes or private database cause in logs.
-      console.error("[callResultSync] tick failed:", isVenueError(err) ? err.code : "DURABILITY_OR_WORKER_FAILURE");
+      const code = isVenueError(err) ? err.code : "DURABILITY_OR_WORKER_FAILURE";
+      heartbeats.failure("marketSync", code);
+      console.error("[callResultSync] tick failed:", code);
+      if (!isVenueError(err)) reportError(err, { tags: { source: "worker", worker: "marketSync" } });
     }
   };
   console.log(`   Market/call result sync: ENABLED (tick every ${marketSyncTickMs}ms)`);
@@ -110,15 +134,20 @@ if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_
 if (pantaTradingReadiness(app.config, true).enabled && process.env.PANTA_RECONCILER_ENABLED !== "false") {
   const pantaTickMs = Math.max(5_000, Number(process.env.PANTA_RECONCILE_TICK_MS ?? 20_000) || 20_000);
   const reconciler = pantaReconcilerFor(app.config);
+  heartbeats.register("pantaReconcile", { intervalMs: pantaTickMs, required: false });
   const pantaTick = async () => {
     try {
       const r = await reconciler.runOnce();
+      heartbeats.success("pantaReconcile");
       if (r.filled || r.failed || r.claimsConfirmed || r.claimsFailed || r.fundedCallsLoaded || r.errors.length) {
         // Counts and venue error codes only: no wallet, signature or approval.
         console.log("[pantaReconcile]", JSON.stringify(r));
       }
     } catch (err) {
-      console.error("[pantaReconcile] tick failed:", isVenueError(err) ? err.code : "LEDGER_OR_RPC_UNAVAILABLE");
+      const code = isVenueError(err) ? err.code : "LEDGER_OR_RPC_UNAVAILABLE";
+      heartbeats.failure("pantaReconcile", code);
+      console.error("[pantaReconcile] tick failed:", code);
+      if (!isVenueError(err)) reportError(err, { tags: { source: "worker", worker: "pantaReconcile" } });
     }
   };
   console.log(`   Panta reconciler: ENABLED (tick every ${pantaTickMs}ms)`);
@@ -129,10 +158,13 @@ if (pantaTradingReadiness(app.config, true).enabled && process.env.PANTA_RECONCI
 }
 
 const TICK_MS = 30_000;
+heartbeats.register("engineTick", { intervalMs: TICK_MS, required: false });
 const tick = async () => {
   try {
     await app.engine.tick();
+    heartbeats.success("engineTick");
   } catch (err) {
+    heartbeats.failure("engineTick", "ENGINE_TICK_FAILED");
     console.error("[tick] failed:", err);
   }
 };
@@ -144,10 +176,13 @@ let keeperTick: (() => Promise<void>) | undefined;
 if (app.config.onchainKeeper?.enabled) {
   try {
     const keeper = new OnchainKeeper(app, app.config.onchainKeeper);
+    heartbeats.register("onchainKeeper", { intervalMs: app.config.onchainKeeper.tickMs, required: false });
     keeperTick = async () => {
       try {
         await keeper.tick();
+        heartbeats.success("onchainKeeper");
       } catch (err) {
+        heartbeats.failure("onchainKeeper", "KEEPER_TICK_FAILED");
         console.error("[keeper] tick failed:", err);
       }
     };
@@ -166,13 +201,16 @@ if (app.config.onchainKeeper?.enabled) {
 // of the keeper. Every write is idempotent, so a re-scan is always safe.
 let reconcilerTick: (() => Promise<void>) | undefined;
 if (app.reconciler) {
+  heartbeats.register("reconciler", { intervalMs: app.config.reconciler!.tickMs, required: false });
   reconcilerTick = async () => {
     try {
       const s = await app.reconciler!.reconcile();
+      heartbeats.success("reconciler");
       if (s.applied > 0 || s.errors > 0 || s.created > 0 || s.settlements > 0 || s.claims > 0) {
         console.log("[reconciler]", JSON.stringify(s));
       }
     } catch (err) {
+      heartbeats.failure("reconciler", "RECONCILER_TICK_FAILED");
       console.error("[reconciler] tick failed:", err);
     }
   };
