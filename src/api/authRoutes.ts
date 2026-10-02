@@ -220,6 +220,15 @@ export const authRouter = router({
     }).strict())
     .mutation(({ ctx, input }) =>
       run(async () => {
+        // Same rules as completeProfile: usernames are public, so no links,
+        // slurs or system names (a deleted account's `deleted_` handle).
+        try {
+          assertCleanText(input.handle, "handle");
+        } catch (e) {
+          if (isTrustError(e)) throw trustTrpcError(e);
+          throw e;
+        }
+        if (isReservedHandle(input.handle)) throw new AuthIdentityError("USERNAME_RESERVED");
         const claimed = await serviceFor(ctx.app.config).claimHandle({
           accessToken: input.supabaseAccessToken,
           handle: input.handle,
@@ -250,6 +259,8 @@ export const authRouter = router({
         const rt = authIdentityRuntimeFor(ctx.app.config);
         if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
         const handle = input.handle.toLowerCase();
+        // `deleted_` names a deleted account's row; never offered as available.
+        if (isReservedHandle(handle)) return { handle, status: "reserved" as const };
         return { handle, status: await rt.store.usernameStatus(handle) };
       }),
     ),

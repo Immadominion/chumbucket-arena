@@ -18,6 +18,7 @@
 import type { AppConfig } from "../config.ts";
 import { accountRuntimeFor } from "../account/runtime.ts";
 import { PushDispatcher, type DispatchReport } from "../push/dispatcher.ts";
+import { trustRuntimeFor } from "../trust/runtime.ts";
 import { notificationsRuntimeFor, type NotificationsRuntime } from "./runtime.ts";
 import type { DeriveReport } from "./NotificationDeriver.ts";
 
@@ -54,6 +55,8 @@ export function startNotificationScheduler(appConfig: AppConfig, opts: Scheduler
       graph: rt.graph,
       sender: account.sender,
       maxAgeMs: account.push.maxAgeMs,
+      // A blocked or muted actor never reaches the inbox, so never a push.
+      hiddenFor: (recipient) => trustRuntimeFor(appConfig).service.hiddenAuthorsFor(recipient),
     });
   rt.scheduled = true;
   if (!dispatcher.enabled) {
@@ -80,6 +83,7 @@ export function startNotificationScheduler(appConfig: AppConfig, opts: Scheduler
             pushed: push.pushed,
             devices: push.devices,
             stale: push.stale,
+            suppressed: push.suppressed,
             forgotten: push.forgotten,
             failed: push.failed,
           })}`,

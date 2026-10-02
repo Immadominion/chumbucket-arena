@@ -1,6 +1,7 @@
 /**
  * A basic, deliberately conservative text policy for what people publish:
- * theses and notes on calls, display names, usernames and bios.
+ * theses, thesis updates and notes on calls, display names, usernames, bios
+ * and the names people give friends they add by wallet.
  *
  * Two rules, both explained to the person in plain words:
  *
@@ -19,7 +20,7 @@
 
 import { TrustError } from "./errors.ts";
 
-export type TextField = "thesis" | "note" | "name" | "handle" | "bio";
+export type TextField = "thesis" | "note" | "name" | "handle" | "bio" | "nickname";
 
 export type ContentVerdict =
   | { ok: true }
@@ -31,6 +32,7 @@ const LABEL: Record<TextField, string> = {
   name: "your name",
   handle: "that username",
   bio: "your bio",
+  nickname: "that name",
 };
 
 const TLDS = [

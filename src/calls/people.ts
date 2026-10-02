@@ -92,17 +92,35 @@ export interface PeopleDirectoryDeps {
   store: CallsStore;
   markets: VenueMarketReader;
   clock: Clock;
+  /** New calls close this long before the market does (M14); top calls follow it. Default 0. */
+  callCutoffMs?: number;
 }
+
+/**
+ * People the viewer should not see (src/trust: blocked, muted, or who blocked
+ * them). Lists drop them before slicing, so a page is never short because of
+ * them; ranks stay the public ranks.
+ */
+export interface PeopleViewOptions {
+  excludeAuthors?: ReadonlySet<string>;
+}
+
+const hiddenBy = (opts: PeopleViewOptions) => {
+  const excluded = opts.excludeAuthors;
+  return (userId: string): boolean => excluded !== undefined && excluded.size > 0 && excluded.has(userId);
+};
 
 export class PeopleDirectory {
   private readonly store: CallsStore;
   private readonly markets: VenueMarketReader;
   private readonly clock: Clock;
+  private readonly callCutoffMs: number;
 
   constructor(deps: PeopleDirectoryDeps) {
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock;
+    this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
   }
 
   // ── the one record ────────────────────────────────────────────────────────
@@ -163,7 +181,12 @@ export class PeopleDirectory {
 
   // ── leaderboard ───────────────────────────────────────────────────────────
 
-  leaderboard(args: { window: LeaderboardWindow; limit: number }, viewerUserId: string | null): Leaderboard {
+  leaderboard(
+    args: { window: LeaderboardWindow; limit: number },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): Leaderboard {
+    const hidden = hiddenBy(opts);
     const now = this.clock.now();
     const span = LEADERBOARD_WINDOWS[args.window];
     const since = span === null ? null : now - span;
@@ -217,8 +240,10 @@ export class PeopleDirectory {
 
     return {
       window: args.window,
-      ranked: ranked.slice(0, args.limit),
-      building: building.slice(0, args.limit),
+      // Ranks are assigned over everyone first, so hiding someone from this
+      // viewer never renumbers anybody else.
+      ranked: ranked.filter((r) => !hidden(r.person.id)).slice(0, args.limit),
+      building: building.filter((r) => !hidden(r.person.id)).slice(0, args.limit),
       viewer,
       minimumDecided: MIN_DECIDED_FOR_ACCURACY,
       rule: LEADERBOARD_RULE,
@@ -237,13 +262,19 @@ export class PeopleDirectory {
    * calls), then alphabetically — a search is not a ranking, so accuracy does
    * not reorder it.
    */
-  searchPeople(args: { query: string; limit: number }, viewerUserId: string | null): PeopleSearchResult {
+  searchPeople(
+    args: { query: string; limit: number },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): PeopleSearchResult {
+    const hidden = hiddenBy(opts);
     const query = normaliseQuery(args.query);
     const hits: { person: Person; tier: number; record: PublicRecord }[] = [];
     if (query.length > 0) {
       const records = this.recordsByAuthor();
       const none = recordFrom(emptyTally());
       for (const person of this.store.listPeople()) {
+        if (hidden(person.id)) continue;
         const tier = matchTier(person, query);
         if (tier === null) continue;
         hits.push({ person, tier, record: records.get(person.id) ?? none });
@@ -284,7 +315,8 @@ export class PeopleDirectory {
    * term only ever compares people who have cleared the sample, because below
    * it there is no accuracy to weigh.
    */
-  topCalls(args: { limit: number }, viewerUserId: string | null): TopCallsPage {
+  topCalls(args: { limit: number }, viewerUserId: string | null, opts: PeopleViewOptions = {}): TopCallsPage {
+    const hidden = hiddenBy(opts);
     const now = this.clock.now();
     const records = this.recordsByAuthor();
     const none = recordFrom(emptyTally());
@@ -299,10 +331,12 @@ export class PeopleDirectory {
 
     const candidates = this.store
       .liveCalls()
-      .filter((c) => c.visibility === "public" && c.userId !== viewerUserId)
+      .filter((c) => c.visibility === "public" && c.userId !== viewerUserId && !hidden(c.userId))
       .filter((c) => {
         const market = this.markets.getMarket(c.marketId);
-        return market !== undefined && acceptsNewCalls(market, now) && this.markets.getResolution(market.id) === undefined;
+        // Only calls the viewer can still answer: the same cut-off back/fade use.
+        return market !== undefined && acceptsNewCalls(market, now, this.callCutoffMs) &&
+          this.markets.getResolution(market.id) === undefined;
       })
       .map((c) => {
         const responses = responsesByTarget.get(c.id) ?? [];

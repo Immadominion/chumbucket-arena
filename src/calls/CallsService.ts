@@ -28,7 +28,7 @@ import { CallsError } from "./errors.ts";
 import { acceptsNewCalls, callsCloseAt, type VenueMarketReader } from "./markets.ts";
 import type { CallFunding, CallFundingReader } from "../prediction/PantaFunding.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
-import { PeopleDirectory } from "./people.ts";
+import { PeopleDirectory, type PeopleViewOptions } from "./people.ts";
 import { accuracyOf, THESIS_UPDATE_MAX, type CallsStore } from "./store.ts";
 import {
   assertMoneyFree,
@@ -106,7 +106,12 @@ export class CallsService {
     this.receipts = deps.receipts;
     this.maxPageSize = deps.maxPageSize ?? 50;
     this.newId = deps.newId ?? ((kind) => `${kind}_${++this.seq}_${this.clock.now().toString(36)}`);
-    this.people = new PeopleDirectory({ store: this.store, markets: this.markets, clock: this.clock });
+    this.people = new PeopleDirectory({
+      store: this.store,
+      markets: this.markets,
+      clock: this.clock,
+      callCutoffMs: this.callCutoffMs,
+    });
   }
 
   // ── 1. calls.feed ─────────────────────────────────────────────────────────
@@ -203,23 +208,35 @@ export class CallsService {
 
   // ── 4. calls.get ──────────────────────────────────────────────────────────
 
-  getCall(args: { callId: string }, viewerUserId: string | null): CallDetail {
+  getCall(
+    args: { callId: string },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): CallDetail {
     const call = this.requireVisibleCall(args.callId, viewerUserId);
     const parent = call.parentCallId ? this.store.getCall(call.parentCallId) : undefined;
+    // Blocked/muted people (src/trust). A call opened by its link still reads,
+    // but the thread carries nothing more from somebody the viewer hid: not
+    // their back/fade on it, and not the author's later updates if the author
+    // is the one hidden.
+    const excluded = opts.excludeAuthors;
+    const hidden = (userId: string) => excluded !== undefined && excluded.size > 0 && excluded.has(userId);
+    const authorHidden = hidden(call.userId);
 
     return {
       entry: this.entryOf(call, viewerUserId),
       parent: parent && this.canSee(parent, viewerUserId) ? this.entryOf(parent, viewerUserId) : null,
       responses: this.store
         .responsesForTarget(call.id)
+        .filter((r) => !hidden(r.actorUserId))
         .sort((a, b) => a.createdAt - b.createdAt)
         .map(toCallResponse),
       // Exactly as visible as the call itself: requireVisibleCall above is
       // the only gate, so a thread can never be read around its call.
-      updates: this.store.thesisUpdatesFor(call.id),
+      updates: authorHidden ? [] : this.store.thesisUpdatesFor(call.id),
       // Only the author can see a withdrawn call, and it takes no new update
       // (appendThesisUpdate refuses it), so it offers none either.
-      updatesAvailable: this.store.thesisUpdatesAvailable() && call.hiddenAt === null,
+      updatesAvailable: !authorHidden && this.store.thesisUpdatesAvailable() && call.hiddenAt === null,
     };
   }
 
@@ -294,13 +311,21 @@ export class CallsService {
   // ── 5b. the people layer ─────────────────────────────────────────────────
 
   /** people.leaderboard — see `PeopleDirectory.leaderboard`. */
-  leaderboard(args: { window: LeaderboardWindow; limit?: number }, viewerUserId: string | null): Leaderboard {
-    return this.people.leaderboard({ window: args.window, limit: clamp(args.limit ?? 50, 1, 100) }, viewerUserId);
+  leaderboard(
+    args: { window: LeaderboardWindow; limit?: number },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): Leaderboard {
+    return this.people.leaderboard({ window: args.window, limit: clamp(args.limit ?? 50, 1, 100) }, viewerUserId, opts);
   }
 
   /** people.search — by handle or name, never by wallet. */
-  searchPeople(args: { query: string; limit?: number }, viewerUserId: string | null): PeopleSearchResult {
-    return this.people.searchPeople({ query: args.query, limit: clamp(args.limit ?? 20, 1, 50) }, viewerUserId);
+  searchPeople(
+    args: { query: string; limit?: number },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): PeopleSearchResult {
+    return this.people.searchPeople({ query: args.query, limit: clamp(args.limit ?? 20, 1, 50) }, viewerUserId, opts);
   }
 
   /** people.following — the session's own follow list, and nobody else's. */
@@ -309,8 +334,8 @@ export class CallsService {
   }
 
   /** calls.top — open calls worth answering, crowd direction gated. */
-  topCalls(args: { limit?: number }, viewerUserId: string | null): TopCallsPage {
-    return this.people.topCalls({ limit: clamp(args.limit ?? 10, 1, 20) }, viewerUserId);
+  topCalls(args: { limit?: number }, viewerUserId: string | null, opts: PeopleViewOptions = {}): TopCallsPage {
+    return this.people.topCalls({ limit: clamp(args.limit ?? 10, 1, 20) }, viewerUserId, opts);
   }
 
   /** The actor is supplied by the verified session, never by the request. */

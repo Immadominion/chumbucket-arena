@@ -25,6 +25,12 @@ export interface PushDispatcherDeps {
   sender: PushSender | null;
   maxAgeMs: number;
   now?: () => number;
+  /**
+   * Who the recipient blocked or muted, or who blocked them (src/trust). The
+   * inbox never shows those people's notifications, so they are never pushed
+   * either. Absent = nobody is hidden.
+   */
+  hiddenFor?: (recipientUserId: string) => Promise<ReadonlySet<string>>;
 }
 
 export interface DispatchReport {
@@ -32,6 +38,8 @@ export interface DispatchReport {
   considered: number;
   /** Skipped because the event is older than maxAgeMs (a backlog, not news). */
   stale: number;
+  /** Skipped because the recipient blocked or muted the actor (or was blocked by them). */
+  suppressed: number;
   /** Sent to at least one device. */
   pushed: number;
   devices: number;
@@ -66,6 +74,7 @@ export class PushDispatcher {
     const report: DispatchReport = {
       considered: fresh.length,
       stale: 0,
+      suppressed: 0,
       pushed: 0,
       devices: 0,
       forgotten: 0,
@@ -80,6 +89,18 @@ export class PushDispatcher {
       if (triggeredAt(n, this.deps.graph) < cutoff) {
         report.stale++;
         continue;
+      }
+      if (n.actorUserId && this.deps.hiddenFor) {
+        let hidden: ReadonlySet<string>;
+        try {
+          hidden = await this.deps.hiddenFor(n.recipientUserId);
+        } catch {
+          hidden = new Set();
+        }
+        if (hidden.has(n.actorUserId)) {
+          report.suppressed++;
+          continue;
+        }
       }
       let tokens;
       try {

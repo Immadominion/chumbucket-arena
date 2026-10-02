@@ -26,8 +26,11 @@ import { isSolanaAddress } from "../auth/WalletLinkService.ts";
 import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
 import { hasCredential } from "../calls/viewer.ts";
 import { isPgrestError } from "../prediction/pgrest.ts";
+import { assertCleanText, type TextField } from "../trust/contentFilter.ts";
+import { isTrustError } from "../trust/errors.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
+import { trustTrpcError } from "./trust.ts";
 import { chargeUser } from "./writeLimits.ts";
 
 // eslint-disable-next-line no-control-regex
@@ -75,6 +78,21 @@ async function requirePerson(rt: CallsRuntime, ctx: Context): Promise<string> {
       ? "Your account isn't linked yet. Sign in again to finish setting it up."
       : "Sign in to do that.",
   });
+}
+
+/**
+ * Names, bios and the names people give friends are public text, so they meet
+ * the same content policy as theses and usernames (src/trust/contentFilter.ts):
+ * no links, no slurs or strong profanity. Refused before anything is written,
+ * with the reason the app shows as-is.
+ */
+function assertPublishable(fields: [string | null | undefined, TextField][]): void {
+  try {
+    for (const [text, field] of fields) assertCleanText(text, field);
+  } catch (err) {
+    if (isTrustError(err)) throw trustTrpcError(err);
+    throw err;
+  }
 }
 
 function storeFailure(err: unknown): never {
@@ -132,6 +150,10 @@ export const accountRouter = router({
     .mutation(async ({ ctx, input }) => {
       const calls = callsRuntimeFor(ctx.app.config);
       const userId = await requirePerson(calls, ctx);
+      assertPublishable([
+        [input.displayName, "name"],
+        [input.bio, "bio"],
+      ]);
       chargeUser(ctx.app.config, userId);
       const { store } = accountRuntimeFor(ctx.app.config);
       if (!store.enabled) {
@@ -182,6 +204,7 @@ export const accountRouter = router({
     .mutation(async ({ ctx, input }) => {
       const calls = callsRuntimeFor(ctx.app.config);
       const userId = await requirePerson(calls, ctx);
+      assertPublishable([[input.nickname, "nickname"]]);
       chargeUser(ctx.app.config, userId);
       if (!isSolanaAddress(input.walletAddress) || !isUsableSolanaAddress(input.walletAddress)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: FRIEND_COPY.invalid_wallet! });

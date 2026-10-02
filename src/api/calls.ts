@@ -274,9 +274,11 @@ const callsNamespace = router({
     .input(z.object({ callId: z.string().min(1).max(256) }).strict())
     .query(({ ctx, input }) => {
       const rt = runtime(ctx.app.config);
-      return call(async () =>
-        rt.service.getCall({ callId: input.callId }, await viewerOf(rt, ctx)),
-      );
+      return call(async () => {
+        const viewer = await viewerOf(rt, ctx);
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.getCall({ callId: input.callId }, viewer, { excludeAuthors });
+      });
     }),
 
   /**
@@ -365,7 +367,11 @@ const callsNamespace = router({
     .input(z.object({ limit: z.number().int().min(1).max(20).default(10) }).strict().default({ limit: 10 }))
     .query(({ ctx, input }) => {
       const rt = runtime(ctx.app.config);
-      return call(async () => rt.service.topCalls({ limit: input.limit }, await viewerOf(rt, ctx)));
+      return call(async () => {
+        const viewer = await viewerOf(rt, ctx);
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.topCalls({ limit: input.limit }, viewer, { excludeAuthors });
+      });
     }),
 
   /**
@@ -379,6 +385,8 @@ const callsNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         const actor = await requireViewer(rt, ctx);
+        // An update is published under the thesis, so it meets the same policy.
+        safety(ctx.app.config).assertClean(input.body, "thesis");
         const update = rt.service.appendThesisUpdate({ callId: input.callId, body: input.body }, actor);
         // Acknowledged only once Postgres has it, like a call.
         await rt.durable?.flush();
@@ -476,7 +484,9 @@ const peopleNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         await rt.ready;
-        return rt.service.leaderboard({ window: input.window, limit: input.limit }, await viewerOf(rt, ctx));
+        const viewer = await viewerOf(rt, ctx);
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.leaderboard({ window: input.window, limit: input.limit }, viewer, { excludeAuthors });
       });
     }),
 
@@ -494,7 +504,9 @@ const peopleNamespace = router({
       const rt = runtime(ctx.app.config);
       return call(async () => {
         await rt.ready;
-        return rt.service.searchPeople({ query: input.query, limit: input.limit }, await viewerOf(rt, ctx));
+        const viewer = await viewerOf(rt, ctx);
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.searchPeople({ query: input.query, limit: input.limit }, viewer, { excludeAuthors });
       });
     }),
 
