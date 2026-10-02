@@ -71,7 +71,9 @@ export type AuthIdentityErrorCode =
   | "USERNAME_TAKEN"
   | "PROFILE_NAME_INVALID"
   /** The signed-in wallet already has an account; it is carried, never duplicated. */
-  | "WALLET_HAS_PROFILE";
+  | "WALLET_HAS_PROFILE"
+  /** The account already has a @username; claiming one never renames it. */
+  | "HANDLE_ALREADY_SET";
 
 export class AuthIdentityError extends Error {
   readonly code: AuthIdentityErrorCode;

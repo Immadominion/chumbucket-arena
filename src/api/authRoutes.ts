@@ -32,6 +32,7 @@ import { WalletLinkService } from "../auth/WalletLinkService.ts";
 import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
+import { existingCallsRuntime } from "../calls/runtime.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
 
 /**
@@ -85,6 +86,7 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   USERNAME_TAKEN: "CONFLICT",
   PROFILE_NAME_INVALID: "BAD_REQUEST",
   WALLET_HAS_PROFILE: "CONFLICT",
+  HANDLE_ALREADY_SET: "CONFLICT",
 };
 
 /** Run a procedure body: DomainError -> transport via guard(), then our own
@@ -118,6 +120,27 @@ function existingAccountService(config: AppConfig): ExistingAccountClaimService 
     enabled: config.authIdentity?.existingAccountClaimsEnabled === true,
     store: rt.existingAccounts, verifier: rt.verifier, policy: rt.policy,
   });
+}
+
+/**
+ * Tell an already-running calls mirror that this person's @username changed,
+ * so feeds, profiles and `people.get` stop showing the placeholder at once.
+ * Best effort: the claim is already durable, and a mirror that misses this
+ * reads the row again on its next hydration.
+ */
+async function refreshCallsPerson(config: AppConfig, userId: string, handle: string): Promise<void> {
+  try {
+    const calls = existingCallsRuntime(config);
+    if (!calls) return;
+    if (calls.durable) {
+      await calls.durable.refreshPerson(userId);
+      return;
+    }
+    const person = calls.store.getPerson(userId);
+    if (person) calls.store.upsertPerson({ ...person, handle });
+  } catch {
+    // Never fails the claim, and never surfaces a store error to the caller.
+  }
 }
 
 const accessToken = z.string().min(1).max(8192);
@@ -166,6 +189,33 @@ export const authRouter = router({
       const userId = await rt.store.createPersonForAuthUser(session.authUserId, input.displayName);
       return { userId, authUserId: session.authUserId };
     })),
+
+  /**
+   * An existing account without a @username (made before usernames, or carried
+   * over from a wallet profile) claims one. Only the caller's own account, only
+   * while it has none: a set handle is never renamed (`HANDLE_ALREADY_SET`).
+   * POST only — the credential travels in the body, never a URL.
+   */
+  claimUsername: publicProcedure
+    .input(z.object({
+      supabaseAccessToken: accessToken,
+      handle: z.string().trim().min(1).max(40),
+    }).strict())
+    .mutation(({ ctx, input }) =>
+      run(async () => {
+        const claimed = await serviceFor(ctx.app.config).claimHandle({
+          accessToken: input.supabaseAccessToken,
+          handle: input.handle,
+        });
+        await refreshCallsPerson(ctx.app.config, claimed.userId, claimed.handle);
+        return {
+          userId: claimed.userId,
+          authUserId: claimed.authUserId,
+          handle: claimed.handle,
+          outcome: claimed.outcome,
+        };
+      }),
+    ),
 
   /**
    * Everything a client needs to construct a request, and nothing else. No key,
@@ -222,9 +272,22 @@ export const authRouter = router({
     .mutation(({ ctx, input }) =>
       run(async () => {
         const identity = await serviceFor(ctx.app.config).authenticate(input.supabaseAccessToken);
+        // The caller's own stored @username — null when the account has none,
+        // which is the app's cue to ask for one. Omitted (not null) when it
+        // could not be read, so a failed read never looks like "no username".
+        let handle: string | null | undefined;
+        try {
+          handle = await authIdentityRuntimeFor(ctx.app.config).store.handleForUser(identity.userId);
+        } catch {
+          handle = undefined;
+        }
         // authUserId is returned deliberately: it is the client's own auth.uid(),
         // which it already holds. It is not another user's identifier.
-        return { userId: identity.userId, authUserId: identity.authUserId };
+        return {
+          userId: identity.userId,
+          authUserId: identity.authUserId,
+          ...(handle !== undefined ? { handle } : {}),
+        };
       }),
     ),
 
@@ -269,6 +332,8 @@ export const authRouter = router({
         message: z.string().min(1).max(4096),
         signature: z.string().min(1).max(256),
         purpose: purpose.optional(),
+        /** "embedded": a key the app generated on the phone. Label only. */
+        walletType: z.enum(["mwa", "embedded"]).optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -279,6 +344,7 @@ export const authRouter = router({
           message: input.message,
           signature: input.signature,
           ...(input.purpose ? { purpose: input.purpose } : {}),
+          ...(input.walletType ? { walletType: input.walletType } : {}),
         }),
       ),
     ),

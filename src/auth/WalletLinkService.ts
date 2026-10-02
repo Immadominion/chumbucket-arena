@@ -91,6 +91,12 @@ export interface LinkWalletInput {
   message: string;
   signature: string;
   purpose?: WalletPurpose;
+  /**
+   * How the person holds the key: "mwa" (a wallet app, the default) or
+   * "embedded" (a key the Chumbucket app made on the phone). A label only —
+   * ownership is proven by the signature either way.
+   */
+  walletType?: "mwa" | "embedded";
 }
 
 export interface LinkWalletResult {
@@ -124,6 +130,18 @@ export interface CreateProfileInput {
   accessToken: string;
   displayName: string;
   handle: string;
+}
+
+export interface ClaimHandleInput {
+  accessToken: string;
+  handle: string;
+}
+
+export interface ClaimHandleResult extends AuthedIdentity {
+  /** As stored: lowercase. */
+  handle: string;
+  /** "unchanged" when the account already had exactly this handle. */
+  outcome: "claimed" | "unchanged";
 }
 
 export class WalletLinkService {
@@ -195,6 +213,43 @@ export class WalletLinkService {
         failAuth("PROFILE_NAME_INVALID");
       case "wallet_has_profile":
         failAuth("WALLET_HAS_PROFILE");
+      default:
+        failAuth("IDENTITY_STORE_ERROR");
+    }
+  }
+
+  /**
+   * The caller's own account claims a @username, only while it has none.
+   *
+   * Which account is decided twice and must agree: here, from the verified
+   * session (exactly as every other procedure resolves it), and in SQL, from
+   * the same auth subject. The handle is never taken from, or written to, any
+   * other account, and a handle that is already set is never renamed.
+   */
+  async claimHandle(input: ClaimHandleInput): Promise<ClaimHandleResult> {
+    const identity = await this.authenticate(input.accessToken);
+    const result = await this.deps.store.claimOwnHandle(identity.authUserId, input.handle);
+    if (result.ok) {
+      if (result.user_id !== identity.userId || typeof result.handle !== "string") {
+        failAuth("IDENTITY_STORE_ERROR", "handle claim answered for a different account");
+      }
+      return {
+        ...identity,
+        handle: result.handle,
+        outcome: result.outcome === "unchanged" ? "unchanged" : "claimed",
+      };
+    }
+    switch (result.reason) {
+      case "handle_invalid":
+        failAuth("USERNAME_INVALID");
+      case "handle_reserved":
+        failAuth("USERNAME_RESERVED");
+      case "handle_taken":
+        failAuth("USERNAME_TAKEN");
+      case "handle_already_set":
+        failAuth("HANDLE_ALREADY_SET");
+      case "unknown_user":
+        failAuth("AUTH_USER_UNLINKED");
       default:
         failAuth("IDENTITY_STORE_ERROR");
     }
@@ -307,6 +362,7 @@ export class WalletLinkService {
       walletAddress: fields.address,
       proofVersion: policy.proofVersion,
       ...(nonceId ? { nonceId } : {}),
+      ...(input.walletType ? { walletType: input.walletType } : {}),
     });
     if (!attached.ok) failAuth(codeForStoreReason(attached.reason, "WALLET_LINK_FAILED"));
 

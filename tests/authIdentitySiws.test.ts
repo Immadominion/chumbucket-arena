@@ -178,6 +178,22 @@ describe("linkWallet — the proof that succeeds", () => {
       proofVersion: 1,
     });
     expect(h.store.walletOwner(alice.address)).toBe("user-alice");
+    expect(h.store.walletTypeOf(alice.address)).toBe("mwa");
+  });
+
+  test("a key the app made on the phone is recorded as embedded; the proof is the same", async () => {
+    const device = makeWallet();
+    const p = await provenProof(h, "tok-bob", device);
+    const result = await h.service.linkWallet({
+      accessToken: "tok-bob",
+      address: device.address,
+      message: p.message,
+      signature: p.signature,
+      walletType: "embedded",
+    });
+    expect(result.outcome).toBe("linked");
+    expect(h.store.walletOwner(device.address)).toBe("user-bob");
+    expect(h.store.walletTypeOf(device.address)).toBe("embedded");
   });
 
   test("the issued challenge is bound to the canonical user, not the address", async () => {

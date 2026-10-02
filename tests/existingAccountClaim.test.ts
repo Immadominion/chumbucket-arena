@@ -87,7 +87,7 @@ test("a verified, unlinked user can request proof without creating another profi
 test("approved claim preserves the existing id; whoami resolves it; retry does not write twice", async () => {
   const r = await rig(); r.approve(); const proof = await r.prove();
   expect(await r.caller.claimExistingAccount(proof)).toEqual({ userId: person, authUserId: alice, outcome: "claimed" });
-  expect(await r.caller.whoami({ supabaseAccessToken: "alice-session" })).toEqual({ userId: person, authUserId: alice });
+  expect(await r.caller.whoami({ supabaseAccessToken: "alice-session" })).toEqual({ userId: person, authUserId: alice, handle: null });
   expect((await r.caller.claimExistingAccount(proof)).outcome).toBe("already_claimed");
   expect(r.store.claimWrites).toBe(1); expect(r.store.people.size).toBe(2);
 });

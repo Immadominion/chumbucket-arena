@@ -96,6 +96,10 @@ export interface IdentityStore {
   createPersonWithUsername(input: CreatePersonInput): Promise<StoreResult>;
   /** Carry the existing account whose wallet this is over to a wallet sign-in. */
   bindWalletSession(authUserId: string, walletAddress: string): Promise<StoreResult>;
+  /** The account's own @username, or null while it has none. */
+  handleForUser(userId: string): Promise<string | null>;
+  /** The account this verified sign-in reaches claims a @username, only while it has none. */
+  claimOwnHandle(authUserId: string, handle: string): Promise<StoreResult>;
   issueWalletNonce(input: IssueNonceInput): Promise<StoreResult>;
   consumeWalletNonce(input: ConsumeNonceInput): Promise<StoreResult>;
   attachVerifiedWallet(input: AttachWalletInput): Promise<StoreResult>;
@@ -119,6 +123,12 @@ export class NoopIdentityStore implements IdentityStore {
     return { ok: false, reason: "identity store is not configured" };
   }
   async bindWalletSession(): Promise<StoreResult> {
+    return { ok: false, reason: "identity store is not configured" };
+  }
+  async handleForUser(): Promise<string | null> {
+    throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+  }
+  async claimOwnHandle(): Promise<StoreResult> {
     return { ok: false, reason: "identity store is not configured" };
   }
   async issueWalletNonce(): Promise<StoreResult> {
@@ -198,6 +208,27 @@ export class SupabaseIdentityStore implements IdentityStore {
       await this.rpc<StoreResult>("bind_wallet_session_v1", {
         p_auth_user_id: authUserId,
         p_wallet_address: walletAddress,
+      }),
+    );
+  }
+
+  /**
+   * The stored handle, not the `user-xxxxxxxx` placeholder the calls surface
+   * shows for an account without one — the app needs to know the difference to
+   * ask for a username.
+   */
+  async handleForUser(userId: string): Promise<string | null> {
+    const params = new URLSearchParams({ id: `eq.${userId}`, select: "handle", limit: "1" });
+    const rows = await this.getRows<{ handle: string | null }>("users", params);
+    const handle = rows[0]?.handle;
+    return typeof handle === "string" && handle.length > 0 ? handle : null;
+  }
+
+  async claimOwnHandle(authUserId: string, handle: string): Promise<StoreResult> {
+    return this.asResult(
+      await this.rpc<StoreResult>("claim_own_handle_v1", {
+        p_auth_user_id: authUserId,
+        p_handle: handle,
       }),
     );
   }
