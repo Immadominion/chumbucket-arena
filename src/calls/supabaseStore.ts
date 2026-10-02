@@ -681,13 +681,15 @@ export class SupabaseCallsStore implements CallsStore {
 
 // ── row shapes and mappers ───────────────────────────────────────────────────
 
-const USER_COLUMNS = "id,handle,full_name,profile_picture,wallet_address,sns_domain";
+const USER_COLUMNS = "id,handle,full_name,profile_picture,profile_image_id,wallet_address,sns_domain";
 
 interface UserRow {
   id: string;
   handle: string | null;
   full_name: string | null;
   profile_picture: string | null;
+  /** The app's fixed avatar (1..5); absent on rows read by older selects. */
+  profile_image_id?: number | null;
   wallet_address: string | null;
   sns_domain: string | null;
 }
@@ -706,11 +708,15 @@ interface UserRow {
  */
 export function personFromRow(row: UserRow): Person {
   const handle = row.handle ?? row.sns_domain ?? `user-${row.id.slice(0, 8)}`;
+  const avatarId = row.profile_image_id;
   return {
     id: row.id,
     handle,
     displayName: row.full_name ?? handle,
-    avatarUrl: row.profile_picture,
+    // Only a real URL is a URL. Legacy rows hold app asset paths here, which
+    // the client derives from avatarId instead.
+    avatarUrl: row.profile_picture && /^https:\/\//.test(row.profile_picture) ? row.profile_picture : null,
+    avatarId: typeof avatarId === "number" && Number.isInteger(avatarId) && avatarId >= 1 && avatarId <= 5 ? avatarId : null,
     walletAddress: row.wallet_address,
     settledCalls: 0,
     correctCalls: 0,

@@ -136,7 +136,8 @@ async function inboxReady(rt: NotificationsRuntime): Promise<void> {
  * `deriver.runOnce()` on a timer.
  */
 function refresh(rt: NotificationsRuntime): void {
-  if (rt.config.flags.deriveOnRead) rt.deriver.runOnce();
+  // Once the scheduler derives on a timer, a read is a read.
+  if (rt.config.flags.deriveOnRead && !rt.scheduled) rt.deriver.runOnce();
 }
 
 // ── notifications.* ──────────────────────────────────────────────────────────

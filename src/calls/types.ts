@@ -115,13 +115,19 @@ export function toCallResponse(rec: CallResponseRecord): CallResponse {
 /**
  * A person, keyed by the canonical `public.users.id`. `walletAddress` is a
  * LINKED CREDENTIAL, not the identity (§0.3), and is null for a wallet-less
- * account — the default in this slice.
+ * account — the default in this slice. It is held server-side (the directory
+ * maps wallets to people) and is NEVER put on the wire: every social payload
+ * passes through `redactWallets` (M2). A person reads their own wallet from
+ * `account.me`.
  */
 export interface Person {
   id: string;
   handle: string;
   displayName: string;
+  /** An absolute https URL, when the person has one. */
   avatarUrl: string | null;
+  /** One of the app's five fixed avatars (1..5), chosen by the person. */
+  avatarId?: number | null;
   walletAddress: string | null;
   /** Settled calls only. VOID is excluded from BOTH numerator and denominator:
    *  a void is never a win and never a loss (§3). */

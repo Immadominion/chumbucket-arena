@@ -11,6 +11,7 @@ import { durableWriterNeedsRestart } from "./calls/durableFailure.ts";
 import { isVenueError } from "./prediction/errors.ts";
 import { startServer } from "./api/server.ts";
 import { OnchainKeeper } from "./keeper/onchainDriver.ts";
+import { startNotificationScheduler } from "./notifications/scheduler.ts";
 
 const app = await createApp();
 const { port } = app.config;
@@ -52,6 +53,15 @@ if (calls.durable) {
       process.exit(1);
     });
   }, 15_000);
+}
+
+// Notifications are derived on a timer, off the request path, and what each
+// pass newly derives is pushed (FCM HTTP v1) when FIREBASE_SERVICE_ACCOUNT_JSON
+// is set. Without it the inbox still fills; the scheduler says so once.
+if (process.env.NOTIFICATIONS_SCHEDULER_ENABLED !== "false") {
+  const tickMs = Number(process.env.NOTIFICATIONS_TICK_MS ?? 20_000);
+  startNotificationScheduler(app.config, { tickMs: Number.isFinite(tickMs) ? tickMs : 20_000 });
+  console.log(`   Notifications:   derived every ${Number.isFinite(tickMs) ? tickMs : 20_000}ms (off the request path)`);
 }
 
 // Keep venue_markets / market_snapshots / market_resolutions fresh. Without

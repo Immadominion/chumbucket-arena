@@ -42,6 +42,11 @@ export interface NotificationsRuntime {
   /** The durable store when one was built; null when this runtime is in memory. */
   durable: SupabaseNotificationsStore | null;
   /**
+   * True once `startNotificationScheduler` runs the deriver on a timer. Inbox
+   * reads then stop deriving: derivation is off the request path (M3/M4).
+   */
+  scheduled: boolean;
+  /**
    * Resolves once the mirror has been read back from Postgres (and the calls
    * mirror before it). Immediately for an in-memory runtime. A failed read is
    * retried by the next caller rather than remembered, so a database blip at
@@ -145,7 +150,7 @@ export function buildNotificationsRuntime(
     return hydrating;
   };
 
-  return { config, store, graph, markets, service, deriver, viewer, durable, ready };
+  return { config, store, graph, markets, service, deriver, viewer, durable, ready, scheduled: false };
 }
 
 let RUNTIMES = new WeakMap<AppConfig, NotificationsRuntime>();

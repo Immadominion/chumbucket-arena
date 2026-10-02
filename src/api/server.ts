@@ -13,7 +13,8 @@ import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { WebSocketServer } from "ws";
 import type { App } from "../app.ts";
 import { handleHeliusWebhook } from "../indexer/HeliusWebhook.ts";
-import { appRouter } from "./router.ts";
+import type { AnyRouter } from "@trpc/server";
+import { servedRouter } from "./router.ts";
 import { makeContext } from "./trpc.ts";
 
 /** Credential from the request: `Authorization: Bearer <privy token>`, or the
@@ -36,10 +37,33 @@ const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined
   return v.startsWith("Bearer ") ? v.slice(7) : v;
 };
 
-export function startServer(app: App, port: number, host?: string) {
+/**
+ * The caller's address, for per-IP write limits. Railway's edge sets
+ * X-Real-IP; otherwise the LAST X-Forwarded-For hop (the one our own proxy
+ * appended — the leftmost is whatever the client chose to send), then the
+ * socket. Never trusted for anything but rate limiting.
+ */
+export function clientIpFrom(req: IncomingMessage | undefined): string | undefined {
+  const real = req?.headers?.["x-real-ip"];
+  const r = (Array.isArray(real) ? real[0] : real)?.trim();
+  if (r) return r;
+  const xff = req?.headers?.["x-forwarded-for"];
+  const hops = (Array.isArray(xff) ? xff.join(",") : xff ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  if (hops.length) return hops[hops.length - 1];
+  return req?.socket?.remoteAddress ?? undefined;
+}
+
+export interface StartServerOptions {
+  /** Default: `servedRouter()` — the calls BFF surface unless LEGACY_ARENA_ROUTES=true. */
+  router?: AnyRouter;
+}
+
+export function startServer(app: App, port: number, host?: string, options: StartServerOptions = {}) {
+  const router = options.router ?? servedRouter();
   const http = createHTTPServer({
-    router: appRouter,
-    createContext: (opts) => makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req)),
+    router,
+    createContext: (opts) =>
+      makeContext(app, tokenFrom(opts.req), supabaseTokenFrom(opts.req), clientIpFrom(opts.req)),
     middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/webhooks/helius") {
@@ -76,7 +100,7 @@ export function startServer(app: App, port: number, host?: string) {
   const wss = new WebSocketServer({ server: http });
   const wsHandler = applyWSSHandler({
     wss,
-    router: appRouter,
+    router,
     createContext: (opts) =>
       makeContext(
         app,
@@ -85,6 +109,7 @@ export function startServer(app: App, port: number, host?: string) {
           tokenFrom(opts.req),
         (opts.info?.connectionParams?.supabaseAccessToken as string | undefined) ??
           supabaseTokenFrom(opts.req),
+        clientIpFrom(opts.req),
       ),
   });
 

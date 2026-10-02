@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { callsRuntimeFor } from "../calls/runtime.ts";
+import { redactWallets } from "./redactWallets.ts";
 import { publicProcedure } from "./trpc.ts";
 
 /** The synchronous social store has a write-behind mirror. Never acknowledge
@@ -23,5 +24,7 @@ export const socialProcedure = publicProcedure.use(async ({ ctx, next }) => {
   await barrier();
   const result = await next();
   await barrier();
+  // No social payload names anybody's wallet (M2) — see redactWallets.ts.
+  if (result.ok) return { ...result, data: redactWallets(result.data) };
   return result;
 });
