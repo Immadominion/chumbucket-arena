@@ -2,7 +2,7 @@
  * Market-creation switches, read here (not in src/config.ts) so the feature is
  * self-contained. Everything defaults OFF:
  *
- *   MARKET_PROPOSALS_ENABLED=true   after 20261002130000_market_proposals.sql is
+ *   MARKET_PROPOSALS_ENABLED=true   after 20261002140000_market_proposals.sql is
  *                                   applied; enables propose / review / mine.
  *   MARKET_PUBLISHING_ENABLED=true  emergency switch for the paid Panta create.
  *                                   Also needs the live Panta key, the pinned

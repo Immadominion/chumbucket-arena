@@ -1,5 +1,5 @@
 /**
- * Opt-in real PostgreSQL 15 verification of 20261002130000_market_proposals.sql.
+ * Opt-in real PostgreSQL 15 verification of 20261002140000_market_proposals.sql.
  * Run: bun --no-env-file scripts/verify-market-proposals-local.ts --run
  * The verifier owns a fresh loopback cluster; normal `bun test` never connects.
  *
@@ -21,7 +21,7 @@ import { eventPda, FakePanta, program, sign, wallet } from "./marketCreationFixt
 const url = process.env.MARKET_PROPOSALS_TEST_DATABASE_URL;
 const local = url ? describe : describe.skip;
 if (!url) console.info("SKIP market proposals PostgreSQL: MARKET_PROPOSALS_TEST_DATABASE_URL unset; run bun --no-env-file scripts/verify-market-proposals-local.ts --run");
-const MIGRATION = "20261002130000_market_proposals.sql";
+const MIGRATION = "20261002140000_market_proposals.sql";
 const migrationPath = [
   process.env.MARKET_PROPOSALS_MIGRATION,
   join(import.meta.dir, "../../mobile/supabase/migrations", MIGRATION),

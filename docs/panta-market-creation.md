@@ -180,7 +180,7 @@ lands. People pick only "trading closes" (`endTime`) and "result known by"
 | Switches and readiness | `src/marketCreation/config.ts` |
 | Composition | `src/marketCreation/runtime.ts` |
 | tRPC `marketCreation.*` | `src/api/marketCreation.ts`, mounted in `src/api/router.ts` |
-| Migration (mobile repo) | `supabase/migrations/20261002130000_market_proposals.sql` |
+| Migration (mobile repo) | `supabase/migrations/20261002140000_market_proposals.sql` |
 | Signature-expiry helper | `PantaChain.neverLanded` in `src/prediction/PantaChain.ts` |
 
 Procedures: `status` (public), `propose`, `mine`, `get`, `withdraw`,
@@ -240,7 +240,7 @@ create response failed a safety check" and no wallet is opened. See owner action
 
 ## 4. What the owner must do
 
-1. **Apply the migration** `supabase/migrations/20261002130000_market_proposals.sql`
+1. **Apply the migration** `supabase/migrations/20261002140000_market_proposals.sql`
    (mobile repo) to production Supabase. It adds two tables. They are
    service-role only, RLS is on, and anon and authenticated have no grants.
    Verified on a fresh PostgreSQL 15 with

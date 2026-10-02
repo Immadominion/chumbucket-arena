@@ -1,6 +1,6 @@
 /**
  * Market proposals and their Panta create sessions, in their database shape
- * (supabase/migrations/20261002130000_market_proposals.sql in the mobile repo).
+ * (supabase/migrations/20261002140000_market_proposals.sql in the mobile repo).
  *
  * Every state change is a compare-and-set on the previous state, so two
  * replicas (or a double tap) can never both approve, both publish, or both
