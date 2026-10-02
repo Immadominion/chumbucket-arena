@@ -25,7 +25,8 @@ import { systemClock, type Clock } from "../prediction/clock.ts";
 import type { MarketResolutionRecord } from "../prediction/types.ts";
 import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { CallsError } from "./errors.ts";
-import { acceptsNewCalls, type VenueMarketReader } from "./markets.ts";
+import { acceptsNewCalls, callsCloseAt, type VenueMarketReader } from "./markets.ts";
+import type { CallFunding, CallFundingReader } from "../prediction/PantaFunding.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
 import { accuracyOf, type CallsStore } from "./store.ts";
 import {
@@ -63,6 +64,10 @@ export interface CallsServiceDeps {
   newId?: (kind: "call" | "response") => string;
   /** Bound on a feed page. */
   maxPageSize?: number;
+  /** New calls close this long before the market does (M14). Default 0. */
+  callCutoffMs?: number;
+  /** Confirmed Panta fills, shown as the author's conviction. Never money. */
+  funding?: CallFundingReader;
 }
 
 const THESIS_MAX = 280;
@@ -76,9 +81,13 @@ export class CallsService {
   private readonly newId: (kind: "call" | "response") => string;
   private seq = 0;
   private readonly allowPantaCalls: boolean;
+  private readonly callCutoffMs: number;
+  private readonly funding: CallFundingReader | undefined;
 
   constructor(deps: CallsServiceDeps) {
     this.allowPantaCalls = deps.allowPantaCalls === true;
+    this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
+    this.funding = deps.funding;
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock ?? systemClock;
@@ -140,7 +149,7 @@ export class CallsService {
   openMarkets(args: { category?: string | null } = {}): VenueMarket[] {
     return this.markets
       .listMarkets()
-      .filter((m) => acceptsNewCalls(m, this.clock.now()))
+      .filter((m) => acceptsNewCalls(m, this.clock.now(), this.callCutoffMs))
       .filter((m) => this.markets.getResolution(m.id) === undefined)
       .filter((m) => m.venue === "panta"
         ? this.allowPantaCalls && usableSharePrice(this.markets.latestSharePrice?.(m.id), this.clock.now())
@@ -168,6 +177,8 @@ export class CallsService {
       ...(market.venue === "panta" ? { sharePrice: this.markets.latestSharePrice?.(market.id) ?? null } : {}),
       viewerCall: viewerCall ? this.entryOf(viewerCall, viewerUserId) : null,
       crowdSplit: viewerCall ? this.crowdSplitOf(market.id) : null,
+      callsCloseAt: callsCloseAt(market, this.callCutoffMs),
+      callCutoffMs: this.callCutoffMs,
       servedAt: this.clock.now(),
     };
   }
@@ -237,7 +248,8 @@ export class CallsService {
     if (market.venue === "panta" && !this.allowPantaCalls) {
       throw new CallsError("CALL_INVALID", "Panta market reads are available, but Panta calls and share-price receipts are not enabled yet.");
     }
-    if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
+    this.assertBeforeCutoff(market, "make a call");
+    if (!acceptsNewCalls(market, this.clock.now(), this.callCutoffMs) || this.markets.getResolution(market.id)) {
       throw new CallsError(
         "CALL_MARKET_CLOSED",
         market.status === "OPEN"
@@ -305,7 +317,8 @@ export class CallsService {
     }
 
     // back = the same side. fade = the other side. Those are the words.
-    if (!acceptsNewCalls(market, this.clock.now()) || this.markets.getResolution(market.id)) {
+    this.assertBeforeCutoff(market, `${input.kind} this call`);
+    if (!acceptsNewCalls(market, this.clock.now(), this.callCutoffMs) || this.markets.getResolution(market.id)) {
       throw new CallsError(
         "CALL_MARKET_CLOSED",
         `This market is not accepting new calls, so you can't ${input.kind} this call any more.`,
@@ -394,6 +407,24 @@ export class CallsService {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
+
+  /**
+   * M14: an open market inside its cut-off window refuses new calls with copy
+   * that names the window, so the person knows why and when it closed.
+   */
+  private assertBeforeCutoff(market: VenueMarket, action: string): void {
+    const now = this.clock.now();
+    const closeAt = callsCloseAt(market, this.callCutoffMs);
+    if (this.callCutoffMs > 0 && market.status === "OPEN" && market.closesAt !== null &&
+        market.closesAt > now && closeAt !== null && closeAt <= now) {
+      const minutes = Math.round(this.callCutoffMs / 60_000);
+      throw new CallsError(
+        "CALL_MARKET_CLOSED",
+        `Calls close ${minutes} minute${minutes === 1 ? "" : "s"} before this market does, so you can't ${action} now.`,
+        { details: { marketId: market.id, status: market.status, callsCloseAt: closeAt } },
+      );
+    }
+  }
 
   private assertCurrentVenue(market: VenueMarket): void {
     if (market.venue !== "panta" && market.venue !== "fixture") {
@@ -545,6 +576,9 @@ export class CallsService {
       viewerHasCalled: viewerUserId
         ? this.store.liveCallByUserOnMarket(viewerUserId, call.marketId) !== undefined
         : false,
+      // Present only on a call backed by a confirmed fill; a free call's
+      // entry keeps its exact shape.
+      ...funded(this.funding?.fundingOf(call.id) ?? null),
     };
   }
 }
@@ -552,6 +586,8 @@ export class CallsService {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const opposite = (s: Side): Side => (s === "YES" ? "NO" : "YES");
+
+const funded = (funding: CallFunding | null): { funding?: CallFunding } => (funding ? { funding } : {});
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.trunc(n)));
 

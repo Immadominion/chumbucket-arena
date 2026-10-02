@@ -5,7 +5,16 @@ import { PantaVenue } from "./PantaVenue.ts";
 import { PantaExecution } from "./PantaExecution.ts";
 import { PantaChain } from "./PantaChain.ts";
 import { pantaPost } from "./PantaHttp.ts";
-import { SupabasePantaTradingStore } from "./PantaTradingStore.ts";
+import { SupabasePantaTradingStore, type PantaTradingLedger } from "./PantaTradingStore.ts";
+import { SupabasePantaClaimStore, type PantaClaimStore } from "./PantaClaimStore.ts";
+import { PantaClaimExecution } from "./PantaClaims.ts";
+import { PantaClaimService } from "./PantaClaimService.ts";
+import { PantaFundingIndex, pantaFundingIndexFor } from "./PantaFunding.ts";
+import { PantaHoldings } from "./PantaHoldings.ts";
+import { PantaPositionsService } from "./PantaPositions.ts";
+import { PantaReconciler } from "./PantaReconciler.ts";
+import { PantaSettlementChain } from "./PantaSettlementChain.ts";
+import { callsRuntimeFor } from "../calls/runtime.ts";
 import { PantaTradingService } from "./PantaTradingService.ts";
 import { PgrestError } from "./pgrest.ts";
 import { VenueError } from "./errors.ts";
@@ -33,13 +42,28 @@ export function pantaTradingReadiness(config: AppConfig, forRead = false): { ena
   return { enabled: reason === null, reason, venue: "panta", attribution: "Powered by Panta" };
 }
 
+/** The claim ledger migration is applied in this environment (owner-set). */
+export function pantaClaimsSchemaReady(env: Record<string, string | undefined> = process.env): boolean {
+  return env.PANTA_CLAIM_SCHEMA_READY === "true";
+}
+
+/** Everything the funded lifecycle needs, built once per AppConfig. */
+export interface PantaLifecycle {
+  trading: PantaTradingService;
+  claims: PantaClaimService | null;
+  positions: PantaPositionsService | null;
+  holdings: PantaHoldings | null;
+  ledger: PantaTradingLedger | null;
+  claimStore: PantaClaimStore | null;
+  funding: PantaFundingIndex;
+}
 const runtimes = new WeakMap<AppConfig, PantaTradingService>();
-export function pantaTradingFor(config: AppConfig, forRead = false): PantaTradingService {
-  const ready = pantaTradingReadiness(config, forRead);
-  if (!ready.enabled) throw new VenueError("FUNDED_POSITIONS_DISABLED", ready.reason!, { venue: "panta" });
-  const held = runtimes.get(config); if (held) return held;
+const lifecycles = new WeakMap<AppConfig, PantaLifecycle>();
+
+function buildLifecycle(config: AppConfig): PantaLifecycle {
   const panta = config.predictions!.panta!;
   const chain = new PantaChain(config.solana.rpcUrl);
+  const settlement = new PantaSettlementChain(config.solana.rpcUrl);
   // This dedicated durable transport does not propagate native exception causes
   // or database error details containing a signed approval to logs/responses.
   const safeFetch: typeof fetch = Object.assign(async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -49,13 +73,59 @@ export function pantaTradingFor(config: AppConfig, forRead = false): PantaTradin
       return new Response(JSON.stringify({ message: "Panta ledger refused the operation" }), { status: res.status });
     } catch { throw new PgrestError("Panta durable ledger request did not complete"); }
   }, { preconnect: fetch.preconnect });
-  const execution = new PantaExecution({ request: pantaPost(panta.apiKey, panta.timeoutMs), programId: panta.programId!, providerUserId: panta.partnerUserId!, verifyTransaction: input => chain.verifyTransaction(input) });
-  const service = new PantaTradingService({
-    store: new SupabasePantaTradingStore(config.social!, safeFetch), execution, chain,
+  const request = pantaPost(panta.apiKey, panta.timeoutMs);
+  const execution = new PantaExecution({ request, programId: panta.programId!, providerUserId: panta.partnerUserId!, verifyTransaction: input => chain.verifyTransaction(input) });
+  const ledger = new SupabasePantaTradingStore(config.social!, safeFetch);
+  // Claims need 20261002170000_panta_claim_sessions.sql. Until the owner has
+  // applied it and said so, claims answer "not configured" and the app links
+  // to panta.market instead; positions and reconciliation of buys still work.
+  const claimStore = pantaClaimsSchemaReady() ? new SupabasePantaClaimStore(config.social!, safeFetch) : null;
+  const funding = pantaFundingIndexFor(config);
+  const holdings = new PantaHoldings({ apiKey: panta.apiKey, timeoutMs: panta.timeoutMs });
+  const trading = new PantaTradingService({
+    store: ledger, execution,
+    chain: { broadcast: tx => chain.broadcast(tx), failed: sig => chain.failed(sig),
+      neverLanded: (sig, height) => settlement.neverLanded(sig, height) },
     venue: new PantaVenue({ apiKey: panta.apiKey, timeoutMs: panta.timeoutMs }),
     maxAmountBaseUnits: config.predictions!.maxAmountBaseUnits!,
+    onFilled: row => { funding.markFilled(row.call_id, Date.parse(row.updated_at)); holdings.forget(row.wallet_address); },
   });
-  runtimes.set(config, service); return service;
+  const claims = claimStore && new PantaClaimService({
+    claims: claimStore, trades: ledger,
+    execution: new PantaClaimExecution({ request, programId: panta.programId! }),
+    chain: { broadcast: tx => chain.broadcast(tx), failed: sig => chain.failed(sig),
+      neverLanded: (sig, height) => settlement.neverLanded(sig, height), verifyClaim: input => settlement.verifyClaim(input) },
+    report: body => request("/trades/", body),
+  });
+  const markets = callsRuntimeFor(config).markets;
+  const positions = new PantaPositionsService({ ledger, claims: claimStore, markets, holdings });
+  return { trading, claims, positions, holdings, ledger, claimStore, funding };
+}
+
+/** The whole funded lifecycle. Reads (`forRead`) keep working while new approvals are paused. */
+export function pantaLifecycleFor(config: AppConfig, forRead = false): PantaLifecycle {
+  const ready = pantaTradingReadiness(config, forRead);
+  if (!ready.enabled) throw new VenueError("FUNDED_POSITIONS_DISABLED", ready.reason!, { venue: "panta" });
+  const held = lifecycles.get(config); if (held) return held;
+  const pinned = runtimes.get(config);
+  const lifecycle = pinned
+    // A test-pinned trading service has no durable lifecycle beside it.
+    ? { trading: pinned, claims: null, positions: null, holdings: null, ledger: null, claimStore: null, funding: pantaFundingIndexFor(config) }
+    : buildLifecycle(config);
+  lifecycles.set(config, lifecycle); return lifecycle;
+}
+export function pantaTradingFor(config: AppConfig, forRead = false): PantaTradingService {
+  const ready = pantaTradingReadiness(config, forRead);
+  if (!ready.enabled) throw new VenueError("FUNDED_POSITIONS_DISABLED", ready.reason!, { venue: "panta" });
+  return runtimes.get(config) ?? pantaLifecycleFor(config, forRead).trading;
+}
+/** The server reconciler over the same lifecycle. Read-only readiness: pausing new approvals never stops reconciliation. */
+export function pantaReconcilerFor(config: AppConfig, opts: { maxPerPass?: number } = {}): PantaReconciler {
+  const life = pantaLifecycleFor(config, true);
+  return new PantaReconciler({ ledger: life.ledger ?? { submitted: async () => [] }, trading: life.trading,
+    claimStore: life.claimStore, claims: life.claims, funding: life.funding, ...opts });
 }
 /** Test seam, scoped to the exact AppConfig object. Never selected by env. */
-export function setPantaTradingRuntime(config: AppConfig, service: PantaTradingService): void { runtimes.set(config, service); }
+export function setPantaTradingRuntime(config: AppConfig, service: PantaTradingService): void { runtimes.set(config, service); lifecycles.delete(config); }
+/** Test seam for the whole lifecycle, scoped to the exact AppConfig object. */
+export function setPantaLifecycle(config: AppConfig, lifecycle: PantaLifecycle): void { lifecycles.set(config, lifecycle); runtimes.set(config, lifecycle.trading); }

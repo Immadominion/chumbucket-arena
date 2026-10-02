@@ -25,8 +25,10 @@ import type {
   VenueMarket,
 } from "../prediction/types.ts";
 import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
+import type { CallFunding } from "../prediction/PantaFunding.ts";
 
 export type { CallOutcome, FundingState, MarketSnapshot, Resolution, Side, VenueMarket };
+export type { CallFunding };
 
 // ── §3 frozen shapes ─────────────────────────────────────────────────────────
 
@@ -150,6 +152,13 @@ export interface CallFeedEntry {
   fadeCount: number;
   /** True when the viewer already has their own call on `market`. */
   viewerHasCalled: boolean;
+  /**
+   * Set only when the author backed THIS call with a Panta position whose
+   * fill was confirmed (provider attribution + RPC proof). No amount, wallet
+   * or order id. `call.fundingState` stays the immutable free/funded
+   * provenance, so free-call accuracy is unaffected.
+   */
+  funding?: CallFunding | null;
 }
 
 export interface CallFeedPage {
@@ -166,6 +175,10 @@ export interface MarketDetail {
   viewerCall: CallFeedEntry | null;
   /** null until the viewer has locked a call on this market */
   crowdSplit: CrowdSplit | null;
+  /** When this market stops taking new calls (close minus the cut-off). Null without a close. */
+  callsCloseAt?: number | null;
+  /** The server's call cut-off before market close, in ms. */
+  callCutoffMs?: number;
   servedAt: number;
 }
 

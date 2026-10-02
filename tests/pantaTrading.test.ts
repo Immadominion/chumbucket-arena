@@ -67,7 +67,7 @@ class MemoryLedger implements PantaTradingStore {
 function rig() {
   const clock = new TestClock(); const ledger = new MemoryLedger(); let confirms = false; let rpcSuccess = true;
   const operations: string[] = []; let broadcasts = 0; let throwBroadcast = false;
-  let providerFailed = false; let chainFailed = false;
+  let providerFailed = false; let chainFailed = false; let dropped = false; const filled: string[] = [];
   const execution = new PantaExecution({ programId:program,providerUserId:"usr_synthetic_partner",clock,verifyTransaction:async () => rpcSuccess,
     request:async (path,body) => {
       operations.push(path);
@@ -81,10 +81,10 @@ function rig() {
     },
   });
   const venue = new PantaVenue({apiKey:"pk_live_synthetic_trading_test",clock,fetchImpl:Object.assign(async () => new Response(JSON.stringify({marketId:market,category:"crypto",title:"Synthetic question?",description:"Synthetic rules",phase:"primary",status:"primary",resolved:false,startTime:Math.floor(clock.now()/1000)-3600,endTime:Math.floor(clock.now()/1000)+86400,resolutionTime:null,yesPrice:"1.2",noPrice:"0.3",onChain:{isActive:true,resolutionRule:"Synthetic rules"}})),{preconnect:fetch.preconnect})});
-  const deps={store:ledger,execution,venue,maxAmountBaseUnits:"100000000",now:()=>clock.now(),chain:{failed:async()=>chainFailed,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
+  const deps={store:ledger,execution,venue,maxAmountBaseUnits:"100000000",now:()=>clock.now(),onFilled:(row:PantaTradeSession)=>{filled.push(row.call_id);},chain:{failed:async()=>chainFailed,neverLanded:async()=>dropped,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
   const service = new PantaTradingService(deps);
   const input: PantaPrepareInput = {callId,wallet,amountBaseUnits:"1000000",idempotencyKey:"synthetic-intent-key",maxSlippageBps:100};
-  return {clock,ledger,service,input,operations,restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;}};
+  return {clock,ledger,service,input,operations,filled,restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;}};
 }
 function signed(payload:string) {const tx=VersionedTransaction.deserialize(Buffer.from(payload,"base64"));tx.sign([owner]);return Buffer.from(tx.serialize()).toString("base64");}
 
@@ -225,4 +225,32 @@ test("native router rejects DevAuth wallet strings and client-selected person id
   cfg.predictions!.flags={fundedPositions:true};
   const legacy=predictionsRouter.createCaller({app,wallet:asWallet(wallet)});
   await expect(legacy.createOrder({idempotencyKey:"synthetic-legacy",venueMarketId:market,side:"YES",amountBaseUnits:"1000000"})).rejects.toThrow("wallet-signed");
+});
+test("a broadcast that can never land is FAILED by chain evidence and frees the call for a fresh funding",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  await h.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload));
+  // Provider still says "submitted": not proof either way.
+  expect((await h.service.order(user,prepared.order.orderId)).fundingState).toBe("SUBMITTED");
+  await expect(h.service.prepare(user,{...h.input,idempotencyKey:"too-early-second-buy"})).rejects.toThrow("Check that order");
+  h.drop();
+  const row=[...h.ledger.rows.values()][0]!;
+  expect((await h.service.reconcile(row)).state).toBe("FAILED");
+  expect(await h.service.forCall(user,callId,wallet)).toEqual({order:null});
+  expect((await h.service.prepare(user,{...h.input,idempotencyKey:"fresh-after-dropped"})).order.fundingState).toBe("QUOTED");
+  expect(h.filled).toEqual([]);expect(h.broadcasts).toBe(1);
+});
+test("an on-chain error FAILS the order even while the provider still reports it pending",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  await h.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload));
+  h.chainFailure();
+  expect((await h.service.order(user,prepared.order.orderId)).fundingState).toBe("FAILED");
+});
+test("the shared reconcile transition announces a confirmed fill exactly once",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  await h.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload));
+  h.confirm();
+  const row=[...h.ledger.rows.values()][0]!;
+  expect((await h.service.reconcile(row)).state).toBe("FILLED");
+  expect((await h.service.reconcile([...h.ledger.rows.values()][0]!)).state).toBe("FILLED");
+  expect(h.filled).toEqual([callId]);
 });

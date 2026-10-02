@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildCallsRuntime, type CallsRuntime } from "../src/calls/runtime.ts";
+import { resolveCallsConfig } from "../src/calls/config.ts";
 import { predictionStoreReader } from "../src/calls/markets.ts";
 import { InMemoryCallsStore } from "../src/calls/store.ts";
 import { walletDirectoryViewerResolver } from "../src/calls/viewer.ts";
@@ -117,6 +118,9 @@ export function harness(opts: { people?: Person[]; markets?: VenueMarket[] } = {
   }
 
   const rt = buildCallsRuntime(undefined, {
+    // These fixtures predate the M14 call cut-off: their markets close ~16
+    // minutes after T0. The cut-off has its own suite (callCutoff.test.ts).
+    config: { ...resolveCallsConfig(undefined, {}), callCutoffMs: 0 },
     store: calls,
     markets: predictionStoreReader(venue),
     clock,

@@ -1,15 +1,22 @@
 /** A call and a funded position are separate artifacts, joined by explicit intent. */
 import { createHash } from "node:crypto";
 import type { PantaExecution, PantaPreparedOrder } from "./PantaExecution.ts";
+import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
-import type { PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
+import type { PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
 import type { PredictionVenue, VenueOrder } from "./PredictionVenue.ts";
 import { VenueError } from "./errors.ts";
 
 export interface PantaPrepareInput { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number; }
 const refuse = (message: string): never => { throw new VenueError("VENUE_BAD_REQUEST", message, { venue: "panta" }); };
 export class PantaTradingService {
-  constructor(private readonly deps: { store: PantaTradingStore; execution: PantaExecution; chain: Pick<PantaChain, "broadcast"> & Partial<Pick<PantaChain, "failed">>; venue: PredictionVenue; maxAmountBaseUnits: string; now?: () => number }) {}
+  constructor(private readonly deps: {
+    store: PantaTradingStore; execution: PantaExecution;
+    chain: Pick<PantaChain, "broadcast"> & Partial<Pick<PantaChain, "failed">> & Partial<Pick<PantaSettlementChain, "neverLanded">>;
+    venue: PredictionVenue; maxAmountBaseUnits: string; now?: () => number;
+    /** Told once per confirmed fill, after the FILLED row is durable. */
+    onFilled?: (row: PantaTradeSession) => void;
+  }) {}
   private now() { return this.deps.now?.() ?? Date.now(); }
   private fingerprint(input: PantaPrepareInput): string {
     return createHash("sha256").update(JSON.stringify([input.callId,input.wallet,input.amountBaseUnits,input.idempotencyKey,input.maxSlippageBps])).digest("hex");
@@ -59,7 +66,7 @@ export class PantaTradingService {
     if (!row?.prepared) throw new VenueError("VENUE_NOT_FOUND", "No such Panta order on your account", { venue: "panta" });
     return row;
   }
-  private view(row: PantaTradeSession): VenueOrder {
+  view(row: PantaTradeSession): VenueOrder {
     if (row.state === "FILLED" && row.fill_evidence) {
       const e = row.fill_evidence;
       // The normalized private view is not a dump of server reconciliation evidence.
@@ -97,19 +104,39 @@ export class PantaTradingService {
   }
   async order(userId: string, orderId: string): Promise<VenueOrder> {
     const row = await this.own(userId, orderId);
-    if (row.state !== "SUBMITTED" || !row.signature) return this.view(row);
+    return this.view(await this.reconcile(row));
+  }
+  /** The person's newest signed approval for their own call, read from the ledger only. */
+  async callOrder(userId: string, callId: string): Promise<{ order: VenueOrder | null }> {
+    const ledger = this.deps.store as Partial<PantaTradingLedger>;
+    if (!ledger.latestForCall) return { order: null };
+    const row = await ledger.latestForCall(userId, callId);
+    return { order: row?.prepared ? this.view(row) : null };
+  }
+  /**
+   * The one SUBMITTED -> FILLED/FAILED transition, shared by the person's
+   * "check" and the server reconciler. FILLED needs the full fill proof;
+   * FAILED needs the chain to say the transaction failed, or that it can
+   * never land. Anything else leaves the duplicate-buy guard in place.
+   */
+  async reconcile(row: PantaTradeSession): Promise<PantaTradeSession> {
+    if (row.state !== "SUBMITTED" || !row.signature || !row.prepared) return row;
     // Reassociate a dropped submit callback safely before verification.
-    const remote = await this.deps.execution.verify({ ...row.prepared!.binding, signature: row.signature });
+    const remote = await this.deps.execution.verify({ ...row.prepared.binding, signature: row.signature });
     if (remote.fundingState === "FILLED") {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FILLED", fill_evidence: remote });
-      return saved ? this.view(saved) : this.view(await this.own(userId, orderId));
+      if (saved) { this.deps.onFilled?.(saved); return saved; }
+      return (await this.deps.store.byOrder(row.user_id, row.provider_order_id!)) ?? row;
     }
-    // A provider session refusal is not proof a broadcast failed. Retain the
-    // active-call guard until RPC independently establishes a terminal error.
-    if (remote.fundingState === "FAILED" && await this.deps.chain.failed?.(row.signature)) {
+    // A provider session refusal is not proof a broadcast failed, and a
+    // provider "still pending" is not proof it can land. Only RPC decides:
+    // a confirmed on-chain error, or an approval whose blockhash expired
+    // without the signature ever landing. Otherwise the guard stays.
+    if (await this.deps.chain.failed?.(row.signature) ||
+        await this.deps.chain.neverLanded?.(row.signature, row.prepared.binding.lastValidBlockHeight)) {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FAILED" });
-      return this.view(saved ?? await this.own(userId, orderId));
+      return saved ?? (await this.deps.store.byOrder(row.user_id, row.provider_order_id!)) ?? row;
     }
-    return this.view(row);
+    return row;
   }
 }
