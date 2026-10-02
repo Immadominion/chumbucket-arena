@@ -315,8 +315,17 @@ deposits.verifyWallet {orderId, sig} ──► ed25519 check vs preparation.mess
   using, for example an MWA wallet or a device wallet. An address outside that
   set is refused.
 - **Order reads are owner-checked.** `deposits.order` returns an order only if
-  its delivery recipient is one of the caller's verified wallets and its token is
-  the configured USDC locator.
+  it has a single Solana line item whose delivery recipient is one of the
+  caller's verified wallets. The get-order object does not name the token, so
+  the token is not re-checked. The server key already limits reads to our
+  Crossmint project, which only ever creates orders for the configured USDC
+  locator.
+- **SOL for network fees is not covered.** Onramp sells USDC only, and a Panta
+  buy is paid for by its owner (`payerKey` is the owner's wallet), so a wallet
+  funded only by card still needs a little SOL before it can trade. The app
+  says so wherever it shows a balance with 0 SOL (Add funds sheet before and
+  after paying, trade review), opens the receive address, and never says
+  "you're ready to trade" while SOL is 0.
 - **Receipt email:** the server prefers the account's confirmed email from
   Supabase Auth, read through the admin API with the service role. If the
   account has none (wallet or X sign-ins), the app asks for one. We do not store
@@ -369,9 +378,13 @@ balance read; the read pins the mainnet genesis hash.
   Light KYC (up to US$1,000) needs no photo.
 - **Resume.** Only the order id is remembered on the phone (no amount,
   address, email or client secret). A later visit resumes an order that is
-  paying, delivering, under identity review or waiting for a wallet signature;
-  an unpaid checkout is dropped (nothing was charged, and its link cannot be
-  rebuilt without the secret).
+  paying, delivering or under identity review. An unpaid checkout, including
+  one waiting for a wallet signature, is dropped: nothing was charged, and its
+  link can't be rebuilt without the secret. If a resumed order becomes payable
+  again (an identity review passed), the sheet offers **Start a new payment**.
+- **Wallet signature first.** When Crossmint creates an order that needs the
+  receiving wallet's signature, the sheet asks for it before opening the
+  checkout, then opens the checkout for the same order once it's accepted.
 - **Wallets.** `DepositWalletSource` is the seam: `MwaDepositWalletSource`
   today; `DeviceDepositWalletSource` takes fleet/identity's
   `EmbeddedWalletController.signer` once both branches are merged (see the

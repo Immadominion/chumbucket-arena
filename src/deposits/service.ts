@@ -5,8 +5,11 @@
  * Invariants this file keeps:
  *   1. The recipient is resolved here, from the person's server-verified
  *      wallets. A client can only pick among them; any other address is refused.
- *   2. An order is shown to a person only when its delivery recipient is one of
- *      their wallets and its token is our configured USDC locator.
+ *   2. An order is shown to a person only when it has a single Solana line
+ *      item whose delivery recipient is one of their wallets. Crossmint's order
+ *      object doesn't name the token, so the token isn't re-checked here: the
+ *      server key already scopes reads to our project, which only ever creates
+ *      orders for the configured USDC locator.
  *   3. Nothing is simulated. No key, no switch, no account database → the
  *      caller hears "unavailable", in words, and nothing is created.
  *   4. Crossmint's body text never becomes our error message.
