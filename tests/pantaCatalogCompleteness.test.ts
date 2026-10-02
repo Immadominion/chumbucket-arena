@@ -180,6 +180,46 @@ test("schema drift on an unlisted re-read fails the pass loudly", async () => {
   await expect(later.runOnce()).rejects.toMatchObject({ code: "VENUE_SCHEMA" });
 });
 
+test("one bad unlisted row stays loud but cannot stop pricing or wedge the sweep", async () => {
+  // A and C left the listing; A's detail no longer parses. B is open and
+  // listed. The sweep used to throw ahead of pricing without advancing its
+  // cursor, so every later pass died at A and every share price lapsed.
+  const h = venueRig([[row(A), row(B), row(C)]]);
+  const sync = new MarketSync({ venue: h.venue, store: h.store, clock: h.clock, venueId: "panta",
+    cursorKey: "test:panta" });
+  await sync.runOnce();
+  const drifted = venueRig([[row(B)]], { [A]: row(A, { endTime: "2026-10-02T00:00:00Z" }), [C]: row(C) });
+  const later = new MarketSync({ venue: drifted.venue, store: h.store, clock: h.clock, venueId: "panta",
+    cursorKey: "test:panta" });
+  h.clock.advance(600_000); drifted.clock.advance(600_000);
+  const passStart = drifted.clock.now(); // prices carry the venue's read time
+  await expect(later.runOnce()).rejects.toMatchObject({ code: "VENUE_SCHEMA" });
+  // The listed open market was still priced by the failing pass.
+  expect(h.store.latestSharePrice(marketUuid("panta", B))!.observedAt).toBeGreaterThanOrEqual(passStart);
+  // The healthy unlisted row was still re-read, and the rotation moved on.
+  expect(drifted.detailReads(C)).toBe(1);
+  expect(h.store.getCursor(`test:panta${UNLISTED_SWEEP_SUFFIX}`)).toBe([A, C].sort().at(-1)!);
+  // A is revisited and stays loud; it is never silently skipped.
+  h.clock.advance(60_000); drifted.clock.advance(60_000);
+  await expect(later.runOnce()).rejects.toMatchObject({ code: "VENUE_SCHEMA" });
+});
+
+test("a broken off-page price candidate cannot stop the markets after it being priced", async () => {
+  // A closes soonest, so it is priced first. It left the listing minutes ago
+  // (still a mirror-wide candidate) and its detail no longer parses.
+  const h = venueRig([[row(A, { endTime: NOW_S + 3_600 }), row(B)]]);
+  const sync = new MarketSync({ venue: h.venue, store: h.store, clock: h.clock, venueId: "panta" });
+  await sync.runOnce();
+  const drifted = venueRig([[row(B)]], { [A]: row(A, { endTime: "2026-10-02T00:00:00Z" }) });
+  const later = new MarketSync({ venue: drifted.venue, store: h.store, clock: h.clock, venueId: "panta",
+    unlistedBudget: 0 });
+  h.clock.advance(360_000); drifted.clock.advance(360_000);
+  const passStart = drifted.clock.now();
+  await expect(later.runOnce()).rejects.toMatchObject({ code: "VENUE_SCHEMA" });
+  expect(drifted.detailReads(A)).toBe(1);
+  expect(h.store.latestSharePrice(marketUuid("panta", B))!.observedAt).toBeGreaterThanOrEqual(passStart);
+});
+
 // ── serving ─────────────────────────────────────────────────────────────────
 
 test("Panta's reported volume is read verbatim or not at all", () => {

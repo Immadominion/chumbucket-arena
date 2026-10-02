@@ -263,8 +263,12 @@ export class MarketSync {
     // result would land only if somebody had called it. Re-read a bounded,
     // rotating slice of them from their own detail until the venue settles
     // them. Runs before pricing so a refreshed row is priced on current facts.
+    //
+    // Its loud failure is held until the listed markets are priced and
+    // settled. These are historical rows the walk itself never reads; one odd
+    // payload among them must not lapse every live market's price.
     const seen = new Set(pending.map(({ market }) => market.id));
-    await this.sweepUnlisted(seen, report);
+    const sweepFailure = await this.sweepUnlisted(seen, report);
 
     // ── prices: the venue's own published number, or none at all ────────────
     //
@@ -283,6 +287,12 @@ export class MarketSync {
     // spans several passes while a share price lapses in ten minutes, so
     // pricing just the visited pages silently dropped every market on the
     // other pages out of `markets.open` until the cursor came back round.
+    //
+    // Off-page candidates are read here without the walk having just parsed
+    // them, so a non-transient venue failure on one (schema drift, a refused
+    // read) is held like the sweep's: the remaining markets are still priced,
+    // and the pass still fails loudly once they are.
+    let deferred = sweepFailure;
     let budget = this.snapshotBudget;
     const now = this.clock.now();
     const byClosingSoonest = this.priceCandidates(pending.map(({ market }) => market), now).sort((a, b) => {
@@ -319,14 +329,17 @@ export class MarketSync {
         this.store.appendSnapshot(book.snapshot);
         report.snapshotsRecorded++;
       } catch (err) {
-        // A wire-shape change must abort the pass (§4). A timeout must not.
-        if (isVenueError(err) && err.code === "VENUE_SCHEMA") throw err;
+        // A wire-shape change must fail the pass (§4). A timeout must not.
         if (isVenueError(err) && (err.retryable || err.code === "CIRCUIT_OPEN")) {
           report.snapshotsUnavailable++;
           continue;
         }
         if (isVenueError(err) && err.code === "VENUE_NOT_FOUND") {
           report.snapshotsUnavailable++;
+          continue;
+        }
+        if (isVenueError(err)) {
+          deferred ??= { error: err };
           continue;
         }
         throw err;
@@ -342,6 +355,9 @@ export class MarketSync {
         if (result.unevidenced) report.resolutionsUnevidenced++;
       }
     }
+
+    // Still a failed pass (§4): the caller logs it and gets no report.
+    if (deferred) throw deferred.error;
 
     report.cursor = this.readCursor()?.page ?? null;
     report.watermark = this.watermark();
@@ -369,9 +385,17 @@ export class MarketSync {
    *  not refreshed for `unlistedAfterMs`, `unlistedBudget` at a time. The slice
    *  rotates by venue id behind a persisted cursor, so a market the venue no
    *  longer serves at all cannot starve the rest. Uses the same strictly
-   *  validated detail path as called markets; only venue evidence settles. */
-  private async sweepUnlisted(seen: ReadonlySet<string>, report: MarketSyncReport): Promise<void> {
-    if (this.venueId !== "panta" || this.unlistedBudget === 0) return;
+   *  validated detail path as called markets; only venue evidence settles.
+   *
+   *  A non-transient failure (schema drift, a refused read) is returned, not
+   *  thrown: the rest of the slice is still read and the cursor still moves,
+   *  so one bad row is revisited once per rotation, failing loudly each time,
+   *  without wedging the sweep or the pricing that follows it. */
+  private async sweepUnlisted(
+    seen: ReadonlySet<string>,
+    report: MarketSyncReport,
+  ): Promise<{ error: unknown } | null> {
+    if (this.venueId !== "panta" || this.unlistedBudget === 0) return null;
     const now = this.clock.now();
     const ids = this.store.listMarkets()
       .map(({ market }) => market)
@@ -380,12 +404,13 @@ export class MarketSync {
         now - market.lastSyncedAt >= this.unlistedAfterMs)
       .map(market => market.venueMarketId)
       .sort();
-    if (ids.length === 0) return;
+    if (ids.length === 0) return null;
     const key = `${this.cursorKey}${UNLISTED_SWEEP_SUFFIX}`;
     const after = this.store.getCursor(key);
     const next = after === null ? 0 : ids.findIndex(id => id > after);
     const start = next < 0 ? 0 : next;
     const batch = [...ids.slice(start), ...ids.slice(0, start)].slice(0, this.unlistedBudget);
+    let failure: { error: unknown } | null = null;
     for (const venueMarketId of batch) {
       try {
         const refreshed = await this.refreshCalledMarket(venueMarketId);
@@ -397,12 +422,16 @@ export class MarketSync {
           report.unlistedUnavailable++;
           continue;
         }
-        throw err; // a changed wire shape fails the pass loudly (§4)
+        if (!isVenueError(err)) throw err; // a store or code fault is not one row's
+        // A changed wire shape still fails the pass loudly (§4), raised by
+        // runOnce after the live work; the first failure is the one raised.
+        failure ??= { error: err };
       }
     }
     // One durable cursor write per pass, and none when nothing moved.
     const last = batch.at(-1)!;
     if (after !== last) this.store.setCursor(key, last);
+    return failure;
   }
 
   /** Revisit a specifically called Panta market even when the venue no longer
