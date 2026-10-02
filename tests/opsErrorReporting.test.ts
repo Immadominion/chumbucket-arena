@@ -100,7 +100,7 @@ describe("what is sent", () => {
     const { calls, fetchImpl } = recorder();
     const r = new SentryReporter({ dsn: parseDsn(DSN)!, environment: "production", release: "abc", fetchImpl, now: () => 1_700_000_000_000 });
     const err = new Error(
-      "insert failed for 479yvcq7yibHaVKAGLEWu89G7G3KnmWSaDZHNXphd1Mu with Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4eHh4eHh4In0.c2lnbmF0dXJlc2ln ada@example.com https://rpc.example/?api-key=SECRETKEY",
+      "insert failed for So11111111111111111111111111111111111111112 with Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4eHh4eHh4In0.c2lnbmF0dXJlc2ln ada@example.com https://rpc.example/?api-key=SECRETKEY",
     );
     r.capture(err, { tags: { source: "trpc", path: "calls.create", "bad key!": "x" } });
     await r.flush();
@@ -112,7 +112,7 @@ describe("what is sent", () => {
     expect(headers["content-type"]).toBe("application/x-sentry-envelope");
 
     const body = String(calls[0]!.init.body);
-    for (const secret of ["479yvcq7yibHaVKAGLEWu89G7G3KnmWSaDZHNXphd1Mu", "eyJhbGciOiJIUzI1NiJ9", "ada@example.com", "SECRETKEY"]) {
+    for (const secret of ["So11111111111111111111111111111111111111112", "eyJhbGciOiJIUzI1NiJ9", "ada@example.com", "SECRETKEY"]) {
       expect(body).not.toContain(secret);
     }
     const event = eventOf(body);
