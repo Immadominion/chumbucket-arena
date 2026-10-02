@@ -183,15 +183,57 @@ export class FakeIdentityStore implements IdentityStore {
   private readonly accountWallets = new Map<string, string>();
   /** public.users.id rows that some sign-in already reaches. */
   private readonly boundAccounts = new Set<string>();
+  /** public.users.id -> public.users.handle, for accounts that have one. */
+  private readonly accountHandles = new Map<string, string>();
 
   /** An existing account at a wallet, reachable by no sign-in yet. */
   addWalletAccount(address: string, userId: string, handle?: string): this {
     this.accountWallets.set(address, userId);
-    if (handle) this.handles.set(handle.toLowerCase(), userId);
+    if (handle) {
+      this.handles.set(handle.toLowerCase(), userId);
+      this.accountHandles.set(userId, handle);
+    }
     return this;
   }
 
+  /** Give an account a stored handle directly (fixture setup). */
+  setHandle(userId: string, handle: string): this {
+    this.handles.set(handle.toLowerCase(), userId);
+    this.accountHandles.set(userId, handle);
+    return this;
+  }
+
+  /** Model of reading public.users.handle: the stored value, never a placeholder. */
+  async handleForUser(userId: string): Promise<string | null> {
+    return this.accountHandles.get(userId) ?? null;
+  }
+
+  /** Model of claim_own_handle_v1: own account by auth subject, only while NULL. */
+  async claimOwnHandle(authUserId: string, handle: string): Promise<StoreResult> {
+    const userId = this.users.get(authUserId);
+    if (!userId) return { ok: false, reason: "unknown_user" };
+    const wanted = handle.trim().toLowerCase();
+    const current = this.accountHandles.get(userId);
+    if (current !== undefined) {
+      return current.toLowerCase() === wanted
+        ? { ok: true, user_id: userId, handle: current, outcome: "unchanged" }
+        : { ok: false, reason: "handle_already_set" };
+    }
+    // Check and write with no await between them: the unique lower(handle)
+    // index makes the real claim atomic, and two racing claims must not both win here.
+    const status = this.statusOf(wanted);
+    if (status !== "available") return { ok: false, reason: `handle_${status}` };
+    this.handles.set(wanted, userId);
+    this.accountHandles.set(userId, wanted);
+    return { ok: true, user_id: userId, handle: wanted, outcome: "claimed" };
+  }
+
   async usernameStatus(handle: string): Promise<UsernameStatus> {
+    return this.statusOf(handle);
+  }
+
+  /** Synchronous, so a check-then-write below is one step, like the SQL. */
+  private statusOf(handle: string): UsernameStatus {
     const h = handle.trim().toLowerCase();
     if (!/^[a-z0-9_]{3,20}$/.test(h)) return "invalid";
     if (["admin", "chumbucket", "support", "me", "you"].includes(h) || h.startsWith("caller_")) {
@@ -213,6 +255,7 @@ export class FakeIdentityStore implements IdentityStore {
     this.users.set(input.authUserId, id);
     this.boundAccounts.add(id);
     this.handles.set(input.handle.trim().toLowerCase(), id);
+    this.accountHandles.set(id, input.handle.trim().toLowerCase());
     if (input.walletAddress) this.accountWallets.set(input.walletAddress, id);
     return { ok: true, user_id: id, outcome: "created" };
   }

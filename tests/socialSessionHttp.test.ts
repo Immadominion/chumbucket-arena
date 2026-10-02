@@ -103,7 +103,8 @@ test("onboarding uses the verified subject, replays idempotently, and whoami agr
   expect(results[1]!.body.result.data.json.userId).toBe(id);
   expect(await r.identity.userIdForAuthUser("auth-alice")).toBe("alice");
   const who = await r.post("auth.whoami", { supabaseAccessToken: "bob-session" });
-  expect(who.body.result.data.json).toEqual({ userId: id, authUserId: "auth-bob" });
+  // completeProfile without a handle (pre-username builds) leaves none stored.
+  expect(who.body.result.data.json).toEqual({ userId: id, authUserId: "auth-bob", handle: null });
 });
 
 test("profile writes refuse forged sessions, client identity, blank/control/long names", async () => {

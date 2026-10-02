@@ -137,8 +137,11 @@ describe("authRouter — surface", () => {
     // usernameStatus (argued for): it answers only whether a @username can be
     // claimed — available / invalid / reserved / taken. Usernames are public,
     // and it returns no id, name, wallet or any other profile field.
+    // claimUsername (argued for): a WRITE to the caller's own account only,
+    // resolved from the verified session; it reads nothing back but the
+    // caller's own new handle.
     expect(names).toEqual(
-      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus"].sort(),
+      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus", "claimUsername"].sort(),
     );
   });
 
@@ -155,13 +158,18 @@ describe("authRouter — surface", () => {
 describe("authRouter — one user cannot reach another user's rows", () => {
   test("whoami resolves each session to its own canonical user only", async () => {
     const r = await rig();
+    r.store.setHandle("user-alice", "alice");
+    // Each answer carries only that session's own stored @username — Bob has
+    // none, and Alice's never appears in his answer.
     expect(await r.alice.whoami({ supabaseAccessToken: "tok-alice" })).toEqual({
       userId: "user-alice",
       authUserId: "auth-alice",
+      handle: "alice",
     });
     expect(await r.bob.whoami({ supabaseAccessToken: "tok-bob" })).toEqual({
       userId: "user-bob",
       authUserId: "auth-bob",
+      handle: null,
     });
 
     // A session Alice does not hold gets her nothing, even though she is a

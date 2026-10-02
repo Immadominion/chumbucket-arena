@@ -253,6 +253,15 @@ export function callsRuntimeFor(appConfig: AppConfig): CallsRuntime {
   return rt;
 }
 
+/**
+ * The runtime already built for this config, if any — never builds one.
+ * For a caller that only needs to tell an existing mirror something changed
+ * (a claimed @username) and must not start hydration as a side effect.
+ */
+export function existingCallsRuntime(appConfig: AppConfig): CallsRuntime | undefined {
+  return RUNTIMES.get(appConfig);
+}
+
 /** Test/ops seam: pin a runtime for one AppConfig. */
 export function setCallsRuntime(appConfig: AppConfig, runtime: CallsRuntime): void {
   RUNTIMES.set(appConfig, runtime);
