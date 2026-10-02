@@ -67,7 +67,7 @@ class MemoryLedger implements PantaTradingStore {
 function rig() {
   const clock = new TestClock(); const ledger = new MemoryLedger(); let confirms = false; let rpcSuccess = true;
   const operations: string[] = []; let broadcasts = 0; let throwBroadcast = false;
-  let providerFailed = false; let chainFailed = false; let dropped = false; const filled: string[] = [];
+  let providerFailed = false; let chainFailed = false; let dropped = false; let providerDown = false; const filled: string[] = [];
   const execution = new PantaExecution({ programId:program,providerUserId:"usr_synthetic_partner",clock,verifyTransaction:async () => rpcSuccess,
     request:async (path,body) => {
       operations.push(path);
@@ -75,6 +75,7 @@ function rig() {
       if (path === "/primaryorderquote/") return {quoteId:"qt_test",marketId:market,side:"yes",amountUsdc:body.amountUsdc,shares:"1.1",avgPrice:"1.2",feeUsdc:"0.01",expiresAt};
       if (path === "/primaryorderbuild/") return {orderId:"ord_test",quoteId:"qt_test",wallet,marketId:market,side:"yes",amountUsdc:"1.000000",expectedShares:"1.1",feeUsdc:"0.01",status:"built",recentBlockhash:blockhash,lastValidBlockHeight:123,expiresAt,derived,instructions:syntheticInstructions("usr_synthetic_partner")};
       if (path === "/primaryordersubmit/") return {orderId:body.orderId,status:"submitted",signature:body.signature};
+      if (path === "/primaryorderverify/" && providerDown) throw new Error("synthetic provider outage");
       if (path === "/primaryorderverify/") return {orderId:body.orderId,status:providerFailed?"failed":confirms?"confirmed":"submitted",signature:body.signature,marketId:market,side:"yes",amountUsdc:1000000};
       if (path === "/trades/") return {signature:body.signature,status:"processed",wallet,marketId:market,side:"yes",kind:"buy"};
       throw new Error("unexpected synthetic endpoint");
@@ -84,7 +85,7 @@ function rig() {
   const deps={store:ledger,execution,venue,maxAmountBaseUnits:"100000000",now:()=>clock.now(),onFilled:(row:PantaTradeSession)=>{filled.push(row.call_id);},chain:{failed:async()=>chainFailed,neverLanded:async()=>dropped,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
   const service = new PantaTradingService(deps);
   const input: PantaPrepareInput = {callId,wallet,amountBaseUnits:"1000000",idempotencyKey:"synthetic-intent-key",maxSlippageBps:100};
-  return {clock,ledger,service,input,operations,filled,restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;}};
+  return {clock,ledger,service,input,operations,filled,restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;},providerOutage(){providerDown=true;}};
 }
 function signed(payload:string) {const tx=VersionedTransaction.deserialize(Buffer.from(payload,"base64"));tx.sign([owner]);return Buffer.from(tx.serialize()).toString("base64");}
 
@@ -253,4 +254,24 @@ test("the shared reconcile transition announces a confirmed fill exactly once",a
   expect((await h.service.reconcile(row)).state).toBe("FILLED");
   expect((await h.service.reconcile([...h.ledger.rows.values()][0]!)).state).toBe("FILLED");
   expect(h.filled).toEqual([callId]);
+});
+test("an unseen signature never FAILS a buy Panta reports confirmed: the guard stays until the chain agrees",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  await h.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload));
+  // Panta confirmed and attributed it, but this RPC cannot prove the debit (e.g. pruned history).
+  h.confirm();h.rpcMissing();h.drop();
+  const row=[...h.ledger.rows.values()][0]!;
+  expect((await h.service.reconcile(row)).state).toBe("SUBMITTED");
+  await expect(h.service.prepare(user,{...h.input,idempotencyKey:"no-second-buy-yet"})).rejects.toThrow("Check that order");
+  expect(h.filled).toEqual([]);
+});
+test("a provider outage still lets a confirmed on-chain error FAIL the buy, but never a merely unseen signature",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  await h.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload));
+  h.providerOutage();h.drop();
+  const row=[...h.ledger.rows.values()][0]!;
+  await expect(h.service.reconcile(row)).rejects.toThrow();
+  expect([...h.ledger.rows.values()][0]!.state).toBe("SUBMITTED");
+  h.chainFailure();
+  expect((await h.service.reconcile([...h.ledger.rows.values()][0]!)).state).toBe("FAILED");
 });

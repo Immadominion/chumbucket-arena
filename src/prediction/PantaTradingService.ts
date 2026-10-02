@@ -121,9 +121,14 @@ export class PantaTradingService {
    */
   async reconcile(row: PantaTradeSession): Promise<PantaTradeSession> {
     if (row.state !== "SUBMITTED" || !row.signature || !row.prepared) return row;
-    // Reassociate a dropped submit callback safely before verification.
-    const remote = await this.deps.execution.verify({ ...row.prepared.binding, signature: row.signature });
-    if (remote.fundingState === "FILLED") {
+    // Reassociate a dropped submit callback safely before verification. A
+    // provider error does not skip the chain's own failure check below: a
+    // confirmed on-chain error stays proof even while Panta is unreachable.
+    let remote: Awaited<ReturnType<PantaExecution["verify"]>> | null = null;
+    let unverified: unknown = null;
+    try { remote = await this.deps.execution.verify({ ...row.prepared.binding, signature: row.signature }); }
+    catch (error) { unverified = error; }
+    if (remote?.fundingState === "FILLED") {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FILLED", fill_evidence: remote });
       if (saved) { this.deps.onFilled?.(saved); return saved; }
       return (await this.deps.store.byOrder(row.user_id, row.provider_order_id!)) ?? row;
@@ -131,12 +136,17 @@ export class PantaTradingService {
     // A provider session refusal is not proof a broadcast failed, and a
     // provider "still pending" is not proof it can land. Only RPC decides:
     // a confirmed on-chain error, or an approval whose blockhash expired
-    // without the signature ever landing. Otherwise the guard stays.
+    // without the signature ever landing. "Never landed" is only trusted
+    // when Panta answered and did not report the order confirmed: an RPC
+    // that cannot see a signature Panta confirmed (pruned history, lag) is a
+    // conflict to wait out, never a failure of a buy that may have debited USDC.
+    const mayHaveLanded = remote === null || remote.providerStatus === "confirmed";
     if (await this.deps.chain.failed?.(row.signature) ||
-        await this.deps.chain.neverLanded?.(row.signature, row.prepared.binding.lastValidBlockHeight)) {
+        (!mayHaveLanded && await this.deps.chain.neverLanded?.(row.signature, row.prepared.binding.lastValidBlockHeight))) {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FAILED" });
       return saved ?? (await this.deps.store.byOrder(row.user_id, row.provider_order_id!)) ?? row;
     }
+    if (unverified !== null) throw unverified;
     return row;
   }
 }

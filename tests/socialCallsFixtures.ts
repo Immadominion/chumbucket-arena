@@ -119,7 +119,7 @@ export function harness(opts: { people?: Person[]; markets?: VenueMarket[] } = {
 
   const rt = buildCallsRuntime(undefined, {
     // These fixtures predate the M14 call cut-off: their markets close ~16
-    // minutes after T0. The cut-off has its own suite (callCutoff.test.ts).
+    // minutes after T0. The cut-off has its own suite (callCutoffAndFunding.test.ts).
     config: { ...resolveCallsConfig(undefined, {}), callCutoffMs: 0 },
     store: calls,
     markets: predictionStoreReader(venue),

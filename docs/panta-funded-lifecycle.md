@@ -37,7 +37,11 @@ Rate limits are per API key and shared by every Chumbucket user: `positions`
   both before and after a finalized block height more than 150 blocks past the
   approval's `lastValidBlockHeight` (`PantaSettlementChain.neverLanded`). A
   FAILED buy stops blocking a fresh funding of that call. Provider statuses alone
-  never decide FAILED or FILLED.
+  never decide FAILED or FILLED. "Never landed" is only trusted when Panta
+  answered and did not report the order `confirmed`: if Panta confirmed it but
+  this RPC cannot see the signature (pruned history, lag), the order stays
+  SUBMITTED rather than hiding a buy that may have debited USDC. A confirmed
+  on-chain error still fails the order even while Panta's verify is unreachable.
 - **Positions** (`pantaTrading.positions`, POST, session only). One row per
   funded call: cost (the proven USDC debit), Panta's quoted shares for that buy,
   all-in entry price, current side price while open (latest captured Panta share

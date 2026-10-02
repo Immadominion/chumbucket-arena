@@ -331,20 +331,23 @@ export class PantaExecution {
     if (verification.status === "failed") return this.venueOrder(saved, "FAILED");
     if (verification.status === "expired") return { ...pending(), providerStatus: "expired" };
     if (verification.status !== "confirmed") return pending();
+    // Panta says confirmed but a gate below is not met yet: still pending, and
+    // marked so a reconciler never reads an unseen signature as "never landed".
+    const confirmedPending = (): PantaVerifiedOrder => ({ ...pending(), providerStatus: "confirmed" });
     if (verification.signature !== saved.signature || verification.marketId !== saved.venueMarketId ||
-        verification.side !== saved.side.toLowerCase() || verification.amountUsdc === undefined) return pending();
+        verification.side !== saved.side.toLowerCase() || verification.amountUsdc === undefined) return confirmedPending();
     const trade = parse(tradeSchema, await this.post("/trades/", {
       signature: saved.signature, wallet: saved.owner, marketId: saved.venueMarketId,
       quoteId: saved.quoteId, clientOrderId: saved.idempotencyKey,
     }), "trade report response");
     if (trade.status !== "processed" || trade.kind !== "buy" || trade.signature !== saved.signature ||
-        trade.wallet !== saved.owner || trade.marketId !== saved.venueMarketId || trade.side !== saved.side.toLowerCase()) return pending();
+        trade.wallet !== saved.owner || trade.marketId !== saved.venueMarketId || trade.side !== saved.side.toLowerCase()) return confirmedPending();
     let independentlyVerified: boolean;
     try {
       independentlyVerified = await this.verifyTransaction({ signature: saved.signature, owner: saved.owner,
         market: saved.venueMarketId, programId: this.programId, amountBaseUnits: saved.amountBaseUnits, messageHash: saved.messageHash });
     } catch { throw new VenueError("VENUE_UNAVAILABLE", "Panta execution: independent verification unavailable", { venue: "panta" }); }
-    if (independentlyVerified !== true) return pending();
+    if (independentlyVerified !== true) return confirmedPending();
     return { ...this.venueOrder(saved, "FILLED"), fillEvidence: { providerVerify: verification, providerTrade: trade,
       messageHash: saved.messageHash, independentlyVerified: true, expectedShares: saved.review.expectedShares } };
   }
