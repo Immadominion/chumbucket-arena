@@ -21,6 +21,7 @@
 
 import type { IdentityStoreConfig } from "./IdentityStore.ts";
 import { AuthIdentityError } from "./AuthIdentityError.ts";
+import { isUsableSolanaAddress } from "./SolanaKey.ts";
 
 export interface SupabaseSession {
   /** auth.users.id — what auth.uid() evaluates to inside Postgres. */
@@ -57,9 +58,18 @@ export function solanaWalletOf(identities: unknown): string | undefined {
       claims.chain === "solana" && typeof claims.address === "string" ? claims.address : undefined;
     if (fromProviderId && fromClaims && fromProviderId !== fromClaims) continue;
     const address = fromProviderId ?? fromClaims;
-    if (address && SOLANA_ADDRESS.test(address)) return address;
+    if (address && SOLANA_ADDRESS.test(address) && isUsableSolanaAddress(address)) return address;
   }
   return undefined;
+}
+
+/** A web3 identity whose address no one can hold (see SolanaKey.ts). */
+export function hasUnusableSolanaIdentity(identities: unknown): boolean {
+  if (!Array.isArray(identities)) return false;
+  return (
+    identities.some((i) => i && typeof i === "object" && (i as Record<string, unknown>).provider === "web3") &&
+    solanaWalletOf(identities) === undefined
+  );
 }
 
 export interface SupabaseJwtVerifier {
@@ -112,6 +122,9 @@ export class GoTrueJwtVerifier implements SupabaseJwtVerifier {
 
       const user = (await res.json()) as { id?: unknown; aud?: unknown; identities?: unknown } | null;
       if (!user || typeof user.id !== "string" || user.id.length === 0) return null;
+      // A Web3 session for an address nobody can hold (e.g. a small-order
+      // key whose "signature" can be forged) is not a session at all.
+      if (hasUnusableSolanaIdentity(user.identities)) return null;
       const solanaWallet = solanaWalletOf(user.identities);
       return solanaWallet ? { authUserId: user.id, solanaWallet } : { authUserId: user.id };
     } catch (_) {

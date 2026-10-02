@@ -11,13 +11,17 @@ import { describe, expect, test } from "bun:test";
 import { TRPCError } from "@trpc/server";
 import { authRouter } from "../src/api/authRoutes.ts";
 import { primeAuthIdentityRuntime } from "../src/auth/AuthIdentityRuntime.ts";
-import { solanaWalletOf } from "../src/auth/SupabaseJwt.ts";
+import { hasUnusableSolanaIdentity, solanaWalletOf } from "../src/auth/SupabaseJwt.ts";
+import { isUsableSolanaAddress } from "../src/auth/SolanaKey.ts";
 import { createApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { FakeIdentityStore, FakeJwtVerifier, testPolicy } from "./authIdentityFixtures.ts";
 
-const OLD_WALLET = "OLDwa11et1111111111111111111111111111111111";
-const NEW_WALLET = "NEWwa11et2222222222222222222222222222222222";
+/** Real ed25519 public keys: anything else is refused as a wallet. */
+const OLD_WALLET = "F7rhCwoPyU5H1p48sddDmGb1ax25CwmxiwHL8Xj5RJ3E";
+const NEW_WALLET = "7KGuuhZy8cYctGcGxjt91atS7A5aZobNhmUAxVLJgVCL";
+/** A real ed25519 public key (the SPL Token program id). */
+const REAL_KEY = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
 async function rig(opts: { carry?: boolean } = {}) {
   const config = loadConfig({
@@ -66,6 +70,17 @@ describe("the verified wallet on a session", () => {
     ).toBeUndefined();
     expect(solanaWalletOf([{ provider: "web3", identity_data: { sub: "web3:ethereum:0xabc" } }])).toBeUndefined();
     expect(solanaWalletOf("not an array")).toBeUndefined();
+  });
+
+  test("an address nobody can hold is never a wallet, and its session is refused", () => {
+    // The all-zero key is small-order: Supabase Auth accepted a forged
+    // all-zero signature for it on 2026-10-02.
+    const forged = [web3("11111111111111111111111111111111")];
+    expect(solanaWalletOf(forged)).toBeUndefined();
+    expect(hasUnusableSolanaIdentity(forged)).toBe(true);
+    expect(hasUnusableSolanaIdentity([web3(REAL_KEY)])).toBe(false);
+    expect(solanaWalletOf([web3(REAL_KEY)])).toBe(REAL_KEY);
+    expect(isUsableSolanaAddress(REAL_KEY)).toBe(true);
   });
 });
 
