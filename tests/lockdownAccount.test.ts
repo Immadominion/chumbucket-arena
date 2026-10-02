@@ -301,11 +301,14 @@ describe("write rate limits (B2)", () => {
     expect(await code(s.bob.account.updateProfile({ avatarId: 3 }))).toBe("OK");
   });
 
-  test("the client address is the edge's, never a hop the client wrote", () => {
+  test("the client address is the one Railway's edge wrote, not the CDN's", () => {
     const req = (headers: Record<string, string>) =>
-      ({ headers, socket: { remoteAddress: "10.0.0.1" } }) as unknown as Parameters<typeof clientIpFrom>[0];
-    expect(clientIpFrom(req({ "x-real-ip": "198.51.100.7", "x-forwarded-for": "1.2.3.4" }))).toBe("198.51.100.7");
-    expect(clientIpFrom(req({ "x-forwarded-for": "6.6.6.6, 198.51.100.8" }))).toBe("198.51.100.8");
-    expect(clientIpFrom(req({}))).toBe("10.0.0.1");
+      ({ headers, socket: { remoteAddress: "100.64.0.9" } }) as unknown as Parameters<typeof clientIpFrom>[0];
+    // Railway strips client-sent X-Forwarded-For; the connecting address is first.
+    expect(clientIpFrom(req({ "x-forwarded-for": "198.51.100.8, 151.101.1.1", "x-real-ip": "151.101.1.1" }), undefined))
+      .toBe("198.51.100.8");
+    expect(clientIpFrom(req({ "x-forwarded-for": "6.6.6.6, 198.51.100.8" }), "xff-last")).toBe("198.51.100.8");
+    expect(clientIpFrom(req({ "x-real-ip": "198.51.100.7" }), "x-real-ip")).toBe("198.51.100.7");
+    expect(clientIpFrom(req({}), undefined)).toBe("100.64.0.9");
   });
 });

@@ -38,19 +38,35 @@ const supabaseTokenFrom = (req: IncomingMessage | undefined): string | undefined
 };
 
 /**
- * The caller's address, for per-IP write limits. Railway's edge sets
- * X-Real-IP; otherwise the LAST X-Forwarded-For hop (the one our own proxy
- * appended — the leftmost is whatever the client chose to send), then the
- * socket. Never trusted for anything but rate limiting.
+ * The caller's address, for per-IP write limits only — never for anything
+ * that decides who someone is.
+ *
+ * Railway's edge strips any X-Forwarded-For a client sends and writes its
+ * own, with the real connecting address FIRST; X-Real-IP, by contrast, holds
+ * the CDN's address whenever the CDN path is active, which would put every
+ * person in one bucket. So the default is the first X-Forwarded-For entry.
+ * Behind a proxy that appends instead, set CLIENT_IP_SOURCE=xff-last.
  */
-export function clientIpFrom(req: IncomingMessage | undefined): string | undefined {
-  const real = req?.headers?.["x-real-ip"];
-  const r = (Array.isArray(real) ? real[0] : real)?.trim();
-  if (r) return r;
-  const xff = req?.headers?.["x-forwarded-for"];
-  const hops = (Array.isArray(xff) ? xff.join(",") : xff ?? "").split(",").map((h) => h.trim()).filter(Boolean);
-  if (hops.length) return hops[hops.length - 1];
-  return req?.socket?.remoteAddress ?? undefined;
+export function clientIpFrom(
+  req: IncomingMessage | undefined,
+  source: string | undefined = process.env.CLIENT_IP_SOURCE,
+): string | undefined {
+  const header = (name: string): string | undefined => {
+    const v = req?.headers?.[name];
+    return (Array.isArray(v) ? v.join(",") : v)?.trim() || undefined;
+  };
+  const hops = (header("x-forwarded-for") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  const socket = req?.socket?.remoteAddress ?? undefined;
+  switch (source) {
+    case "socket":
+      return socket;
+    case "x-real-ip":
+      return header("x-real-ip") ?? socket;
+    case "xff-last":
+      return hops[hops.length - 1] ?? socket;
+    default:
+      return hops[0] ?? socket;
+  }
 }
 
 export interface StartServerOptions {
