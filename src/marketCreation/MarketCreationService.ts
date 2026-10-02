@@ -21,8 +21,8 @@
 import { createHash } from "node:crypto";
 import { validateSignedPantaTransaction, type SignedPantaTransaction } from "../prediction/PantaChain.ts";
 import { marketUuid } from "../prediction/types.ts";
-import { MarketCreationError, isMarketCreationError } from "./errors.ts";
-import { type CreateBinding, type PantaMarketCreator } from "./PantaMarketCreator.ts";
+import { MarketCreationError, isMarketCreationError, type MarketCreationErrorCode } from "./errors.ts";
+import { recentBlockhashOf, type CreateBinding, type PantaMarketCreator } from "./PantaMarketCreator.ts";
 import { normalizeDraft, publishDeadline, validateDraft, type MarketDraft, type PantaCreateCategory } from "./rules.ts";
 import type { MarketProposalStore, ProposalRow, ProposalStatus, ReviewReason, SessionRow } from "./store.ts";
 
@@ -35,7 +35,7 @@ export interface CreateChain {
   broadcast(tx: SignedPantaTransaction): Promise<void>;
   verifyTransaction(input: { signature: string; owner: string; market: string; programId: string; amountBaseUnits: string; messageHash: string }): Promise<boolean>;
   failed(signature: string): Promise<boolean>;
-  neverLanded(signature: string, lastValidBlockHeight: number): Promise<boolean>;
+  neverLanded(signature: string, lastValidBlockHeight: number, recentBlockhash: string): Promise<boolean>;
 }
 /** Pull a freshly live market into the call catalog. Best effort. */
 export interface CatalogIngest { ingest(venueMarketId: string): Promise<void> }
@@ -86,7 +86,9 @@ export interface ProposeInput extends MarketDraft { idempotencyKey: string }
 export interface MarketCreationDeps {
   store: MarketProposalStore;
   reviewerIds: ReadonlySet<string>;
-  people: { get(id: string): PersonRef | undefined };
+  /** The calls directory mirror. `load` reads through on a miss (a person who
+   *  joined after this replica booted); attribution never fails a request. */
+  people: { get(id: string): PersonRef | undefined; load?(id: string): Promise<void> };
   now?: () => number;
   newId?: () => string;
   /** Present only when publishing is ready. */
@@ -138,11 +140,13 @@ export class MarketCreationService {
   }
 
   async mine(userId: string): Promise<ProposalView[]> {
-    return (await this.deps.store.byProposer(userId, 50)).map(row => this.view(row, userId));
+    const rows = await this.withPeople(await this.deps.store.byProposer(userId, 50));
+    return rows.map(row => this.view(row, userId));
   }
 
   async get(userId: string, proposalId: string): Promise<ProposalView> {
-    return this.view(await this.visible(userId, proposalId), userId);
+    const [row] = await this.withPeople([await this.visible(userId, proposalId)]);
+    return this.view(row!, userId);
   }
 
   async withdraw(userId: string, proposalId: string): Promise<ProposalView> {
@@ -158,7 +162,7 @@ export class MarketCreationService {
 
   async reviewQueue(userId: string): Promise<{ pending: ProposalView[]; approved: ProposalView[] }> {
     this.requireReviewer(userId);
-    const rows = await this.deps.store.byStatus(["pending_review", "approved", "publishing"], 100);
+    const rows = await this.withPeople(await this.deps.store.byStatus(["pending_review", "approved", "publishing"], 100));
     return {
       pending: rows.filter(row => row.status === "pending_review").map(row => this.view(row, userId)),
       approved: rows.filter(row => row.status !== "pending_review").map(row => this.view(row, userId)),
@@ -204,7 +208,7 @@ export class MarketCreationService {
     return this.publishReview(session, row, binding);
   }
 
-  /** Commit the signed bytes, then broadcast, then try to confirm. */
+  /** Commit the signed bytes, then claim the proposal, then broadcast, then try to confirm. */
   async submitPublish(userId: string, proposalId: string, sessionId: string, signedTransaction: string): Promise<ProposalView> {
     const publishing = this.requirePublishing();
     let session = await this.deps.store.session(sessionId);
@@ -220,26 +224,50 @@ export class MarketCreationService {
     }
     if (session.state === "QUOTED") {
       if (binding.expiresAt <= this.now()) refuse("MC_STATE", "The wallet approval arrived after the quote expired. Review a fresh quote; nothing was sent.");
-      const row = await this.publishable(userId, proposalId);
+      await this.publishable(userId, proposalId);
       let submitted: SessionRow | null;
       try {
         submitted = await this.deps.store.updateSession(session.id, "QUOTED", { state: "SUBMITTED", signature: tx.signature, signed_transaction: signedTransaction });
       } catch { return refuse("MC_CONFLICT", "Another publish of this market is already in progress."); }
       if (!submitted) return refuse("MC_CONFLICT", "This review just changed. Refresh and try again.");
       session = submitted;
-      const claimed = await this.deps.store.updateProposal(row.id, "approved", { status: "publishing", published_by: userId, creator_wallet: binding.wallet });
-      if (!claimed) {
-        // Nothing has been broadcast: retire the signed bytes so they can never be sent.
-        await this.deps.store.updateSession(session.id, "SUBMITTED", { state: "FAILED" });
-        return refuse("MC_CONFLICT", "This proposal changed before publishing. Nothing was sent.");
-      }
-    } else if (session.state !== "SUBMITTED") {
+      await this.claimCommitted(userId, proposalId, session, binding);
+    } else if (session.state === "SUBMITTED") {
+      // A retry. If the first attempt committed the bytes but lost the claim's
+      // reply, the proposal is not `publishing` yet: claim it now, or retire the
+      // bytes. Never broadcast for a proposal this session does not hold.
+      if ((await this.requireProposal(proposalId)).status !== "publishing") await this.claimCommitted(userId, proposalId, session, binding);
+    } else {
       return this.view(await this.requireProposal(proposalId), userId);
     }
-    // Durable approval BEFORE RPC. A lost reply re-sends the same bytes only.
+    // Durable approval and claim BEFORE RPC. A lost reply re-sends the same bytes only.
     try { await publishing.chain.broadcast(tx); }
     catch { /* uncertain: refresh decides from chain evidence, never by re-quoting */ }
     return this.refresh(userId, proposalId);
+  }
+
+  /**
+   * Hold the proposal in `publishing` for a session whose signed bytes are
+   * committed (SUBMITTED). Broadcast only ever follows a successful claim, so
+   * an unclaimed session was never sent: when it can no longer be claimed its
+   * bytes are retired (FAILED) and can never be sent. A lost database reply
+   * here leaves the session SUBMITTED, and the retry comes back through this
+   * check before any broadcast.
+   */
+  private async claimCommitted(userId: string, proposalId: string, session: SessionRow, binding: CreateBinding): Promise<void> {
+    const retire = async (code: MarketCreationErrorCode, message: string): Promise<never> => {
+      await this.deps.store.updateSession(session.id, "SUBMITTED", { state: "FAILED" });
+      return refuse(code, message);
+    };
+    if (binding.expiresAt <= this.now()) return retire("MC_STATE", "The wallet approval expired before it was sent. Review a fresh quote; nothing was sent.");
+    let row: ProposalRow;
+    try { row = await this.publishable(userId, proposalId); }
+    catch (error) {
+      if (!isMarketCreationError(error)) throw error;
+      return retire(error.code, `${error.message} Nothing was sent.`);
+    }
+    const claimed = await this.deps.store.updateProposal(row.id, "approved", { status: "publishing", published_by: userId, creator_wallet: binding.wallet });
+    if (!claimed) return retire("MC_CONFLICT", "This proposal changed before publishing. Nothing was sent.");
   }
 
   /** Re-check a publishing proposal against Panta and the chain. */
@@ -259,7 +287,7 @@ export class MarketCreationService {
         if (!isMarketCreationError(error) || error.code === "MC_SCHEMA") throw error;
         // Not registered (yet). Only chain evidence may release the proposal.
         if (await publishing.chain.failed(session.signature) ||
-            await publishing.chain.neverLanded(session.signature, binding.lastValidBlockHeight)) {
+            await publishing.chain.neverLanded(session.signature, binding.lastValidBlockHeight, recentBlockhashOf(binding))) {
           await this.deps.store.updateSession(session.id, "SUBMITTED", { state: "FAILED" });
           const released = await this.deps.store.updateProposal(row.id, "publishing", { status: "approved", published_by: null, creator_wallet: null });
           return this.view(released ?? await this.requireProposal(row.id), userId);
@@ -282,11 +310,21 @@ export class MarketCreationService {
   async byMarket(venueMarketId: string): Promise<{ proposalId: string; proposer: PersonRef | null; liveAt: number } | null> {
     const row = await this.deps.store.byVenueMarket(venueMarketId);
     if (!row || row.status !== "live" || !row.live_at) return null;
+    await this.withPeople([row]);
     return { proposalId: row.id, proposer: this.deps.people.get(row.proposer_id) ?? null, liveAt: ms(row.live_at) };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
+  /** Make sure every proposer is in the directory mirror before rendering. */
+  private async withPeople(rows: ProposalRow[]): Promise<ProposalRow[]> {
+    const load = this.deps.people.load;
+    if (load) {
+      const missing = [...new Set(rows.map(row => row.proposer_id))].filter(id => !this.deps.people.get(id));
+      await Promise.all(missing.map(id => load(id).catch(() => undefined)));
+    }
+    return rows;
+  }
   private requireReviewer(userId: string) {
     if (!this.isReviewer(userId)) refuse("MC_FORBIDDEN", "Only Chumbucket reviewers can do that.");
   }

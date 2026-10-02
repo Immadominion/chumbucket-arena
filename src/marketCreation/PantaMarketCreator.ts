@@ -154,6 +154,9 @@ function parse<S extends z.ZodTypeAny>(s: S, value: unknown, label: string): z.i
 }
 export const messageHashOf = (tx: VersionedTransaction): string =>
   createHash("sha256").update(tx.message.serialize()).digest("hex");
+/** The blockhash the reviewed create was built on (validated at prepare). */
+export const recentBlockhashOf = (binding: Pick<CreateBinding, "transaction">): string =>
+  VersionedTransaction.deserialize(Buffer.from(binding.transaction, "base64")).message.recentBlockhash;
 
 export class PantaMarketCreator {
   private readonly clock: Clock;

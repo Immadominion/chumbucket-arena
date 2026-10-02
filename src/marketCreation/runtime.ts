@@ -47,10 +47,14 @@ export function marketCreationFor(app: AppConfig): MarketCreationRuntime {
     runtimes.set(app, runtime);
     return runtime;
   }
-  const people = { get(id: string): PersonRef | undefined {
-    const person = callsRuntimeFor(app).store.getPerson(id);
-    return person ? { id: person.id, handle: person.handle, displayName: person.displayName } : undefined;
-  } };
+  const people = {
+    get(id: string): PersonRef | undefined {
+      const person = callsRuntimeFor(app).store.getPerson(id);
+      return person ? { id: person.id, handle: person.handle, displayName: person.displayName } : undefined;
+    },
+    // Same read-through the calls viewer uses for a profile created after boot.
+    async load(id: string): Promise<void> { await callsRuntimeFor(app).durable?.refreshPerson(id); },
+  };
   let publishingDeps: ConstructorParameters<typeof MarketCreationService>[0]["publishing"] = null;
   if (publishing.enabled) {
     const panta = app.predictions!.panta!;

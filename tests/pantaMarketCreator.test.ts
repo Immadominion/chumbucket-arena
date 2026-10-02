@@ -4,7 +4,8 @@ import { MarketCreationError } from "../src/marketCreation/errors.ts";
 import { cloudinaryUpload, pantaCreatePost, PantaMarketCreator, CREATE_POLICY, formatUsdc } from "../src/marketCreation/PantaMarketCreator.ts";
 import { normalizeDraft, PANTA_MIN_START_DELAY_S, START_MARGIN_S, type MarketDraft } from "../src/marketCreation/rules.ts";
 import { TestClock } from "./predictionFixtures.ts";
-import { COVER_URL, eventPda, FakePanta, FEE, program, synthetic, TOKEN, wallet, ata } from "./marketCreationFixtures.ts";
+import { MAINNET_GENESIS_HASH, PantaChain } from "../src/prediction/PantaChain.ts";
+import { ata, blockhash, COVER_URL, eventPda, FakePanta, FEE, program, synthetic, TOKEN, wallet } from "./marketCreationFixtures.ts";
 
 const HOUR = 3_600_000;
 function rig(maxFee = "100000000") {
@@ -130,4 +131,36 @@ test("cloudinary upload refuses any destination other than Cloudinary's image up
   const upload = cloudinaryUpload({ fetchImpl: Object.assign(async () => new Response(JSON.stringify({ secure_url: COVER_URL })), { preconnect: fetch.preconnect }) as typeof fetch });
   expect(await upload("https://api.cloudinary.com/v1_1/synthetic/image/upload", { a: "b" }, new Uint8Array([1]))).toEqual({ secure_url: COVER_URL });
   await expect(upload("https://api.cloudinary.com.evil.com/v1_1/x/image/upload", {}, new Uint8Array([1]))).rejects.toMatchObject({ code: "MC_SCHEMA" });
+});
+
+test("neverLanded reads expiry before the signature, and trusts our RPC's blockhash check over the venue's height", async () => {
+  const rpc = (answers: { height: number; valid: boolean; status: unknown }) => {
+    const methods: string[] = [];
+    const chain = new PantaChain("https://synthetic-rpc.invalid", Object.assign(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      methods.push(body.method);
+      const result = body.method === "getGenesisHash" ? MAINNET_GENESIS_HASH
+        : body.method === "getBlockHeight" ? answers.height
+        : body.method === "isBlockhashValid" ? { context: { slot: 1 }, value: answers.valid }
+        : body.method === "getSignatureStatuses" ? { context: { slot: 1 }, value: [answers.status] } : null;
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }));
+    }, { preconnect: fetch.preconnect }));
+    return { chain, methods };
+  };
+  const sig = "5".repeat(88);
+  const landed = { slot: 1, confirmations: null, err: null, confirmationStatus: "confirmed" };
+  // Still inside the venue's height: never released, and the status is not even read.
+  let h = rpc({ height: 1000, valid: false, status: null });
+  expect(await h.chain.neverLanded(sig, 1000, blockhash)).toBe(false);
+  expect(h.methods).toEqual(["getGenesisHash", "getBlockHeight"]);
+  // Past the venue's height but our RPC still accepts the blockhash: not released.
+  h = rpc({ height: 1001, valid: true, status: null });
+  expect(await h.chain.neverLanded(sig, 1000, blockhash)).toBe(false);
+  // Expired and unknown: released. Expiry was read first.
+  h = rpc({ height: 1001, valid: false, status: null });
+  expect(await h.chain.neverLanded(sig, 1000, blockhash)).toBe(true);
+  expect(h.methods).toEqual(["getGenesisHash", "getBlockHeight", "isBlockhashValid", "getSignatureStatuses"]);
+  // Expired but it landed: never released.
+  h = rpc({ height: 1001, valid: false, status: landed });
+  expect(await h.chain.neverLanded(sig, 1000, blockhash)).toBe(false);
 });

@@ -95,15 +95,21 @@ export class PantaChain {
       return s != null && s.err != null && ["confirmed","finalized"].includes(s.confirmationStatus ?? "");
     } catch { return false; }
   }
-  /** True only when the signature is unknown AND its blockhash can no longer
-   *  land: the confirmed block height has passed `lastValidBlockHeight`. A read
-   *  failure is never proof of expiry. */
-  async neverLanded(signature: string, lastValidBlockHeight: number): Promise<boolean> {
+  /** True only when the transaction can no longer land AND never did:
+   *  1. the confirmed block height has passed `lastValidBlockHeight`;
+   *  2. our RPC itself no longer accepts `recentBlockhash`, so a wrong height
+   *     from the venue cannot release a still-landable transaction;
+   *  3. only then is the signature looked up. Expiry is read FIRST: a landing in
+   *     the last valid block precedes the status read and is always seen by it
+   *     (status-then-height could miss one that lands between the two reads).
+   *  A read failure is never proof of expiry. */
+  async neverLanded(signature: string, lastValidBlockHeight: number, recentBlockhash: string): Promise<boolean> {
     await this.assertMainnet();
     try {
+      if ((await this.connection.getBlockHeight("confirmed")) <= lastValidBlockHeight) return false;
+      if ((await this.connection.isBlockhashValid(recentBlockhash, { commitment: "processed" })).value) return false;
       const statuses = await this.connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
-      if (statuses.value[0] != null) return false;
-      return (await this.connection.getBlockHeight("confirmed")) > lastValidBlockHeight;
+      return statuses.value.length === 1 && statuses.value[0] == null;
     } catch { return false; }
   }
 }

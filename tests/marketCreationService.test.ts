@@ -243,3 +243,85 @@ test("byMarket is null for markets nobody proposed here", async () => {
   const h = rig();
   expect(await h.service.byMarket(eventPda)).toBeNull();
 });
+
+test("a lost claim reply is claimed on retry BEFORE any broadcast", async () => {
+  const h = rig();
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  // The bytes commit, then the claim's database reply is lost.
+  const update = h.store.updateProposal.bind(h.store);
+  h.store.updateProposal = async () => { throw new Error("synthetic lost database reply"); };
+  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toThrow("synthetic lost database reply");
+  h.store.updateProposal = update;
+  expect([...h.store.sessions.values()].map(s => s.state)).toEqual(["SUBMITTED"]);
+  expect(h.store.proposals.get(p.id)!.status).toBe("approved");
+  expect(h.chain.broadcasts).toHaveLength(0);
+  // The retry claims the proposal first (FakeChain asserts publishing at broadcast).
+  const view = await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  expect(view.status).toBe("publishing");
+  expect(h.chain.broadcasts).toHaveLength(1);
+});
+
+test("committed bytes that can no longer be claimed are retired and never broadcast", async () => {
+  const h = rig();
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  const update = h.store.updateProposal.bind(h.store);
+  h.store.updateProposal = async () => { throw new Error("synthetic lost database reply"); };
+  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toThrow();
+  h.store.updateProposal = update;
+  // Meanwhile a reviewer rejects the approved proposal.
+  await h.service.review(reviewer, p.id, { approve: false, reason: "duplicate", note: null });
+  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toMatchObject({ code: "MC_STATE" });
+  expect([...h.store.sessions.values()].map(s => s.state)).toEqual(["FAILED"]);
+  expect(h.chain.broadcasts).toHaveLength(0);
+  // A retired approval stays retired.
+  const again = await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  expect(again.status).toBe("rejected");
+  expect(h.chain.broadcasts).toHaveLength(0);
+});
+
+test("an expired, unclaimed approval is retired so a fresh quote can be published", async () => {
+  const h = rig();
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  const update = h.store.updateProposal.bind(h.store);
+  h.store.updateProposal = async () => { throw new Error("synthetic lost database reply"); };
+  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toThrow();
+  h.store.updateProposal = update;
+  h.clock.advance(61_000);
+  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toMatchObject({ code: "MC_STATE" });
+  expect(h.chain.broadcasts).toHaveLength(0);
+  const fresh = await h.service.preparePublish(proposer, p.id, wallet);
+  expect((await h.service.submitPublish(proposer, p.id, fresh.sessionId, sign(fresh.transaction))).status).toBe("publishing");
+  expect(h.chain.broadcasts).toHaveLength(1);
+});
+
+test("expiry is judged on the reviewed blockhash", async () => {
+  const h = rig();
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  const seen: unknown[][] = [];
+  h.chain.neverLanded = async (...args: unknown[]) => { seen.push(args); return false; };
+  h.panta.registerError = new MarketCreationError("MC_PANTA_REFUSED", "not yet", { providerCode: "TX_NOT_FOUND" });
+  await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  const tx = VersionedTransaction.deserialize(Buffer.from(review.transaction, "base64"));
+  expect(seen.at(-1)).toEqual([expect.any(String), 1000, tx.message.recentBlockhash]);
+});
+
+test("a proposer missing from the directory mirror is read through for attribution", async () => {
+  const h = rig();
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  h.chain.verified = true;
+  await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  const directory = new Map<string, { id: string; handle: string; displayName: string }>();
+  const loads: string[] = [];
+  const cold = new MarketCreationService({ store: h.store, reviewerIds: new Set([reviewer]), now: () => h.clock.now(),
+    people: { get: id => directory.get(id), load: async id => { loads.push(id); directory.set(id, { id, handle: "ada", displayName: "Ada" }); } } });
+  expect(await cold.byMarket(eventPda)).toMatchObject({ proposer: { handle: "ada" } });
+  expect((await cold.reviewQueue(reviewer)).approved).toHaveLength(0);
+  expect(loads).toEqual([proposer]); // once; afterwards the mirror has them
+  const failing = new MarketCreationService({ store: h.store, reviewerIds: new Set(), people: { get: () => undefined, load: async () => { throw new Error("down"); } } });
+  expect(await failing.byMarket(eventPda)).toMatchObject({ proposer: null }); // attribution never fails the read
+});
