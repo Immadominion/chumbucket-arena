@@ -175,6 +175,29 @@ and `byMarket` (public, returns "proposed by" for a live market). Each one
 takes its identity from the verified Supabase session. None accepts a person id
 or a wallet as identity, and none returns the Panta key.
 
+### In the app (mobile branch `fleet/create-market`)
+
+| Piece | Path (mobile repo) |
+| --- | --- |
+| Entry: "Create a market" card on the Markets tab (sign-in first) | `lib/features/calls/presentation/screens/call_markets_screen.dart` |
+| "Proposed by @handle on Chumbucket" on a live market | `lib/features/calls/presentation/screens/market_detail_screen.dart` |
+| Your markets, plus the reviewer queue | `lib/features/market_creation/presentation/my_markets_screen.dart` |
+| Propose form (question, YES/NO, category, close, result time, rules, sources) | `lib/features/market_creation/presentation/create_market_screen.dart` |
+| One proposal's state and next step (withdraw, approve/reject, publish, open) | `lib/features/market_creation/presentation/proposal_detail_screen.dart` |
+| Fee review and wallet approval (ChumbucketWavySheet, no close button) | `lib/features/market_creation/presentation/publish_market_sheet.dart` |
+| Rules mirrored from `rules.ts` | `lib/features/market_creation/domain/market_draft_rules.dart` |
+| Local checks around the wallet (one signer, the reviewed payer, same message back) | `lib/features/market_creation/domain/create_transaction_check.dart` |
+
+The app reads the rules from `marketCreation.status`, so the form and the server
+validate against the same numbers. Publishing uses the connected Mobile Wallet
+Adapter wallet (`PantaMwaWallet`). A person signed in with Google or X and no
+connected wallet sees "Connect a Solana wallet with USDC to publish"; a reviewer
+can still sponsor their approved proposal. When embedded wallets land, pass
+their signer as the screen's `PublishWalletResolver`.
+
+"Powered by Panta" appears on the form, on every proposal and in the fee sheet
+(Terms, sections 5 and 6).
+
 ## 3. Transaction policy `panta-create/docs-v1`, and why it is narrow
 
 We have **not** observed a real unsigned create build: taking one requires a
