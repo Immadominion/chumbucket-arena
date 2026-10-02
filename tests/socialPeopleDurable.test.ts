@@ -11,12 +11,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { callsRouter } from "../src/api/calls.ts";
 import { isCallsError } from "../src/calls/errors.ts";
+import { emptyMarketReader } from "../src/calls/markets.ts";
+import { buildCallsRuntime, setCallsRuntime } from "../src/calls/runtime.ts";
 import { personFromRow, SupabaseCallsStore, THESIS_UPDATES_TABLE } from "../src/calls/supabaseStore.ts";
 import { MAX_THESIS_UPDATES_PER_CALL } from "../src/calls/types.ts";
 import { THESIS_UPDATE_MAX } from "../src/calls/store.ts";
 import { PgrestFake, seedUser, UUIDS } from "./pgrestFake.ts";
-import { migrationSql, sqlWithoutComments } from "./socialCallsFixtures.ts";
+import { migrationSql, sqlWithoutComments, testApp } from "./socialCallsFixtures.ts";
 
 const MARKET = "44444444-4444-4444-8444-444444444444";
 const CALL = "55555555-5555-4555-8555-555555555555";
@@ -171,6 +174,45 @@ describe("profile columns", () => {
     const bare = personFromRow({ ...base, bio: null, created_at: null });
     expect("bio" in bare).toBe(false);
     expect("joinedAt" in bare).toBe(false);
+  });
+
+  // The profile screen writes name/bio/picture straight to public.users, after
+  // the mirror has read the directory. A profile view must show the row as it
+  // is now — and must still load, from the mirror, when that read fails.
+  test("people.get re-reads the person's row, and falls back to the mirror when it cannot", async () => {
+    const { fake } = world({ migrated: true });
+    let usersReadable = true;
+    const fetchImpl = (async (input: Request | string | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (!usersReadable && url.includes("/rest/v1/users")) throw new TypeError("network down");
+      return fake.fetchImpl(input, init);
+    }) as typeof fetch;
+    const store = new SupabaseCallsStore({ config: fake.config, fetchImpl });
+    await store.hydrate();
+
+    const app = await testApp();
+    setCallsRuntime(app.config, buildCallsRuntime(undefined, { store, markets: emptyMarketReader }));
+    const anon = callsRouter.createCaller({ app });
+
+    expect((await anon.people.get({ personRef: "alice" })).person.bio).toBeUndefined();
+
+    // Alice writes a bio after boot, the way update_user_profile does.
+    const patched = await fake.fetchImpl(`${fake.config.supabaseUrl}/rest/v1/users?id=eq.${UUIDS.alice}`, {
+      method: "PATCH",
+      body: JSON.stringify({ bio: "calls ETH flows", full_name: "Alice A." }),
+    });
+    expect(patched.ok).toBe(true);
+
+    const fresh = await anon.people.get({ personRef: "alice" });
+    expect(fresh.person.bio).toBe("calls ETH flows");
+    expect(fresh.person.displayName).toBe("Alice A.");
+
+    // The directory read fails: the page still loads, from the mirror's copy.
+    usersReadable = false;
+    const fallback = await anon.people.get({ personRef: UUIDS.alice });
+    expect(fallback.person.bio).toBe("calls ETH flows");
+    // Nothing was written, so nothing was quarantined.
+    expect(store.queue.failures).toHaveLength(0);
   });
 });
 

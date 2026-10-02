@@ -187,6 +187,48 @@ async function requireViewer(rt: CallsRuntime, ctx: ViewerContext): Promise<stri
   });
 }
 
+/** How long a profile view waits for its one-row refresh before serving the
+ *  mirror's copy. */
+export const PROFILE_REFRESH_TIMEOUT_MS = 1_500;
+
+/**
+ * A person edits their name, bio and picture straight in `public.users` (the
+ * profile screen's `update_user_profile` RPC), and the mirror reads that table
+ * only at boot and on a directory miss. Without this, a bio written after
+ * someone's first visit would not reach their public page until the next
+ * deploy. So a profile view re-reads that ONE row first.
+ *
+ * Best effort and bounded: a failed or slow read serves the mirror's copy,
+ * exactly as before, and is never the reason a profile does not load.
+ */
+async function refreshProfileRow(rt: CallsRuntime, personRef: string): Promise<void> {
+  const durable = rt.durable;
+  if (!durable) return;
+  const known = durable.getPerson(personRef) ?? durable.getPersonByHandle(personRef);
+  if (!known) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Settles either way, so a read that loses the race can never surface later
+  // as an unhandled rejection.
+  const refreshed = durable.refreshPerson(known.id).then(
+    () => undefined,
+    (err: unknown) => {
+      console.warn(
+        `[persist] profile refresh for ${known.id} failed; serving the mirror's copy: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    },
+  );
+  try {
+    await Promise.race([
+      refreshed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PROFILE_REFRESH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 // ── calls.* ──────────────────────────────────────────────────────────────────
 
 const callsNamespace = router({
@@ -358,9 +400,12 @@ const peopleNamespace = router({
     .input(z.object({ personRef: z.string().min(1).max(128) }).strict())
     .query(({ ctx, input }) => {
       const rt = runtime(ctx.app.config);
-      return call(async () =>
-        rt.service.getPerson({ personRef: input.personRef }, await viewerOf(rt, ctx)),
-      );
+      return call(async () => {
+        const viewer = await viewerOf(rt, ctx);
+        // The page shows the bio, name and picture the person has NOW.
+        await refreshProfileRow(rt, input.personRef);
+        return rt.service.getPerson({ personRef: input.personRef }, viewer);
+      });
     }),
   follow: publicProcedure
     .input(z.object({ personRef: z.string().min(1).max(128) }).strict())
