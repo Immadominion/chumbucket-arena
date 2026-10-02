@@ -96,11 +96,27 @@ Two inconsistencies in Crossmint's docs:
 - The scopes table lists `users.create` under client keys only. However, the
   external-wallet guide calls link-wallet from the server with the server key.
   Enable `users.create` on the **server** key.
-- The WebView guide asks for a client key with `orders.read`. The scopes table
-  says client keys only get `orders.create`. Our app never reads orders with the
-  client key (the server polls), so the client key needs **only what the
-  embedded checkout needs**. Crossmint notes that staging keys include all scopes
-  ([Swift quickstart](https://docs.crossmint.com/onramp/quickstarts/swift.md)).
+- The WebView guide says the client key in the checkout URL "requires
+  `orders.read`". The scopes table says client keys only get `orders.create`.
+  Our app never reads orders with the client key (the server polls), but the
+  embedded checkout page itself does, so **enable `orders.read` (and
+  `orders.create` if offered) on the client key**. Crossmint notes that staging
+  keys include all scopes
+  ([Swift quickstart](https://docs.crossmint.com/onramp/quickstarts/swift.md),
+  [WebView guide](https://docs.crossmint.com/payments/embedded/guides/webview-integration.md)).
+- **Client keys must be restricted to an app type** when created: *Web*
+  (whitelisted origins such as `https://www.yourdomain.com`), *Mobile*
+  (iOS bundle identifiers / Android package names, format
+  `com.company.appname`) or *Desktop/CLI* (no origin restriction, "should only
+  be used when necessary"). JWT auth is optional for non-wallet client APIs
+  ([client-side keys](https://docs.crossmint.com/introduction/platform/api-keys/client-side.md)).
+  Neither the WebView guide nor the Flutter/Swift quickstarts say which type
+  the embedded-checkout URL needs. Our checkout page is served from
+  `crossmint.com`, not from a Chumbucket origin, so choose **Mobile** with
+  `dev.cleva.chumbucket` (the app's Android `applicationId` and iOS
+  `PRODUCT_BUNDLE_IDENTIFIER`) and verify on a staging device before
+  production. If the staging checkout rejects the key, the app type is the first
+  thing to check with Crossmint support.
 
 ### Linking the user's wallet (required for external wallets)
 
@@ -164,18 +180,29 @@ X-API-KEY: <server key>
 
 `order.phase` moves through `quote` → `payment` → `delivery` → `completed`.
 
-`payment.status` takes these values: `requires-quote`, `requires-email`,
+`payment.status` takes these values: `draft`, `requires-quote`,
+`requires-email`, `requires-crypto-payer-address`,
 `requires-recipient-verification`, `requires-kyc`, `manual-kyc`,
-`pending-kyc-review`, `failed-kyc`, `awaiting-payment`, `in-progress`,
-`completed`, and `failed`. A `failed` status comes with a `failureReason
-{ code, message }`
+`pending-kyc-review`, `failed-kyc`, `crypto-payer-insufficient-funds`,
+`crypto-payer-insufficient-funds-for-gas`, `awaiting-payment`, `in-progress`
+and `completed`
 ([onramp get order](https://docs.crossmint.com/onramp/api-reference/get-order.md),
-[status codes](https://docs.crossmint.com/payments/headless/guides/status-codes.md),
-[error codes](https://docs.crossmint.com/onramp/api-reference/error-codes.md)).
+[status codes](https://docs.crossmint.com/payments/headless/guides/status-codes.md)).
 
-`lineItems[0].delivery.status` takes these values: `awaiting-payment`,
-`in-progress`, `completed` (with `txId`) and `failed`. A failed delivery is
-**refunded automatically**.
+**`failed` is not a payment status** (corrected 2 Oct 2026 against the status
+codes page). A declined card leaves the status where it was and adds
+`payment.failureReason`, "a normalized error code, category, and retry
+policy" ([status codes](https://docs.crossmint.com/payments/headless/guides/status-codes.md),
+[error codes](https://docs.crossmint.com/onramp/api-reference/error-codes.md)).
+`deriveDepositState` therefore keys `payment_failed` on the presence of
+`failureReason` (it also tolerates a literal `failed`). The onramp get-order
+schema does not list `failureReason`, `preparation.message` or `refunded`;
+the external-wallets guide and status-codes page do, so every one of those
+fields is read as optional.
+
+`lineItems[0].delivery.status` takes these values: `draft`,
+`awaiting-payment`, `in-progress`, `completed` (with `txId`) and `failed`. A
+failed delivery is **refunded automatically**.
 
 `phase === "completed"` does **not** mean success. Always read the line item's
 `delivery.status`
@@ -317,3 +344,80 @@ Supabase (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) must already be
 configured. The deposit procedures resolve the person through the same identity
 runtime as Panta trading. `SOLANA_RPC_URL` must be a mainnet HTTPS RPC for the
 balance read; the read pins the mainnet genesis hash.
+
+## 6. What the app does on the device (fleet/deposits, mobile)
+
+- **Entry points.** Profile → My wallet → **Add funds** (primary action; the QR
+  "Receive from another wallet" modal stays). Panta trade review: under the
+  amount, the trading wallet's real USDC and SOL (server read, mainnet) and,
+  when the buy is larger than the USDC there or the wallet has no SOL, an
+  **Add funds** button that funds *that* wallet when the account has proven it.
+- **Sheet.** `ChumbucketWavySheet`: balance card (USDC + SOL, read time),
+  presets from `deposits.status`, "Other amount", Crossmint's draft quote
+  (you pay / you get / goes to / receipt), payment-method pills, "Already have
+  crypto?" (address + QR + Solana-only warning). Live states: pay → send →
+  in your wallet, identity check / review, wallet signature, declined card
+  (retry in the same order), delivery failed (automatic refund), expired.
+- **Checkout.** `webview_flutter` with JavaScript, a browser user agent,
+  Android Payment Request on plus the `org.chromium.intent.action.PAY`,
+  `IS_READY_TO_PAY` and `UPDATE_PAYMENT_DETAILS` `<queries>` in
+  `AndroidManifest.xml`, and iOS inline media. Navigation is open to any
+  `https` page and closed to every other scheme. The WebView never grants the
+  camera or microphone (the app holds no camera permission): if Crossmint's
+  full identity check asks for a photo, a banner offers **Continue in your
+  browser**, which loads the same order's checkout in an in-app browser tab.
+  Light KYC (up to US$1,000) needs no photo.
+- **Resume.** Only the order id is remembered on the phone (no amount,
+  address, email or client secret). A later visit resumes an order that is
+  paying, delivering, under identity review or waiting for a wallet signature;
+  an unpaid checkout is dropped (nothing was charged, and its link cannot be
+  rebuilt without the secret).
+- **Wallets.** `DepositWalletSource` is the seam: `MwaDepositWalletSource`
+  today; `DeviceDepositWalletSource` takes fleet/identity's
+  `EmbeddedWalletController.signer` once both branches are merged (see the
+  mobile repo's `docs/contracts/integration-requests/packet-deposits.md`).
+
+## 7. Owner checklist
+
+Nothing below has been done by this package: no keys were created, no env was
+set, nothing was deployed.
+
+1. **Crossmint staging project** (self-serve): sign up at
+   <https://staging.crossmint.com/console>, create a project (name it
+   "Chumbucket"). Enable the Onramp product if the console asks.
+2. **Staging server key** (Console → API Keys → Server-side keys → Create):
+   scopes `orders.create`, `orders.read`, `users.create` (staging keys include
+   all scopes anyway). It starts `sk_staging_`.
+3. **Staging client key** (Client-side keys → Create): app type **Mobile**,
+   iOS bundle ID and Android package name **`dev.cleva.chumbucket`**; scopes
+   `orders.read` and `orders.create`. Leave "Require JWT" off. It starts
+   `ck_staging_`. No allowed web origins or redirect URLs are needed: the app
+   never redirects back from Crossmint; it polls the order through the BFF.
+4. **Railway (chumbucket-calls-bff), staging first:** set
+   `CROSSMINT_ENV=staging`, `CROSSMINT_SERVER_API_KEY=sk_staging_…`,
+   `CROSSMINT_CLIENT_API_KEY=ck_staging_…`, `DEPOSITS_ENABLED=true`. Optional:
+   `CROSSMINT_MIN_ORDER_USD`, `CROSSMINT_MAX_ORDER_USD` (staging is capped at
+   $10 by Crossmint). `SOLANA_RPC_URL` must already be a mainnet HTTPS RPC;
+   Supabase service-role config must already be present.
+5. **Test on a device** (staging): Profile → My wallet → Add funds → $5 →
+   card `4242 4242 4242 4242`, any future date, any CVC. Expect devnet test
+   USDC; the sheet says it will not show in the mainnet trading balance. Try
+   Google Pay on Android (staging shows it if the device has a card).
+6. **Production** (not self-serve): contact Crossmint sales, sign the **Order
+   Form**, complete **KYB** for the business
+   ([account verification](https://docs.crossmint.com/introduction/platform/account-verification.md)).
+   Ask them to confirm: Onramp enabled for Solana USDC, the per-user limits,
+   the fee schedule in the Order Form, and the client-key app type for a
+   WebView embedded checkout.
+7. **Production keys**: repeat 2–3 at <https://www.crossmint.com/console>
+   (`sk_production_…`, `ck_production_…`, same scopes, same app identifiers).
+   Then set `CROSSMINT_ENV=production` and both keys together; a key/env
+   mismatch is refused locally and the app says deposits aren't set up.
+8. **Google Pay in production** needs Google's approval of the Android app in
+   the Google Pay & Wallet Console (release-signed APK + screenshots, about a
+   business day) ([Google Pay mobile](https://docs.crossmint.com/payments/embedded/guides/google-pay.md)).
+   Apple Pay needs nothing from us (served from crossmint.com) but only shows
+   on a physical iPhone with iOS 17+.
+9. **Emergency stop**: set `DEPOSITS_ENABLED` to anything but `true`. The app
+   then says "Adding funds is paused right now" and still shows balances and
+   the receive address.
