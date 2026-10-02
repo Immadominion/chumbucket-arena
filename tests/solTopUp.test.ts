@@ -708,7 +708,7 @@ describe("solTopUp router", () => {
     };
     primeDepositsRuntime(cfg, deposits);
     const readiness = resolveSolTopUp(cfg, env);
-    const { service } = rig();
+    const { service } = rig({ usdc: "100" });
     primeSolTopUpRuntime(cfg, { readiness, service: readiness.available ? service : null });
     return { signedIn: solTopUpRouter.createCaller({ app, supabaseAccessToken: "session-ok" }), anonymous: solTopUpRouter.createCaller({ app }) };
   }
@@ -732,7 +732,9 @@ describe("solTopUp router", () => {
     expect(status.available).toBe(true);
     expect(JSON.stringify(status)).not.toContain(key);
     await expect(anonymous.plan({})).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    expect((await signedIn.plan({})).suggestion?.amountBaseUnits).toBe("1000000");
+    expect((await signedIn.plan({})).blocker).toBe("NEEDS_USDC");
+    // An expected "no" is data the app acts on, not an error.
+    expect(await signedIn.order({ amountBaseUnits: "1000000" })).toMatchObject({ status: "REFUSED", reason: "NEEDS_USDC" });
     await expect(signedIn.order({ amountBaseUnits: "1.5" as string })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

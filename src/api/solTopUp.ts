@@ -66,6 +66,11 @@ async function run<T>(action: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Answers the app acts on rather than errors: nothing went wrong. */
+const REFUSALS = ["NEEDS_USDC", "ENOUGH_SOL", "BELOW_GASLESS_MINIMUM", "NOT_GASLESS"] as const;
+type Refusal = (typeof REFUSALS)[number];
+const isRefusal = (code: TopUpErrorCode): code is Refusal => (REFUSALS as readonly string[]).includes(code);
+
 const wallet = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
 const amountBaseUnits = z.string().regex(/^[1-9][0-9]{0,11}$/);
 const requestId = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/);
@@ -93,11 +98,24 @@ export const solTopUpRouter = router({
       run(async () => serviceOf(solTopUpRuntimeFor(ctx.app.config)).plan(await person(ctx), input.wallet)),
     ),
 
-  /** A checked, unsigned gasless swap for the person's wallet to sign. */
+  /** A checked, unsigned gasless swap for the person's wallet to sign — or,
+   *  when no such swap can be offered for an expected reason, which reason,
+   *  as data the app acts on (a bigger amount, add funds, not needed). */
   order: publicProcedure
     .input(z.object({ wallet: wallet.optional(), amountBaseUnits }).strict())
     .mutation(({ ctx, input }) =>
-      run(async () => serviceOf(solTopUpRuntimeFor(ctx.app.config)).order(await person(ctx), input)),
+      run(async () => {
+        const service = serviceOf(solTopUpRuntimeFor(ctx.app.config));
+        const who = await person(ctx);
+        try {
+          return { status: "READY" as const, ...(await service.order(who, input)) };
+        } catch (error) {
+          if (isTopUpError(error) && isRefusal(error.code)) {
+            return { status: "REFUSED" as const, reason: error.code, message: error.message };
+          }
+          throw error;
+        }
+      }),
     ),
 
   /** Sends the person-signed swap (the exact reviewed message) through Jupiter. */
