@@ -26,6 +26,7 @@ import { verifyCallProof, verifyGenericAction, verifySocialAction } from "../aut
 import { authRouter } from "./authRoutes.ts";
 import { predictionsRouter } from "./predictions.ts";
 import { pantaTradingRouter } from "./pantaTrading.ts";
+import { marketCreationRouter } from "./marketCreation.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
 
@@ -68,6 +69,8 @@ export const appRouter = router({
   predictions: predictionsRouter,
   /** Native Panta buys: canonical session + exact wallet-signed transaction. */
   pantaTrading: pantaTradingRouter,
+  /** Propose -> review -> wallet-paid Panta create -> live, callable market. */
+  marketCreation: marketCreationRouter,
 
   /** Packet D — free social calls, venue-derived results and receipts.
    *  Three keys rather than one: the client contract names the paths

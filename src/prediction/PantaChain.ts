@@ -95,4 +95,15 @@ export class PantaChain {
       return s != null && s.err != null && ["confirmed","finalized"].includes(s.confirmationStatus ?? "");
     } catch { return false; }
   }
+  /** True only when the signature is unknown AND its blockhash can no longer
+   *  land: the confirmed block height has passed `lastValidBlockHeight`. A read
+   *  failure is never proof of expiry. */
+  async neverLanded(signature: string, lastValidBlockHeight: number): Promise<boolean> {
+    await this.assertMainnet();
+    try {
+      const statuses = await this.connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+      if (statuses.value[0] != null) return false;
+      return (await this.connection.getBlockHeight("confirmed")) > lastValidBlockHeight;
+    } catch { return false; }
+  }
 }
