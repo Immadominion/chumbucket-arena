@@ -74,7 +74,7 @@ export class PantaReconciler {
       const budget = Math.max(1, this.deps.maxPerPass ?? 8);
       const now = this.clock.now();
       let rows: PantaTradeSession[] = [];
-      try { rows = await this.deps.ledger.submitted(50); }
+      try { rows = await this.deps.ledger.submitted(100); }
       catch (error) { report.errors.push(codeOf(error)); }
       const live = new Set(rows.map(r => r.id));
       for (const id of this.backoff.keys()) if (!live.has(id) && !id.startsWith("claim:")) this.backoff.delete(id);
@@ -91,7 +91,7 @@ export class PantaReconciler {
       }
       if (this.deps.claimStore && this.deps.claims) {
         let claims: PantaClaimSession[] = [];
-        try { claims = await this.deps.claimStore.submitted(50); }
+        try { claims = await this.deps.claimStore.submitted(100); }
         catch (error) { report.errors.push(codeOf(error)); }
         const liveClaims = new Set(claims.map(c => `claim:${c.id}`));
         for (const id of this.backoff.keys()) if (id.startsWith("claim:") && !liveClaims.has(id)) this.backoff.delete(id);
