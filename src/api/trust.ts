@@ -261,9 +261,10 @@ export const accountProcedures = {
         if (!session) {
           // A token for a sign-in we already removed: say it is done, rather
           // than "sign in", which the person can no longer do.
+          // The token is unverified here, so the answer names no account.
           const sub = unverifiedSubject(token);
           const done = sub ? await service.completedDeletion(sub) : null;
-          if (done) return done;
+          if (done) return { ...done, userId: null };
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to delete your account." });
         }
         const userId = await identity.store.userIdForAuthUser(session.authUserId);

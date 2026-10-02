@@ -68,7 +68,7 @@ export default function TermsPage() {
         <List
           items={[
             "A call is your free, public prediction on a market (Yes or No), optionally with a short thesis. Calling costs nothing and moves no money.",
-            "Once you lock a call it cannot be edited. Its side, price at the time and timestamp are a permanent record. You can withdraw it from view, but its result still counts toward your record.",
+            "Once you lock a call it cannot be edited. Its side, price at the time and timestamp are a permanent record. We may hide a call from view (for example after a report), but its result still counts toward your record.",
             "Back means you make the same call yourself. Fade means you make the opposite call. Both create a call of your own.",
             "Dare (previously labelled \"Challenge\" on calls) invites someone to go on record. It involves no money, no escrow and no transaction.",
             "Results come only from the market's venue. We do not decide outcomes. A receipt shows your call, the price when you made it and the venue's result.",
@@ -90,7 +90,7 @@ export default function TermsPage() {
             "Approving a transaction is not the same as a filled order. An order is filled only when Panta and the Solana network confirm it. The app shows the order's status honestly and may show it as submitted until it is confirmed.",
             "Each approval is capped at a per-trade limit the app shows before you approve.",
             "Panta's own rules, eligibility conditions and market terms apply to every funded trade, alongside these terms. [Panta end-user terms link to be confirmed.]",
-            "Selling, claiming winnings and other actions may only be available on Panta's own site. The app tells you where to go.",
+            "Selling, claiming winnings and other actions are not available in the app today; use Panta's own site (panta.market) for them.",
             "The review screen shows what the transaction does before you approve it, including network costs. [Venue fees and any partner revenue share to be disclosed here before launch.]",
           ]}
         />

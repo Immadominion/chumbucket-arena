@@ -29,7 +29,7 @@ const STATUS: Record<string, { tone: "ok" | "error"; text: string }> = {
     text: "Request received. We will confirm it is your account before deleting it, and reply to the contact you gave within 30 days.",
   },
   contact: { tone: "error", text: "Add an email address or X handle we can reach you on (3 to 254 characters)." },
-  rate: { tone: "error", text: "We have already received requests for this contact. We will be in touch; there is no need to send another." },
+  rate: { tone: "error", text: "We have received several requests recently, for this contact or overall. If you already sent one, we will be in touch and there is no need to send another; otherwise please try again in an hour." },
   unavailable: {
     tone: "error",
     text: "We couldn't send your request just now. Please try again in a few minutes, or delete your account in the app.",
@@ -76,7 +76,7 @@ export default async function DeleteAccountPage({
           ]}
         />
         <P>
-          Want a copy first? In the app, go to Profile, Settings, Export my data. See the{" "}
+          Want a copy first? In the app, go to Profile, Settings, Privacy &amp; data, Export my data. See the{" "}
           <Link href="/privacy">Privacy Policy</Link> for details.
         </P>
       </Section>

@@ -155,7 +155,7 @@ export default function PrivacyPage() {
 
       <Section id="analytics" title="5. Analytics and notifications">
         <P>
-          Product analytics are off until you switch them on in the app (Profile, Settings, Privacy). When on, usage
+          Product analytics are off until you switch them on in the app (Profile, Settings, Privacy &amp; data). When on, usage
           events are recorded without your name, wallet or thesis text. Today they stay on your device: we have not
           chosen an analytics provider. If we add one, we will name it here and ask again before anything is sent. You
           can switch analytics off at any time.
@@ -183,7 +183,7 @@ export default function PrivacyPage() {
         <List
           items={[
             <>
-              <strong>Export:</strong> in the app, Profile, Settings, Export my data gives you a copy of your profile,
+              <strong>Export:</strong> in the app, Profile, Settings, Privacy &amp; data, Export my data gives you a copy of your profile,
               calls, responses, follows, blocks, mutes, reports and trade records in JSON.
             </>,
             <>

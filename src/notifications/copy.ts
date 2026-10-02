@@ -81,7 +81,9 @@ export const COPY_TEMPLATES: Readonly<Record<CopyKey, CopyTemplate>> = {
     title: "{actor} dared you",
     // "Dare", not "challenge": that word also named the retired SOL escrow
     // feature, which did involve money. A dare never does.
-    body: "They dared you to go on record on their call.",
+    // The subject is the RECIPIENT's own call (social_notifications guard),
+    // so the dare is about the recipient's call, not the actor's.
+    body: "They dared you to go on record again on this market.",
   },
   "REMATCH:rival_called_again": {
     title: "{actor} has gone on record again",

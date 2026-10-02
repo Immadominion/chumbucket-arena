@@ -43,7 +43,12 @@ const LINK_PATTERNS: readonly RegExp[] = [
   /\bhttps?:\/\//i,
   /\bwww\./i,
   // No spaces around the dot: "up. So it goes" is a sentence, not a link.
-  new RegExp(`(?:^|[^a-z0-9-])[a-z0-9][a-z0-9-]{0,62}\\.(?:${TLDS.join("|")})(?![a-z0-9])`, "i"),
+  // The suffix must be written the way addresses are: lowercase
+  // ("pump.fun", "OpenAI.com"), or all capitals after an all-capitals name
+  // ("SCAM.COM"). A missed space before a capitalised word ("win.So easy",
+  // "up.To the moon") is a typo, not a web address.
+  new RegExp(`(?:^|[^A-Za-z0-9-])[A-Za-z0-9][A-Za-z0-9-]{0,62}\\.(?:${TLDS.join("|")})(?![A-Za-z0-9])`),
+  new RegExp(`(?:^|[^A-Za-z0-9-])[A-Z0-9][A-Z0-9-]{1,62}\\.(?:${TLDS.join("|").toUpperCase()})(?![A-Za-z0-9])`),
 ];
 
 /** Whole words. Matched exactly, after normalisation. */

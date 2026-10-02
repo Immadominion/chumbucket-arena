@@ -67,7 +67,7 @@ async function scene(opts: { admins?: string[] } = {}) {
 
 describe("content policy", () => {
   test("refuses links, with a reason a person can act on", () => {
-    for (const t of ["see https://x.co", "www.scam.xyz now", "claim at pump.fun", "dm me t.me/rug", "bit.ly/abc", "free.money here"]) {
+    for (const t of ["see https://x.co", "www.scam.xyz now", "claim at pump.fun", "dm me t.me/rug", "bit.ly/abc", "free.money here", "OpenAI.com style hype", "go to SCAM.COM now"]) {
       const v = checkText(t, "thesis");
       expect(v.ok).toBe(false);
       if (!v.ok) expect(v.message).toBe("Links aren't allowed in your thesis. Remove the web address and try again.");
@@ -90,6 +90,10 @@ describe("content policy", () => {
       "toly.sol called this first",
       "U.S. CPI comes in at 2.9, e.g. below consensus",
       "Scunthorpe United win; the therapist agrees",
+      // A missed space before a capitalised word is a typo, not a link.
+      "Arsenal win.So easy",
+      "Going up.To the moon",
+      "Messi to score.Co-favourites",
       "",
       null,
     ]) {
@@ -333,7 +337,8 @@ describe("auth.deleteAccount", () => {
     s.verifier.issue("tok-gone", sub);
     await s.account("tok-gone").deleteAccount({ confirm: "DELETE" });
     // GoTrue no longer verifies a removed user's token.
-    expect(await s.account(jwt(sub)).deleteAccount({ confirm: "DELETE" })).toMatchObject({ status: "deleted", alreadyDeleted: true });
+    // Unverified, so it names no account.
+    expect(await s.account(jwt(sub)).deleteAccount({ confirm: "DELETE" })).toMatchObject({ status: "deleted", alreadyDeleted: true, userId: null });
     await expect(s.account(jwt("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")).deleteAccount({ confirm: "DELETE" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(s.accountAs("u-ann").deleteAccount({ confirm: "DELETE" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
