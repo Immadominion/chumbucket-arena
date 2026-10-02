@@ -81,6 +81,9 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
              ('${UNLINKED}', NULL,   NULL, 'Nobody', NULL);`);
 
       apply("20261002090000_wallet_sign_in_and_usernames.sql");
+      // Production's column lock: clients can no longer write handle at all,
+      // so the definer function must be the one door that still can.
+      apply("20261002120000_lock_profile_identity_columns.sql");
       apply("20261002150000_claim_own_handle.sql");
       const svc = (q: string) => sql(`SET ROLE service_role; ${q}`);
       const claim = (auth: string, handle: string) =>
@@ -132,12 +135,17 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(claim(A3, "other_one")).toContain(`"outcome": "claimed"`);
       expect(handleOf(OTHER)).toBe("other_one");
 
-      // Only the service role may call it.
+      // Only the service role may call it, and a client still cannot write a
+      // handle directly around it.
       for (const role of ["anon", "authenticated"]) {
         const r = run("psql", args, `SET ROLE ${role}; SELECT public.claim_own_handle_v1('${A3}', 'x_y_z');`);
         expect(r.ok).toBe(false);
         expect(r.err).toContain("permission denied");
+        const direct = run("psql", args, `SET ROLE ${role}; UPDATE public.users SET handle = 'x_y_z' WHERE id = '${CARRIED}';`);
+        expect(direct.ok).toBe(false);
+        expect(direct.err).toContain("permission denied");
       }
+      expect(handleOf(CARRIED)).toBe("dominion");
       expect(sql(`SELECT prosecdef FROM pg_proc WHERE proname = 'claim_own_handle_v1'`)).toBe("t");
       expect(sql(`SELECT array_to_string(proconfig, ',') FROM pg_proc WHERE proname = 'claim_own_handle_v1'`)).toContain(
         "search_path=pg_catalog, public, pg_temp",
