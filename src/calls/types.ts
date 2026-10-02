@@ -186,8 +186,9 @@ export interface CallDetail {
    * of them — an update is a new row, never an edit (see `ThesisUpdate`).
    */
   updates: ThesisUpdate[];
-  /** False when the server cannot persist updates yet (its table is absent),
-   *  so a client offers no "Add update" action that would only fail. */
+  /** False when this call cannot take a new update: the server cannot persist
+   *  updates yet (its table is absent), or the call was withdrawn. A client
+   *  then offers no "Add update" action that would only fail. */
   updatesAvailable: boolean;
 }
 

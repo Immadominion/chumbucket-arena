@@ -365,10 +365,11 @@ describe("calls.addUpdate — the thesis as an append-only thread", () => {
     h2.clock.advance(1);
     const withdrawn = await r2.as("u-ann").calls.addUpdate({ callId: c2, body: "after" }).catch((e: unknown) => e);
     expect((withdrawn as { message?: string }).message).toMatch(/withdrawn/);
-    // The update written before the withdrawal is still the author's history.
-    expect((await r2.as("u-ann").calls.get({ callId: c2 })).updates.map((u) => u.body)).toEqual([
-      "before withdrawing",
-    ]);
+    // The update written before the withdrawal is still the author's history,
+    // and the author is not offered an "Add update" that would only fail.
+    const own = await r2.as("u-ann").calls.get({ callId: c2 });
+    expect(own.updates.map((u) => u.body)).toEqual(["before withdrawing"]);
+    expect(own.updatesAvailable).toBe(false);
   });
 
   test("the store has no way to edit or delete an update", () => {

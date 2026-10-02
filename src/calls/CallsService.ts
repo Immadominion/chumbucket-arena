@@ -201,7 +201,9 @@ export class CallsService {
       // Exactly as visible as the call itself: requireVisibleCall above is
       // the only gate, so a thread can never be read around its call.
       updates: this.store.thesisUpdatesFor(call.id),
-      updatesAvailable: this.store.thesisUpdatesAvailable(),
+      // Only the author can see a withdrawn call, and it takes no new update
+      // (appendThesisUpdate refuses it), so it offers none either.
+      updatesAvailable: this.store.thesisUpdatesAvailable() && call.hiddenAt === null,
     };
   }
 
