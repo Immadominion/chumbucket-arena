@@ -33,17 +33,24 @@ const pathsOf = (r: { _def: { procedures: Record<string, unknown> } }): string[]
   Object.keys(r._def.procedures).sort();
 
 describe("the integration patch keeps the original paths and adds canonical follow", () => {
-  test("mounting the three sub-routers yields the original eight plus two follow paths", () => {
+  test("mounting the three sub-routers yields the original eight, two follow paths and the people layer", () => {
     expect(pathsOf(patched)).toEqual([
+      // People layer (src/calls/people.ts): additive paths only — none of
+      // the original ten changed name or shape.
+      "calls.addUpdate",
       "calls.create",
       "calls.feed",
       "calls.get",
       "calls.invitations",
       "calls.respond",
+      "calls.top",
       "markets.detail",
       "markets.open",
       "people.follow",
+      "people.following",
       "people.get",
+      "people.leaderboard",
+      "people.search",
       "people.unfollow",
     ]);
   });
