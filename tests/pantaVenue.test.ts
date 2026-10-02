@@ -58,7 +58,7 @@ test("market identity, seconds, exact chain rules and provider attribution survi
   expect(m.status).toBe('OPEN'); expect(venue.rawPayload(id)?.body).toEqual(row());
 });
 
-test("catalog cursor/category/limit are encoded; only complete detail rows become events", async () => {
+test("catalog cursor/limit are encoded; category/status filter locally; only complete detail rows become events", async () => {
   const clock = new TestClock();
   const missingTitle = row({ title: '' });
   const http = stubFetch(url => url.pathname.endsWith('/markets/')
@@ -69,9 +69,29 @@ test("catalog cursor/category/limit are encoded; only complete detail rows becom
   expect(http.calls).toHaveLength(2);
   const url = new URL(http.calls[0]!.url);
   expect(url.searchParams.get('limit')).toBe('50'); expect(url.searchParams.get('cursor')).toBe(id);
-  expect(url.searchParams.get('category')).toBe('crypto'); expect(url.searchParams.has('status')).toBe(false);
+  expect(url.searchParams.has('category')).toBe(false); expect(url.searchParams.has('status')).toBe(false);
   expect(clock.slept).toContain(600);
   expect(JSON.stringify(page)).not.toContain(key);
+});
+
+test("categories outside Panta's create allowlist are browsable; the filter never reaches the venue", async () => {
+  // Observed 2026-10-02: `?category=pop-culture` (and gaming, commodities)
+  // answered HTTP 400 although open rows in those categories were listed.
+  const other = "So11111111111111111111111111111111111111112";
+  const clock = new TestClock();
+  const http = stubFetch(url => {
+    if (url.pathname.endsWith('/markets/')) {
+      if (url.searchParams.has('category')) return jsonResponse({ code: 'INVALID_MARKET_PARAMS' }, { status: 400 });
+      return jsonResponse({ items: [row({ category: 'pop-culture' }), row({ marketId: other, category: 'crypto' })], nextCursor: null });
+    }
+    return jsonResponse(row({ category: 'pop-culture' }));
+  });
+  const venue = new PantaVenue({ apiKey: key, fetchImpl: http.fetch, clock });
+  const page = await venue.listEvents({ category: 'Pop-Culture' });
+  expect(page.events.map(e => [e.venueEventId, e.category])).toEqual([[id, 'pop-culture']]);
+  // The crypto row was dropped before its detail read: list + one detail.
+  expect(http.calls).toHaveLength(2);
+  expect(http.calls.some(c => new URL(c.url).pathname.includes(other))).toBe(false);
 });
 
 test("missing question/rules is unavailable, never replaced with invented metadata", async () => {

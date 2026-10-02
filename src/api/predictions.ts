@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { AppConfig } from "../config.ts";
 import { isVenueError, type VenueErrorCode } from "../prediction/errors.ts";
 import { describePredictionConfig } from "../prediction/config.ts";
+import { CATALOG_SCOPES, CATALOG_SORTS, catalogPage } from "../prediction/catalog.ts";
 import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runtime.ts";
 import { MARKET_STATUSES } from "../prediction/types.ts";
 import { authedProcedure, guard, publicProcedure, router } from "./trpc.ts";
@@ -116,18 +117,26 @@ export const predictionsRouter = router({
 
   /** Discovery is independent of price availability and call/trade eligibility.
    * Read the normalized durable mirror, not a fan-out to the venue per phone.
-   * The worker refreshes every category; never return another live provider. */
+   * The worker refreshes every category; never return another live provider.
+   * With no options this is the legacy whole-mirror walk in id order; the app
+   * asks for `scope: "open"` sorted by close time (see ../prediction/catalog.ts). */
   catalog: publicProcedure
-    .input(z.object({ cursor: z.string().max(256).optional(), limit: z.number().int().min(1).max(100).default(100) }).strict().default({}))
+    .input(z.object({
+      cursor: z.string().max(256).optional(),
+      limit: z.number().int().min(1).max(100).default(100),
+      scope: z.enum(CATALOG_SCOPES).optional(),
+      category: z.string().trim().min(1).max(64).optional(),
+      query: z.string().max(120).optional(),
+      sort: z.enum(CATALOG_SORTS).optional(),
+    }).strict().default({}))
     .query(({ ctx, input }) => call(async () => {
       const rt = runtime(ctx.app.config);
       await rt.ready;
-      const rows = rt.store.listMarkets().map(row => row.market)
-        .filter(m => m.venue === rt.config.venue && (m.venue === "panta" || m.venue === "fixture"))
-        .sort((a,b) => a.id.localeCompare(b.id))
-        .filter(m => !input.cursor || m.id.localeCompare(input.cursor) > 0);
-      const markets = rows.slice(0, input.limit);
-      return { markets, nextCursor: rows.length > input.limit ? markets.at(-1)!.id : null };
+      return catalogPage(rt.store.listMarkets(), {
+        venue: rt.config.venue, now: rt.clock.now(), limit: input.limit, cursor: input.cursor,
+        scope: input.scope, category: input.category, query: input.query, sort: input.sort,
+        isResolved: id => rt.store.getResolution(id) !== undefined,
+      });
     })),
 
   listEvents: publicProcedure

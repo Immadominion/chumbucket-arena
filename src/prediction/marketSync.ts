@@ -75,6 +75,10 @@ export interface MarketSyncReport {
   snapshotsUnavailable: number;
   /** Settled markets whose published resolution had no payload to evidence it. */
   resolutionsUnevidenced: number;
+  /** Mirrored, unresolved markets the walk no longer lists, re-read from detail. */
+  unlistedRefreshed: number;
+  /** Of those, the ones the venue could not serve this pass. */
+  unlistedUnavailable: number;
   /** The venue cursor to resume from, or null when the catalog was walked out. */
   cursor: string | null;
   /** `MAX(last_synced_at)` across this venue's persisted markets, in unix ms. */
@@ -104,7 +108,23 @@ export interface MarketSyncDeps {
   snapshotMaxAgeMs?: number;
   /** Provider-scoped storage key; never feed another venue's page to this API. */
   cursorKey?: string;
+  /**
+   * The venue this sync writes for. Mirror-wide work (pricing markets on pages
+   * this pass did not visit, re-reading markets the venue stopped listing) is
+   * scoped to it, so a historical row from a retired provider is never sent to
+   * the live adapter. Omitted: only this pass's own rows are touched.
+   */
+  venueId?: VenueId;
+  /** Detail re-reads per pass for mirrored markets the walk no longer lists. */
+  unlistedBudget?: number;
+  /** A mirrored row counts as unlisted once the walk has not refreshed it for this long. */
+  unlistedAfterMs?: number;
+  /** Price a mirrored OPEN market off-page only if the walk confirmed it this recently. */
+  listedWithinMs?: number;
 }
+
+/** Rotation cursor for the unlisted sweep, kept beside the page cursor. */
+export const UNLISTED_SWEEP_SUFFIX = ":unlisted";
 
 interface PersistedCursor {
   /** The venue's own opaque page cursor, or null for "start at the beginning". */
@@ -123,12 +143,24 @@ export class MarketSync {
   private readonly snapshotBudget: number;
   private readonly snapshotMaxAgeMs: number;
   private readonly cursorKey: string;
+  private readonly venueId: VenueId | null;
+  private readonly unlistedBudget: number;
+  private readonly unlistedAfterMs: number;
+  private readonly listedWithinMs: number;
 
   constructor(deps: MarketSyncDeps) {
     this.venue = deps.venue;
     this.store = deps.store;
     this.clock = deps.clock ?? systemClock;
     this.cursorKey = deps.cursorKey ?? MARKET_SYNC_CURSOR;
+    this.venueId = deps.venueId ?? null;
+    // Eight detail reads is ~5s at the adapter's pacing: small beside a 60s
+    // tick, and it still revisits a few hundred ended markets an hour.
+    this.unlistedBudget = Math.max(0, Math.trunc(deps.unlistedBudget ?? 8));
+    this.unlistedAfterMs = Math.max(0, deps.unlistedAfterMs ?? 600_000);
+    // A full walk revisits every page within minutes. An hour without a
+    // listing means the venue dropped the row, not that its page is pending.
+    this.listedWithinMs = Math.max(0, deps.listedWithinMs ?? 3_600_000);
     this.filters = deps.filters ?? { category: "crypto" };
     this.pageSize = clamp(deps.pageSize ?? 50, 1, 100);
     // Four pages is ~900 markets, which fits inside the adapter's raw cache
@@ -180,6 +212,8 @@ export class MarketSync {
       resolutionsRecorded: 0,
       snapshotsUnavailable: 0,
       resolutionsUnevidenced: 0,
+      unlistedRefreshed: 0,
+      unlistedUnavailable: 0,
       cursor: null,
       watermark: 0,
       startedAt: this.clock.now(),
@@ -220,6 +254,22 @@ export class MarketSync {
       if (!result.nextCursor) break;
     }
 
+    // ── markets the venue stopped listing ───────────────────────────────────
+    //
+    // Panta's list omits titles on ended rows and the adapter skips those
+    // rather than spend a detail read per historical row. That keeps the walk
+    // cheap, but a market that ends after it was mirrored is then never listed
+    // again: its mirrored status would read OPEN forever, and its published
+    // result would land only if somebody had called it. Re-read a bounded,
+    // rotating slice of them from their own detail until the venue settles
+    // them. Runs before pricing so a refreshed row is priced on current facts.
+    //
+    // Its loud failure is held until the listed markets are priced and
+    // settled. These are historical rows the walk itself never reads; one odd
+    // payload among them must not lapse every live market's price.
+    const seen = new Set(pending.map(({ market }) => market.id));
+    const sweepFailure = await this.sweepUnlisted(seen, report);
+
     // ── prices: the venue's own published number, or none at all ────────────
     //
     // Spend the budget on the markets people can actually call on: soonest to
@@ -231,14 +281,26 @@ export class MarketSync {
     // A market with no snapshot cannot be called on at all: entry_probability
     // has no source, and calls.snapshot_id is a real FK that the store refuses
     // to null. So this ordering decides what the product can actually do.
+    //
+    // The candidates are every OPEN market of this venue the mirror holds, not
+    // only the rows on this pass's pages. A walk longer than `maxPagesPerPass`
+    // spans several passes while a share price lapses in ten minutes, so
+    // pricing just the visited pages silently dropped every market on the
+    // other pages out of `markets.open` until the cursor came back round.
+    //
+    // Off-page candidates are read here without the walk having just parsed
+    // them, so a non-transient venue failure on one (schema drift, a refused
+    // read) is held like the sweep's: the remaining markets are still priced,
+    // and the pass still fails loudly once they are.
+    let deferred = sweepFailure;
     let budget = this.snapshotBudget;
     const now = this.clock.now();
-    const byClosingSoonest = [...pending].sort((a, b) => {
-      const ac = a.market.closesAt ?? Number.MAX_SAFE_INTEGER;
-      const bc = b.market.closesAt ?? Number.MAX_SAFE_INTEGER;
-      return ac - bc;
+    const byClosingSoonest = this.priceCandidates(pending.map(({ market }) => market), now).sort((a, b) => {
+      const ac = a.closesAt ?? Number.MAX_SAFE_INTEGER;
+      const bc = b.closesAt ?? Number.MAX_SAFE_INTEGER;
+      return ac - bc || a.id.localeCompare(b.id);
     });
-    for (const { market } of byClosingSoonest) {
+    for (const market of byClosingSoonest) {
       if (budget <= 0) break;
       if (market.status !== "OPEN") continue; // a settled price will never move again
       const sharePrice = market.venue === "panta" ? this.store.latestSharePrice(market.id) : undefined;
@@ -267,14 +329,17 @@ export class MarketSync {
         this.store.appendSnapshot(book.snapshot);
         report.snapshotsRecorded++;
       } catch (err) {
-        // A wire-shape change must abort the pass (§4). A timeout must not.
-        if (isVenueError(err) && err.code === "VENUE_SCHEMA") throw err;
+        // A wire-shape change must fail the pass (§4). A timeout must not.
         if (isVenueError(err) && (err.retryable || err.code === "CIRCUIT_OPEN")) {
           report.snapshotsUnavailable++;
           continue;
         }
         if (isVenueError(err) && err.code === "VENUE_NOT_FOUND") {
           report.snapshotsUnavailable++;
+          continue;
+        }
+        if (isVenueError(err)) {
+          deferred ??= { error: err };
           continue;
         }
         throw err;
@@ -291,10 +356,82 @@ export class MarketSync {
       }
     }
 
+    // Still a failed pass (§4): the caller logs it and gets no report.
+    if (deferred) throw deferred.error;
+
     report.cursor = this.readCursor()?.page ?? null;
     report.watermark = this.watermark();
     report.finishedAt = this.clock.now();
     return report;
+  }
+
+  /** This pass's listed rows plus every OPEN mirrored market of this venue
+   *  the walk confirmed within `listedWithinMs`. A row the venue stopped
+   *  listing is not kept callable by its price alone; the unlisted sweep must
+   *  first re-confirm it from its own detail. */
+  private priceCandidates(listed: VenueMarket[], now: number): VenueMarket[] {
+    const byId = new Map(listed.map(market => [market.id, market] as const));
+    if (this.venueId === null) return [...byId.values()];
+    for (const { market } of this.store.listMarkets()) {
+      if (market.venue !== this.venueId || byId.has(market.id) || market.status !== "OPEN") continue;
+      if (market.closesAt !== null && market.closesAt <= now) continue;
+      if (now < market.lastSyncedAt || now - market.lastSyncedAt > this.listedWithinMs) continue;
+      byId.set(market.id, market);
+    }
+    return [...byId.values()];
+  }
+
+  /** Re-read unresolved Panta rows this pass did not list and the walk has
+   *  not refreshed for `unlistedAfterMs`, `unlistedBudget` at a time. The slice
+   *  rotates by venue id behind a persisted cursor, so a market the venue no
+   *  longer serves at all cannot starve the rest. Uses the same strictly
+   *  validated detail path as called markets; only venue evidence settles.
+   *
+   *  A non-transient failure (schema drift, a refused read) is returned, not
+   *  thrown: the rest of the slice is still read and the cursor still moves,
+   *  so one bad row is revisited once per rotation, failing loudly each time,
+   *  without wedging the sweep or the pricing that follows it. */
+  private async sweepUnlisted(
+    seen: ReadonlySet<string>,
+    report: MarketSyncReport,
+  ): Promise<{ error: unknown } | null> {
+    if (this.venueId !== "panta" || this.unlistedBudget === 0) return null;
+    const now = this.clock.now();
+    const ids = this.store.listMarkets()
+      .map(({ market }) => market)
+      .filter(market => market.venue === "panta" && !seen.has(market.id) &&
+        this.store.getResolution(market.id) === undefined &&
+        now - market.lastSyncedAt >= this.unlistedAfterMs)
+      .map(market => market.venueMarketId)
+      .sort();
+    if (ids.length === 0) return null;
+    const key = `${this.cursorKey}${UNLISTED_SWEEP_SUFFIX}`;
+    const after = this.store.getCursor(key);
+    const next = after === null ? 0 : ids.findIndex(id => id > after);
+    const start = next < 0 ? 0 : next;
+    const batch = [...ids.slice(start), ...ids.slice(0, start)].slice(0, this.unlistedBudget);
+    let failure: { error: unknown } | null = null;
+    for (const venueMarketId of batch) {
+      try {
+        const refreshed = await this.refreshCalledMarket(venueMarketId);
+        report.unlistedRefreshed++;
+        if (refreshed.resolutionRecorded) report.resolutionsRecorded++;
+        if (refreshed.resolutionUnevidenced) report.resolutionsUnevidenced++;
+      } catch (err) {
+        if (isVenueError(err) && (err.retryable || err.code === "CIRCUIT_OPEN" || err.code === "VENUE_NOT_FOUND")) {
+          report.unlistedUnavailable++;
+          continue;
+        }
+        if (!isVenueError(err)) throw err; // a store or code fault is not one row's
+        // A changed wire shape still fails the pass loudly (§4), raised by
+        // runOnce after the live work; the first failure is the one raised.
+        failure ??= { error: err };
+      }
+    }
+    // One durable cursor write per pass, and none when nothing moved.
+    const last = batch.at(-1)!;
+    if (after !== last) this.store.setCursor(key, last);
+    return failure;
   }
 
   /** Revisit a specifically called Panta market even when the venue no longer

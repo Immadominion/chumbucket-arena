@@ -21,6 +21,7 @@ export * from "./store.ts";
 export * from "./pgrest.ts";
 export * from "./supabaseStore.ts";
 export * from "./marketSync.ts";
+export * from "./catalog.ts";
 export * from "./Reconciler.ts";
 export * from "./PredictionService.ts";
 export * from "./config.ts";
