@@ -15,6 +15,8 @@ import { primeAuthIdentityRuntime, resolveAuthIdentityPolicy } from "../src/auth
 import { FakeIdentityStore, FakeJwtVerifier } from "./authIdentityFixtures.ts";
 import { TestClock } from "./predictionFixtures.ts";
 import { asWallet } from "../src/domain/ids.ts";
+import { buildTrustRuntime, setTrustRuntime } from "../src/trust/runtime.ts";
+import { InMemoryTrustStore, RecordingAuthUserAdmin } from "../src/trust/store.ts";
 import { createHash } from "node:crypto";
 
 // Deterministic SYNTHETIC test keys/rows. No credentials or real venue evidence.
@@ -216,6 +218,10 @@ test("native router rejects DevAuth wallet strings and client-selected person id
   await expect(unverified.prepare(h.input)).rejects.toMatchObject({code:"UNAUTHORIZED"});
   const caller=pantaTradingRouter.createCaller({app,supabaseAccessToken:"synthetic-session"});
   await expect(caller.prepare({...h.input,userId:other} as PantaPrepareInput)).rejects.toMatchObject({code:"BAD_REQUEST"});
+  // No funded trade before the 18+ / jurisdiction / venue-terms attestation is on record.
+  const trust=buildTrustRuntime(cfg,{store:new InMemoryTrustStore(),authAdmin:new RecordingAuthUserAdmin()});setTrustRuntime(cfg,trust);
+  await expect(caller.prepare(h.input)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+  await trust.service.acceptFundedTrading(user,trust.config.termsVersion);
   const prepared=await caller.prepare(h.input);expect(prepared.order.fundingState).toBe("QUOTED");
   await caller.submit({orderId:prepared.order.orderId,signedTransaction:signed(prepared.order.transaction.payload)});
   cfg.predictions!.flags={fundedPositions:false};

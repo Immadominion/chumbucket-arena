@@ -98,7 +98,12 @@ export function buildCounts(input: {
   voided: number;
   pending: number;
 }): CallRecordCounts {
-  for (const [k, v] of Object.entries(input)) {
+  // Only the four tallies. Callers pass their whole cell, which also carries
+  // `lastResolvedAt` — null until something in that cell resolves — and
+  // checking that as a count refused every record with only pending calls
+  // (and with it every derive-on-read inbox request).
+  const tallies = { correct: input.correct, incorrect: input.incorrect, voided: input.voided, pending: input.pending };
+  for (const [k, v] of Object.entries(tallies)) {
     if (!Number.isInteger(v) || v < 0) {
       throw new NotificationsError(
         "RECORD_INCOMPLETE",

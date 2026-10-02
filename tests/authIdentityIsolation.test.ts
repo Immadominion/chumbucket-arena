@@ -126,7 +126,7 @@ async function trpcFailure(fn: () => Promise<unknown>): Promise<{ code: string; 
 }
 
 describe("authRouter — surface", () => {
-  test("exposes nine procedures, including gated existing-profile proof/claim", async () => {
+  test("exposes eleven procedures, including gated existing-profile proof/claim", async () => {
     const names = Object.keys(
       (authRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
     ).sort();
@@ -140,8 +140,11 @@ describe("authRouter — surface", () => {
     // claimUsername (argued for): a WRITE to the caller's own account only,
     // resolved from the verified session; it reads nothing back but the
     // caller's own new handle.
+    // deleteAccount / exportData (argued for, src/api/trust.ts): mutations
+    // keyed on the verified Supabase session only. They act on, and return,
+    // nothing but the caller's own account.
     expect(names).toEqual(
-      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus", "claimUsername"].sort(),
+      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus", "claimUsername", "deleteAccount", "exportData"].sort(),
     );
   });
 

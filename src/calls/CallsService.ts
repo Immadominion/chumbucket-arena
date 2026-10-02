@@ -119,13 +119,18 @@ export class CallsService {
   feed(
     args: { mode: FeedMode; cursor?: string | null; limit?: number },
     viewerUserId: string | null,
+    opts: { excludeAuthors?: ReadonlySet<string> } = {},
   ): CallFeedPage {
     const limit = clamp(args.limit ?? 20, 1, this.maxPageSize);
     const following = args.mode === "following" && viewerUserId ? new Set(this.store.followingOf(viewerUserId)) : null;
+    // Blocked and muted authors (src/trust), filtered before paging so a page
+    // is never short because of them.
+    const excluded = opts.excludeAuthors;
 
     const rows = this.store
       .liveCalls()
       .filter((c) => this.canSee(c, viewerUserId))
+      .filter((c) => (excluded && excluded.size > 0 ? !excluded.has(c.userId) : true))
       .filter((c) => (following ? following.has(c.userId) : true))
       .sort(newestFirst);
 

@@ -78,8 +78,12 @@ export const COPY_TEMPLATES: Readonly<Record<CopyKey, CopyTemplate>> = {
     body: "The venue cancelled this market. It counts as neither a hit nor a miss.",
   },
   "REMATCH:challenge": {
-    title: "{actor} wants a rematch",
-    body: "They have challenged you to go on record again.",
+    title: "{actor} dared you",
+    // "Dare", not "challenge": that word also named the retired SOL escrow
+    // feature, which did involve money. A dare never does.
+    // The subject is the RECIPIENT's own call (social_notifications guard),
+    // so the dare is about the recipient's call, not the actor's.
+    body: "They dared you to go on record again on this market.",
   },
   "REMATCH:rival_called_again": {
     title: "{actor} has gone on record again",

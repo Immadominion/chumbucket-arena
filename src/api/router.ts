@@ -31,6 +31,7 @@ import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./ca
 import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
 import { depositsRouter } from "./deposits.ts";
 import { accountRouter } from "./account.ts";
+import { trustRouter } from "./trust.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -98,6 +99,9 @@ export const appRouter = router({
   /** The signed-in person's own account: profile edits, friends by wallet,
    *  push tokens. Session-keyed only (B1/M1/M9/B3). */
   account: accountRouter,
+
+  /** Report, block, mute, legal attestation, web deletion requests, moderation. */
+  trust: trustRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({
