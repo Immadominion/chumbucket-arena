@@ -4,8 +4,8 @@ import { z } from "zod";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
-import { pantaTradingFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
-import { isVenueError } from "../prediction/errors.ts";
+import { pantaLifecycleFor, pantaTradingFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
+import { VenueError, isVenueError } from "../prediction/errors.ts";
 
 async function person(ctx: Context): Promise<string> {
   // In particular, ctx.wallet / x-wallet / DevAuth are not credentials here.
@@ -32,6 +32,9 @@ async function run<T>(ctx: Context, action: (userId: string) => Promise<T>): Pro
   }
 }
 const orderId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/);
+const notConfigured = (what: string): never => {
+  throw new VenueError("FUNDED_POSITIONS_DISABLED", `${what} are not configured on this server`, { venue: "panta" });
+};
 export const pantaTradingRouter = router({
   status: publicProcedure.mutation(({ ctx }) => pantaTradingReadiness(ctx.app.config)),
   prepare: publicProcedure.input(z.object({
@@ -47,4 +50,20 @@ export const pantaTradingRouter = router({
     callId: z.string().uuid(), wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
   }).strict()).mutation(({ ctx, input }) => run(ctx, userId =>
     pantaTradingFor(ctx.app.config, true).forCall(userId, input.callId, input.wallet))),
+  /** The person's newest signed order on their own call, any wallet. Ledger read; never calls Panta. */
+  callOrder: publicProcedure.input(z.object({ callId: z.string().uuid() }).strict())
+    .mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config, true).callOrder(userId, input.callId))),
+  /** The signed-in person's funded positions with cost, price, PnL and claim state. */
+  positions: publicProcedure.input(z.object({}).strict().optional()).mutation(({ ctx }) => run(ctx, userId =>
+    (pantaLifecycleFor(ctx.app.config, true).positions ?? notConfigured("Panta positions")).positions(userId))),
+  /** Review a win claim for one of the person's own confirmed positions. New approvals respect the pause switch. */
+  claimPrepare: publicProcedure.input(z.object({ orderId, idempotencyKey: z.string().min(8).max(128) }).strict())
+    .mutation(({ ctx, input }) => run(ctx, userId =>
+      (pantaLifecycleFor(ctx.app.config).claims ?? notConfigured("Panta claims")).prepare(userId, input))),
+  claimSubmit: publicProcedure.input(z.object({ claimId: z.string().uuid(), signedTransaction: z.string().min(1).max(1644) }).strict())
+    .mutation(({ ctx, input }) => run(ctx, userId =>
+      (pantaLifecycleFor(ctx.app.config).claims ?? notConfigured("Panta claims")).submit(userId, input.claimId, input.signedTransaction))),
+  claim: publicProcedure.input(z.object({ claimId: z.string().uuid() }).strict())
+    .mutation(({ ctx, input }) => run(ctx, userId =>
+      (pantaLifecycleFor(ctx.app.config, true).claims ?? notConfigured("Panta claims")).status(userId, input.claimId))),
 });

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { CallsService } from "../src/calls/CallsService.ts";
 import { buildCallsRuntime, setCallsRuntime } from "../src/calls/runtime.ts";
+import { resolveCallsConfig } from "../src/calls/config.ts";
 import { walletDirectoryViewerResolver } from "../src/calls/viewer.ts";
 import { appRouter } from "../src/api/router.ts";
 import { asWallet } from "../src/domain/ids.ts";
@@ -135,7 +136,7 @@ test('call hydration and price hydration preserve separate observations after re
 
 test('mounted routes expose Panta details, lock and Fade with the exact price contract', async () => {
   const h=rig(); const app=await testApp();
-  const rt=buildCallsRuntime(undefined,{store:h.calls,markets:predictionStoreReader(h.prices),clock:h.clock,
+  const rt=buildCallsRuntime(undefined,{config:{...resolveCallsConfig(undefined,{}),callCutoffMs:0},store:h.calls,markets:predictionStoreReader(h.prices),clock:h.clock,
     allowPantaCalls:true,viewer:walletDirectoryViewerResolver(h.calls)});
   setCallsRuntime(app.config,rt);
   const alice=appRouter.createCaller({app,wallet:asWallet('Wallet_alice')});

@@ -19,7 +19,7 @@ async function rig(fetchImpl: typeof fetch) {
   store.upsertPerson(person(id, { walletAddress: null }));
   const app = await createApp({ config: loadConfig({}) });
   setCallsRuntime(app.config, buildCallsRuntime(app.config, {
-    store, markets: h.rt.markets, clock: h.clock, viewer: { resolve: async () => id },
+    config: h.rt.config, store, markets: h.rt.markets, clock: h.clock, viewer: { resolve: async () => id },
   }));
   return { store, caller: callsRouter.createCaller({ app }) };
 }

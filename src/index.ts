@@ -12,6 +12,7 @@ import { isVenueError } from "./prediction/errors.ts";
 import { startServer } from "./api/server.ts";
 import { OnchainKeeper } from "./keeper/onchainDriver.ts";
 import { startNotificationScheduler } from "./notifications/scheduler.ts";
+import { pantaReconcilerFor, pantaTradingReadiness } from "./prediction/PantaTradingRuntime.ts";
 
 const app = await createApp();
 const { port } = app.config;
@@ -99,6 +100,32 @@ if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_
   console.log(`   Market/call result sync: ENABLED (tick every ${marketSyncTickMs}ms)`);
   setInterval(marketSyncTick, marketSyncTickMs);
   void marketSyncTick();
+}
+
+// Funded Panta lifecycle — re-verifies SUBMITTED buys and win claims until the
+// chain and Panta prove them FILLED/CONFIRMED or the chain proves them FAILED,
+// and keeps the funded-call marker current. Runs whenever the native Panta
+// configuration is ready for reads (the emergency pause stops new approvals,
+// never reconciliation). Off with PANTA_RECONCILER_ENABLED=false.
+if (pantaTradingReadiness(app.config, true).enabled && process.env.PANTA_RECONCILER_ENABLED !== "false") {
+  const pantaTickMs = Math.max(5_000, Number(process.env.PANTA_RECONCILE_TICK_MS ?? 20_000) || 20_000);
+  const reconciler = pantaReconcilerFor(app.config);
+  const pantaTick = async () => {
+    try {
+      const r = await reconciler.runOnce();
+      if (r.filled || r.failed || r.claimsConfirmed || r.claimsFailed || r.fundedCallsLoaded || r.errors.length) {
+        // Counts and venue error codes only: no wallet, signature or approval.
+        console.log("[pantaReconcile]", JSON.stringify(r));
+      }
+    } catch (err) {
+      console.error("[pantaReconcile] tick failed:", isVenueError(err) ? err.code : "LEDGER_OR_RPC_UNAVAILABLE");
+    }
+  };
+  console.log(`   Panta reconciler: ENABLED (tick every ${pantaTickMs}ms)`);
+  setInterval(pantaTick, pantaTickMs);
+  void pantaTick();
+} else {
+  console.log(`   Panta reconciler: disabled (${pantaTradingReadiness(app.config, true).reason ?? "PANTA_RECONCILER_ENABLED=false"})`);
 }
 
 const TICK_MS = 30_000;

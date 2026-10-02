@@ -13,6 +13,7 @@ const local = url ? describe : describe.skip;
 if (!url) console.info("SKIP Panta trading PostgreSQL: PANTA_TRADING_TEST_DATABASE_URL unset; run bun --no-env-file scripts/verify-panta-trading-local.ts --run");
 const migrationDir = join(import.meta.dir, "../../chumbucket-social-calls/supabase/migrations");
 const tradeMigration = "20260929120000_panta_trade_sessions.sql";
+const claimMigration = "20261002170000_panta_claim_sessions.sql";
 const migrationFiles = [
   "20260913120000_auth_identity_auth_user_link.sql",
   "20260913130000_venue_market_catalog.sql",
@@ -20,6 +21,7 @@ const migrationFiles = [
   "20260913140000_social_calls_calls.sql",
   "20260928210000_panta_share_price_evidence.sql",
   tradeMigration,
+  claimMigration,
 ];
 const applied = new Map<string, string>();
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -131,6 +133,7 @@ local("Panta funded intent — fresh owner-only PostgreSQL 15", () => {
       applied.set(file, sha(source));
     }
     console.info(`APPLIED ${tradeMigration} sha256=${applied.get(tradeMigration)}`);
+    console.info(`APPLIED ${claimMigration} sha256=${applied.get(claimMigration)}`);
   }, 30000);
   afterAll(async () => {
     try {
@@ -525,7 +528,11 @@ local("Panta funded intent — fresh owner-only PostgreSQL 15", () => {
     for (const role of ["owner", "service_role"] as const) {
       const pattern = role === "owner" ? /history is permanent/ : /permission denied/;
       expect(await rejectsMutation(tx => tx`DELETE FROM public.panta_trade_sessions WHERE id=${s.i.id}`.execute(), pattern, role)).toBe(true);
-      expect(await rejectsMutation(tx => tx`TRUNCATE public.panta_trade_sessions`.execute(), pattern, role)).toBe(true);
+      // Since the claim ledger references this table, PostgreSQL refuses an
+      // owner TRUNCATE at the foreign key before the guard trigger runs; either
+      // refusal keeps the history.
+      const truncated = role === "owner" ? /history is permanent|referenced in a foreign key/ : pattern;
+      expect(await rejectsMutation(tx => tx`TRUNCATE public.panta_trade_sessions`.execute(), truncated, role)).toBe(true);
     }
   });
   test("idempotency is per user; provider order and signature remain unique", async () => {
@@ -678,5 +685,149 @@ local("Panta funded intent — fresh owner-only PostgreSQL 15", () => {
     const s = await session("SUBMITTED");
     const mismatches: [string, unknown][] = [["amountBaseUnits", "2500001"], ["orderId", "synthetic-alternative"], ["idempotencyKey", "synthetic-alternative"], ["demo", true]];
     await rejectCases(mismatches.map(([field, value]) => [field, tx => write(tx, s.i.id, { state: "FILLED", fill_evidence: { ...s.e.fill, [field]: value } })]), /evidence|fill|check constraint/i);
+  });
+  // ── win-claim ledger (20261002170000_panta_claim_sessions.sql) ──────────────
+  function claimIntent(s: Awaited<ReturnType<typeof session>>) {
+    const id = randomUUID();
+    return { id, user_id: s.i.user_id, trade_session_id: s.i.id, market_id: s.i.market_id, order_id: s.e.orderId,
+      wallet_address: s.i.wallet_address, venue_market_id: s.i.venue_market_id,
+      idempotency_key: `synthetic-claim-${id}`, request_fingerprint: sha(`synthetic-claim:${id}`) };
+  }
+  function claimArtifacts(c: ReturnType<typeof claimIntent>) {
+    const now = Date.now(), messageHash = sha(`synthetic-claim-message:${c.id}`);
+    // Synthetic shape only: no transaction is built, signed or broadcast here.
+    const prepared = { transaction: { venue: "panta", encoding: "solana-tx-base64",
+      payload: Buffer.from(`synthetic unsigned claim:${c.id}`).toString("base64"), expiresAt: now + 60000, demo: false },
+      binding: { version: 1, owner: c.wallet_address, venueMarketId: c.venue_market_id, programId: syntheticBase58("synthetic-program"),
+        messageHash, lastValidBlockHeight: 100000, createdAt: now, expiresAt: now + 60000,
+        derived: { winClaim: syntheticBase58(`win:${c.id}`), positionPda: syntheticBase58(`pos:${c.id}`), vaultAuthority: syntheticBase58(`va:${c.id}`) },
+        review: { outcome: "YES", winningShares: "1.992", estimatedPayoutUsdc: "1.992", attribution: "Powered by Panta" } } };
+    const signature = syntheticBase58(`synthetic-claim-signature:${c.id}`, 64);
+    const signed = Buffer.from(`synthetic signed claim bytes:${c.id}; NOT a transaction`).toString("base64");
+    const evidence = { payoutBaseUnits: "1992000", slot: 123, messageHash, independentlyVerified: true,
+      providerTrade: { signature, status: "processed", kind: "claim" } };
+    return { prepared, signature, signed, evidence };
+  }
+  async function claimInsert(c: Record<string, unknown>) {
+    return asRole("service_role", async tx => (await tx`INSERT INTO public.panta_claim_sessions ${tx(c)} RETURNING *`)[0]);
+  }
+  function claimWrite(tx: SQL, id: string, patch: Record<string, unknown>) {
+    return tx`UPDATE public.panta_claim_sessions SET ${tx(patch)} WHERE id=${id} RETURNING *`.execute();
+  }
+  const claimUpdate = (id: string, patch: Record<string, unknown>) => asRole("service_role", tx => claimWrite(tx, id, patch));
+  async function claimTo(state: "PREPARING" | "BUILT" | "SUBMITTED" | "CONFIRMED", s?: Awaited<ReturnType<typeof session>>) {
+    s ??= await session("FILLED");
+    const c = claimIntent(s), a = claimArtifacts(c);
+    await claimInsert(c);
+    if (state !== "PREPARING") await claimUpdate(c.id, { state: "BUILT", prepared: a.prepared });
+    if (state === "SUBMITTED" || state === "CONFIRMED") await claimUpdate(c.id, { state: "SUBMITTED", signed_transaction: a.signed, signature: a.signature });
+    if (state === "CONFIRMED") await claimUpdate(c.id, { state: "CONFIRMED", confirm_evidence: a.evidence });
+    return { s, c, a };
+  }
+
+  test("claim ledger: RLS on, no client rights at all, service limited to transition columns", async () => {
+    const sql = database();
+    const [rls] = await sql`SELECT relrowsecurity FROM pg_class WHERE oid='public.panta_claim_sessions'::regclass`;
+    expect(rls.relrowsecurity).toBe(true);
+    expect(await sql`SELECT * FROM pg_policies WHERE schemaname='public' AND tablename='panta_claim_sessions'`).toHaveLength(0);
+    for (const role of ["anon", "authenticated"]) {
+      for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+        expect((await sql`SELECT has_table_privilege(${role},'public.panta_claim_sessions',${privilege}) AS allowed`)[0].allowed).toBe(false);
+      }
+      expect((await sql`SELECT has_function_privilege(${role},'public.panta_claim_session_guard_v1()','EXECUTE') AS allowed`)[0].allowed).toBe(false);
+    }
+    for (const privilege of ["SELECT", "INSERT"]) expect((await sql`SELECT has_table_privilege('service_role','public.panta_claim_sessions',${privilege}) AS allowed`)[0].allowed).toBe(true);
+    for (const privilege of ["UPDATE", "DELETE", "TRUNCATE"]) expect((await sql`SELECT has_table_privilege('service_role','public.panta_claim_sessions',${privilege}) AS allowed`)[0].allowed).toBe(false);
+    for (const column of ["state", "prepared", "signed_transaction", "signature", "confirm_evidence", "updated_at"])
+      expect((await sql`SELECT has_column_privilege('service_role','public.panta_claim_sessions',${column},'UPDATE') AS allowed`)[0].allowed).toBe(true);
+    for (const column of ["user_id", "trade_session_id", "wallet_address", "venue_market_id", "order_id"])
+      expect((await sql`SELECT has_column_privilege('service_role','public.panta_claim_sessions',${column},'UPDATE') AS allowed`)[0].allowed).toBe(false);
+    const [fn] = await sql`SELECT prosecdef,proconfig FROM pg_proc WHERE oid='public.panta_claim_session_guard_v1()'::regprocedure`;
+    expect(fn.prosecdef).toBe(true); expect(fn.proconfig).toContain("search_path=pg_catalog, public, pg_temp");
+    expect((await sql`SELECT count(*)::integer AS count FROM pg_trigger WHERE tgrelid='public.panta_claim_sessions'::regclass AND NOT tgisinternal`)[0].count).toBe(2);
+  });
+
+  test("claim ledger is additive: the trade ledger and legacy default grants are exactly as before", async () => {
+    const sql = database();
+    for (const role of ["anon", "authenticated"]) {
+      const [legacy] = await sql`SELECT has_table_privilege(${role},'public.legacy_default_grant_canary','SELECT,INSERT,UPDATE,DELETE,TRUNCATE') AS wide`;
+      expect(legacy.wide).toBe(true);
+      expect((await sql`SELECT has_table_privilege(${role},'public.panta_trade_sessions','SELECT') AS allowed`)[0].allowed).toBe(false);
+    }
+    expect((await sql`SELECT count(*)::integer AS count FROM pg_trigger WHERE tgrelid='public.panta_trade_sessions'::regclass AND NOT tgisinternal`)[0].count).toBe(2);
+    // A FILLED buy still settles through its own unchanged guard.
+    const s = await session("FILLED");
+    expect((await sql`SELECT state FROM public.panta_trade_sessions WHERE id=${s.i.id}`)[0].state).toBe("FILLED");
+  });
+
+  test("anon and authenticated people cannot read or write claims, even their own", async () => {
+    const { s, c } = await claimTo("SUBMITTED");
+    for (const [role, auth] of [["anon", undefined], ["authenticated", s.f.auth]] as const) {
+      await expect(asRole(role, tx => tx`SELECT id FROM public.panta_claim_sessions WHERE id=${c.id}`.execute(), auth)).rejects.toThrow(/permission denied/);
+      const fresh = claimIntent(s);
+      for (const action of [
+        (tx: SQL) => tx`INSERT INTO public.panta_claim_sessions ${tx(fresh)}`.execute(),
+        (tx: SQL) => claimWrite(tx, c.id, { state: "FAILED" }),
+        (tx: SQL) => tx`DELETE FROM public.panta_claim_sessions WHERE id=${c.id}`.execute(),
+      ]) expect(await rejectsMutation(action, /permission denied/, role, auth)).toBe(true);
+    }
+  });
+
+  test("a claim must belong to the caller's own FILLED buy for the same wallet, market and order", async () => {
+    const filled = await session("FILLED"), submitted = await session("SUBMITTED"), stranger = await session("FILLED");
+    const c = claimIntent(filled);
+    await rejectCases([
+      ["unfilled buy", tx => tx`INSERT INTO public.panta_claim_sessions ${tx(claimIntent(submitted))}`.execute()],
+      ["another person", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, user_id: stranger.i.user_id })}`.execute()],
+      ["another wallet", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, wallet_address: stranger.i.wallet_address })}`.execute()],
+      ["another market", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, venue_market_id: stranger.i.venue_market_id })}`.execute()],
+      ["another market uuid", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, market_id: stranger.i.market_id })}`.execute()],
+      ["another order", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, order_id: stranger.e.orderId })}`.execute()],
+    ], /own confirmed position|foreign key/);
+    const a = claimArtifacts(c);
+    await rejectCases([
+      ["start BUILT", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, state: "BUILT", prepared: a.prepared })}`.execute()],
+      ["start signed", tx => tx`INSERT INTO public.panta_claim_sessions ${tx({ ...c, state: "SUBMITTED", prepared: a.prepared, signed_transaction: a.signed, signature: a.signature })}`.execute()],
+    ], /unsigned intent/);
+    expect((await claimInsert(c)).state).toBe("PREPARING");
+  });
+
+  test("claim transitions: BUILT → SUBMITTED → CONFIRMED only, evidence required, history permanent", async () => {
+    const { c, a } = await claimTo("BUILT");
+    await rejectCases([
+      ["skip to CONFIRMED", tx => claimWrite(tx, c.id, { state: "CONFIRMED", signed_transaction: a.signed, signature: a.signature, confirm_evidence: a.evidence })],
+      ["back to PREPARING", tx => claimWrite(tx, c.id, { state: "PREPARING" })],
+    ], /Invalid Panta claim transition|check constraint/);
+    expect(await rejectsMutation(tx => claimWrite(tx, c.id, { prepared: { ...a.prepared, binding: { ...a.prepared.binding, messageHash: sha("other") } } }), /cannot change|check constraint/)).toBe(true);
+    await claimUpdate(c.id, { state: "SUBMITTED", signed_transaction: a.signed, signature: a.signature });
+    const other = sha("x").slice(0, 10);
+    await rejectCases([
+      ["no evidence", tx => claimWrite(tx, c.id, { state: "CONFIRMED" })],
+      ["not independently verified", tx => claimWrite(tx, c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, independentlyVerified: false } })],
+      ["zero payout", tx => claimWrite(tx, c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, payoutBaseUnits: "0" } })],
+      ["numeric payout", tx => claimWrite(tx, c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, payoutBaseUnits: 1992000 } })],
+      ["other message", tx => claimWrite(tx, c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, messageHash: sha(other) } })],
+      ["foreign report", tx => claimWrite(tx, c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, providerTrade: { ...a.evidence.providerTrade, kind: "buy" } } })],
+    ], /check constraint/);
+    expect(await rejectsMutation(tx => claimWrite(tx, c.id, { signature: syntheticBase58("another-signature", 64) }), /only one transaction/)).toBe(true);
+    await claimUpdate(c.id, { state: "CONFIRMED", confirm_evidence: { ...a.evidence, providerTrade: null } });
+    await rejectCases([
+      ["edit confirmed", tx => claimWrite(tx, c.id, { confirm_evidence: a.evidence })],
+      ["fail confirmed", tx => claimWrite(tx, c.id, { state: "FAILED" })],
+      ["delete", tx => tx`DELETE FROM public.panta_claim_sessions WHERE id=${c.id}`.execute()],
+    ], /immutable|permanent|permission denied/);
+    expect(await rejectsMutation(tx => tx`TRUNCATE public.panta_claim_sessions`.execute(), /permanent|permission denied/, "owner")).toBe(true);
+  });
+
+  test("one in-flight or settled claim per wallet and market; a failed claim never blocks the next", async () => {
+    const first = await claimTo("SUBMITTED");
+    const second = claimIntent(first.s), a2 = claimArtifacts(second);
+    await claimInsert(second);
+    await claimUpdate(second.id, { state: "BUILT", prepared: a2.prepared });
+    expect(await rejectsMutation(tx => claimWrite(tx, second.id, { state: "SUBMITTED", signed_transaction: a2.signed, signature: a2.signature }), /duplicate key|unique/)).toBe(true);
+    await claimUpdate(first.c.id, { state: "FAILED" });
+    expect(await rejectsMutation(tx => claimWrite(tx, first.c.id, { state: "SUBMITTED" }), /cannot reopen/)).toBe(true);
+    const [row] = await claimUpdate(second.id, { state: "SUBMITTED", signed_transaction: a2.signed, signature: a2.signature });
+    expect(row.state).toBe("SUBMITTED");
   });
 });

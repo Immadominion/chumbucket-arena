@@ -26,7 +26,7 @@ async function rig(legacyDev = false) {
     .issue("bob-session", "auth-bob");
   primeAuthIdentityRuntime(config, { store: identity, verifier, policy: testPolicy });
   const h = harness({ people: [person("alice", { walletAddress: null }), person("victim")], markets: [market("btc")] });
-  const rt = buildCallsRuntime(config, { store: h.calls, markets: h.rt.markets, clock: h.clock });
+  const rt = buildCallsRuntime(config, { config: h.rt.config, store: h.calls, markets: h.rt.markets, clock: h.clock });
   setCallsRuntime(config, rt);
   const server = startServer(app, 0);
   if (!server.http.listening) await once(server.http, "listening");

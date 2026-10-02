@@ -1,5 +1,9 @@
 # Native Panta buys — 29 September 2026
 
+> 2 October 2026: reconciliation, positions, win claims, the funded-call
+> marker and the call cut-off are described in `docs/panta-funded-lifecycle.md`.
+> Statements below about claims and manual-only order checks predate it.
+
 The existing app can optionally fund **its own** Panta call through
 `pantaTrading.status/prepare/submit/order/forCall` (POST). Calls and positions
 remain separate. No new person, wallet custodian, copy-trade or public stake

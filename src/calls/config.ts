@@ -25,6 +25,8 @@ export interface CallsConfigInput {
   /** Bound on one resolution-sync pass. */
   syncPageSize?: number;
   syncMaxPagesPerPass?: number;
+  /** Minutes before a market closes when it stops taking new calls (M14). */
+  callCutoffMinutes?: number;
 }
 
 /** The structural extension of AppConfig this packet reads. Additive, optional. */
@@ -38,7 +40,16 @@ export interface CallsConfig {
   maxPageSize: number;
   syncPageSize: number;
   syncMaxPagesPerPass: number;
+  /**
+   * New calls (and back/fade) close this long before the market's own close.
+   * A call made in the last minutes, when the answer is all but known, is not
+   * conviction; the cut-off keeps the record honest. 0 disables it.
+   */
+  callCutoffMs: number;
 }
+
+/** Default call cut-off before a market closes. Override: CALLS_CLOSE_CUTOFF_MINUTES. */
+export const DEFAULT_CALL_CUTOFF_MINUTES = 30;
 
 const DEFAULT_SHARE_BASE_URL = "https://chumbucket.app";
 
@@ -69,6 +80,7 @@ export function resolveCallsConfig(
     maxPageSize: clamp(fromApp?.maxPageSize ?? num(env.CALLS_MAX_PAGE_SIZE, 50), 1, 100),
     syncPageSize: clamp(fromApp?.syncPageSize ?? num(env.CALLS_SYNC_PAGE_SIZE, 100), 1, 1000),
     syncMaxPagesPerPass: clamp(fromApp?.syncMaxPagesPerPass ?? num(env.CALLS_SYNC_MAX_PAGES, 50), 1, 1000),
+    callCutoffMs: clamp(fromApp?.callCutoffMinutes ?? num(env.CALLS_CLOSE_CUTOFF_MINUTES, DEFAULT_CALL_CUTOFF_MINUTES), 0, 1440) * 60_000,
   };
 }
 
@@ -79,11 +91,13 @@ export function describeCallsConfig(cfg: CallsConfig): {
   callReceiptExperience: boolean;
   shareBaseUrl: string;
   maxPageSize: number;
+  callCutoffMs: number;
 } {
   return {
     callReceiptExperience: cfg.flags.callReceiptExperience,
     shareBaseUrl: cfg.shareBaseUrl,
     maxPageSize: cfg.maxPageSize,
+    callCutoffMs: cfg.callCutoffMs,
   };
 }
 

@@ -22,8 +22,23 @@ export interface PantaTradingStore {
   reserve(intent: Omit<PantaTradeSession, "state" | "provider_order_id" | "prepared" | "signed_transaction" | "signature" | "fill_evidence" | "created_at" | "updated_at">): Promise<PantaTradeSession | null>;
   update(id: string, previousState: PantaTradeSession["state"], patch: Partial<PantaTradeSession>): Promise<PantaTradeSession | null>;
 }
+/**
+ * Lifecycle reads over the same private ledger, for the server reconciler,
+ * the owner's positions and the funded-call marker. Every per-person read is
+ * keyed by the canonical person id taken from the verified session.
+ */
+export interface PantaTradingLedger extends PantaTradingStore {
+  /** SUBMITTED approvals across all people, oldest change first. Server worker only. */
+  submitted(limit: number): Promise<PantaTradeSession[]>;
+  /** The person's approvals that reached a wallet signature (SUBMITTED, FILLED, FAILED). */
+  listForUser(userId: string, limit?: number): Promise<PantaTradeSession[]>;
+  /** The person's newest signed approval for one of their calls, any wallet. */
+  latestForCall(userId: string, callId: string): Promise<PantaTradeSession | null>;
+  /** Confirmed fills changed at or after `since` (ISO), oldest first: call id and time only. */
+  filledSince(since: string | null, limit: number): Promise<{ call_id: string; updated_at: string }[]>;
+}
 const columns = "id,user_id,call_id,market_id,wallet_address,venue_market_id,side,amount_base_units::text,max_slippage_bps,idempotency_key,request_fingerprint,state,provider_order_id,prepared,signed_transaction,signature,fill_evidence,created_at,updated_at";
-export class SupabasePantaTradingStore implements PantaTradingStore {
+export class SupabasePantaTradingStore implements PantaTradingLedger {
   private readonly pg: Pgrest;
   constructor(config: PgrestConfig, fetchImpl: typeof fetch = fetch) { this.pg = new Pgrest(config, fetchImpl); }
   async callIntent(userId: string, callId: string): Promise<PantaCallIntent | null> {
@@ -51,5 +66,28 @@ export class SupabasePantaTradingStore implements PantaTradingStore {
   async update(id: string, previousState: PantaTradeSession["state"], patch: Partial<PantaTradeSession>) {
     const rows = await this.pg.patch<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({ id: `eq.${id}`, state: `eq.${previousState}`, select: columns }), { ...patch, updated_at: new Date().toISOString() }, { returning: true });
     return rows[0] ?? null;
+  }
+  async submitted(limit: number) {
+    return this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({
+      state: "eq.SUBMITTED", select: columns, order: "updated_at.asc", limit: String(Math.max(1, Math.min(100, limit))),
+    }));
+  }
+  async listForUser(userId: string, limit = 200) {
+    return this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({
+      user_id: `eq.${userId}`, state: "in.(SUBMITTED,FILLED,FAILED)", signature: "not.is.null",
+      select: columns, order: "created_at.desc", limit: String(Math.max(1, Math.min(200, limit))),
+    }));
+  }
+  async latestForCall(userId: string, callId: string) {
+    return (await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({
+      user_id: `eq.${userId}`, call_id: `eq.${callId}`, state: "in.(SUBMITTED,FILLED,FAILED)", signature: "not.is.null",
+      select: columns, order: "created_at.desc", limit: "1",
+    })))[0] ?? null;
+  }
+  async filledSince(since: string | null, limit: number) {
+    const params = new URLSearchParams({ state: "eq.FILLED", select: "call_id,updated_at", order: "updated_at.asc",
+      limit: String(Math.max(1, Math.min(1000, limit))) });
+    if (since) params.set("updated_at", `gte.${since}`);
+    return this.pg.select<{ call_id: string; updated_at: string }>("panta_trade_sessions", params);
   }
 }

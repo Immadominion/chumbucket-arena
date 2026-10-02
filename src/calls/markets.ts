@@ -62,10 +62,15 @@ export const emptyMarketReader: VenueMarketReader = {
   resolutionsSince: () => [],
 };
 
-/** A market that accepts new calls. Only OPEN does (§3 MarketStatus). */
-export const acceptsNewCalls = (m: VenueMarket, now: number): boolean =>
+/** A market that accepts new calls. Only OPEN does (§3 MarketStatus), and
+ *  only until `cutoffMs` before it closes (M14). */
+export const acceptsNewCalls = (m: VenueMarket, now: number, cutoffMs = 0): boolean =>
   // Historical rows stay readable, but cannot become a second live catalog.
   (m.venue === "panta" || m.venue === "fixture") &&
   m.status === "OPEN" &&
   (m.opensAt === null || m.opensAt <= now) &&
-  (m.closesAt === null || m.closesAt > now);
+  (m.closesAt === null || m.closesAt - Math.max(0, cutoffMs) > now);
+
+/** When a market stops taking calls: its close minus the cut-off. Null when it has no close. */
+export const callsCloseAt = (m: VenueMarket, cutoffMs = 0): number | null =>
+  m.closesAt === null ? null : m.closesAt - Math.max(0, cutoffMs);

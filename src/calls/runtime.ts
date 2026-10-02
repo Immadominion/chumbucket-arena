@@ -35,6 +35,7 @@ import type { FetchImpl } from "../prediction/pgrest.ts";
 import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runtime.ts";
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
 import { CallsService, type CallsIdKind } from "./CallsService.ts";
+import { pantaFundingIndexFor } from "../prediction/PantaFunding.ts";
 import { resolveCallsConfig, type CallsConfig } from "./config.ts";
 import { emptyMarketReader, predictionStoreReader, type VenueMarketReader } from "./markets.ts";
 import { CallReceiptsProjection } from "./receipts.ts";
@@ -166,6 +167,8 @@ export function buildCallsRuntime(
     clock,
     receipts,
     maxPageSize: config.maxPageSize,
+    callCutoffMs: config.callCutoffMs,
+    ...(appConfig ? { funding: pantaFundingIndexFor(appConfig) } : {}),
     // A persisted store needs UUID ids; an in-memory one keeps the existing
     // readable ids so every current test reads exactly as it did.
     ...(overrides.newId ? { newId: overrides.newId } : durable ? { newId: uuidNewId } : {}),
