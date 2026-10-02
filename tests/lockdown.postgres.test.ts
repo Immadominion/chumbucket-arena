@@ -8,7 +8,7 @@ import { join } from "node:path";
 // Opt-in throwaway PostgreSQL 15 that reproduces the LIVE legacy rights (as
 // recorded in the mobile repo's docs/schema/legacy-rights-2026-10-02.sql),
 // applies the REAL migrations 20261002090000 -> 20261002120000 ->
-// 20261002170000, and proves:
+// 20261002171000, and proves:
 //   * nobody but the service role can write a profile, a placeholder, a push
 //     token or read linked wallets any more (B1, M1, B3, M2);
 //   * every legacy client path the app still uses keeps working;
@@ -21,7 +21,7 @@ function migrationsDir(): string {
     join(import.meta.dir, "../../mobile/supabase/migrations"),
     join(import.meta.dir, "../../chumbucket-social-calls/supabase/migrations"),
   ].filter((c): c is string => typeof c === "string");
-  const found = candidates.find((c) => existsSync(join(c, "20261002170000_lockdown_profiles_push_privacy.sql")));
+  const found = candidates.find((c) => existsSync(join(c, "20261002171000_lockdown_profiles_push_privacy.sql")));
   if (!found) throw new Error(`lockdown migration not found in: ${candidates.join(", ")}`);
   return found;
 }
@@ -216,7 +216,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
 
       migrate("20261002090000_wallet_sign_in_and_usernames.sql");
       migrate("20261002120000_lock_profile_identity_columns.sql");
-      migrate("20261002170000_lockdown_profiles_push_privacy.sql");
+      migrate("20261002171000_lockdown_profiles_push_privacy.sql");
 
       // The pre-lockdown placeholder is found; real rows are not flagged.
       expect(sql(`SELECT is_placeholder FROM public.users WHERE wallet_address = '${W.victim}'`)).toBe("t");
@@ -269,6 +269,23 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
                     FROM public.users WHERE wallet_address = '${W.newbie}'`)).toBe("-|-|-|t");
       expect(sql(`SELECT count(*) FROM public.linked_wallets WHERE wallet_address = '${W.newbie}'`)).toBe("0");
       ok("anon", `INSERT INTO public.friends(user_id, friend_id, status) VALUES ('${USER.legacy}', '${USER.owner}', 'accepted')`);
+      ok("authenticated", `INSERT INTO public.friends(user_id, friend_id, status, created_at)
+                             VALUES ('${USER.owner}', '${USER.legacy}', 'accepted', now())`, AUTH.owner);
+      // The legacy edge writes keep their rights (old builds update and remove).
+      ok("anon", `UPDATE public.friends SET status = 'accepted' WHERE user_id = '${USER.legacy}'`);
+      ok("authenticated", `UPDATE public.friends SET status = 'accepted', created_at = now() WHERE user_id = '${USER.owner}'`, AUTH.owner);
+      // But nobody but the adder (through the BFF) writes the label a person
+      // sees for their friend — not on an existing edge, not on a new one.
+      for (const role of ["anon", "authenticated"]) {
+        const sub = role === "authenticated" ? AUTH.owner : undefined;
+        denied(role, `UPDATE public.friends SET nickname = 'Mom' WHERE user_id = '${USER.owner}'`, sub);
+        denied(role, `INSERT INTO public.friends(user_id, friend_id, status, nickname)
+                        VALUES ('${USER.stranger}', '${USER.owner}', 'accepted', 'Mom')`, sub);
+      }
+      expect(sql(`SELECT count(*) FROM public.friends WHERE nickname IS NOT NULL`)).toBe("0");
+      ok("anon", `DELETE FROM public.friends WHERE user_id = '${USER.legacy}' AND friend_id = '${USER.owner}'`);
+      ok("authenticated", `DELETE FROM public.friends WHERE user_id = '${USER.owner}' AND friend_id = '${USER.legacy}'`, AUTH.owner);
+      expect(sql(`SELECT count(*) FROM public.friends`)).toBe("0");
       expect(as("anon", `SELECT public.sync_user_by_wallet('not a wallet', NULL)`).ok).toBe(false);
 
       // ── the service-role replacements ────────────────────────────────────

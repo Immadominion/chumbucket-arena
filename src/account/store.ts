@@ -5,7 +5,7 @@
  * Every method takes a canonical `public.users.id` that the ROUTER resolved
  * from a verified Supabase session. Nothing here accepts a wallet or a user id
  * as proof of anything; the SQL functions it calls are service-role only and
- * refuse a row nobody has signed in to (20261002170000).
+ * refuse a row nobody has signed in to (20261002171000).
  *
  * The Supabase store holds the service-role key through `Pgrest`, which
  * registers it for redaction and never puts it in a URL.

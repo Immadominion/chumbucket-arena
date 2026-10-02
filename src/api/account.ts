@@ -159,8 +159,10 @@ export const accountRouter = router({
     }),
 
   /**
-   * The name typed here is the adder's private label for the friend. It is
-   * never written onto the friend's profile, and an unknown wallet gets only
+   * The name typed here is the adder's own label for the friend, stored on the
+   * adder's edge (friends.nickname, which only this path can write). It is not
+   * secret (the legacy friends table is readable), but it is never written
+   * onto the friend's profile, and an unknown wallet gets only
    * an empty placeholder that its owner later carries over clean (M1).
    */
   addWalletFriend: publicProcedure
