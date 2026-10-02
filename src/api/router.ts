@@ -32,6 +32,7 @@ import { socialNotificationsRouter, socialRecordRouter } from "./notifications.t
 import { depositsRouter } from "./deposits.ts";
 import { accountRouter } from "./account.ts";
 import { trustRouter } from "./trust.ts";
+import { solTopUpRouter } from "./solTopUp.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -95,6 +96,10 @@ export const appRouter = router({
    *  legacy custodial `deposit`/`depositAddress` procedures below. Paths:
    *  deposits.status, .balance, .quote, .create, .order, .verifyWallet. */
   deposits: depositsRouter,
+  /** SOL for network fees from the person's own USDC: a Jupiter swap whose
+   *  fee Jupiter or a market maker pays. solTopUp.status, .plan, .order,
+   *  .execute. */
+  solTopUp: solTopUpRouter,
 
   /** The signed-in person's own account: profile edits, friends by wallet,
    *  push tokens. Session-keyed only (B1/M1/M9/B3). */
