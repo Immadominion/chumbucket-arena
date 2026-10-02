@@ -93,6 +93,13 @@ export interface MarketCreationDeps {
   newId?: () => string;
   /** Present only when publishing is ready. */
   publishing?: { creator: PantaMarketCreator; chain: CreateChain; catalog: CatalogIngest } | null;
+  /**
+   * After a broadcast, keep re-checking in the background: a check is what
+   * registers the create with Panta, and the payer's app may close right
+   * after signing. In-process and bounded; the app's own checks remain the
+   * fallback across restarts. Off unless composed (tests drive `refresh`).
+   */
+  followUp?: { attempts: number; everyMs: number; schedule?: (run: () => void, ms: number) => void } | null;
 }
 
 const refuse = (code: ConstructorParameters<typeof MarketCreationError>[0], message: string, field?: string): never => {
@@ -101,6 +108,7 @@ const refuse = (code: ConstructorParameters<typeof MarketCreationError>[0], mess
 const ms = (iso: string): number => Date.parse(iso);
 
 export class MarketCreationService {
+  private readonly following = new Set<string>();
   constructor(private readonly deps: MarketCreationDeps) {}
   private now() { return this.deps.now?.() ?? Date.now(); }
   private newId() { return this.deps.newId?.() ?? crypto.randomUUID(); }
@@ -243,7 +251,27 @@ export class MarketCreationService {
     // Durable approval and claim BEFORE RPC. A lost reply re-sends the same bytes only.
     try { await publishing.chain.broadcast(tx); }
     catch { /* uncertain: refresh decides from chain evidence, never by re-quoting */ }
-    return this.refresh(userId, proposalId);
+    let view: ProposalView;
+    try { view = await this.refresh(userId, proposalId); }
+    catch (error) { this.followUp(userId, proposalId); throw error; }
+    if (view.status === "publishing") this.followUp(userId, proposalId);
+    return view;
+  }
+
+  /** Bounded background re-checks of one sent create; one chain per proposal. */
+  private followUp(userId: string, proposalId: string): void {
+    const plan = this.deps.followUp;
+    if (!plan || plan.attempts <= 0 || this.following.has(proposalId)) return;
+    this.following.add(proposalId);
+    const schedule = plan.schedule ?? ((run: () => void, ms: number) => { setTimeout(run, ms).unref?.(); });
+    let left = plan.attempts;
+    const tick = () => schedule(() => {
+      left--;
+      this.refresh(userId, proposalId)
+        .then(view => view.status === "publishing", () => true)
+        .then(again => { if (again && left > 0) tick(); else this.following.delete(proposalId); });
+    }, plan.everyMs);
+    tick();
   }
 
   /**

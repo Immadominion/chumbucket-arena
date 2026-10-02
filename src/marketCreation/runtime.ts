@@ -78,6 +78,8 @@ export function marketCreationFor(app: AppConfig): MarketCreationRuntime {
   const service = new MarketCreationService({
     store: new SupabaseMarketProposalStore(app.social!, safeFetch),
     reviewerIds: config.reviewerIds, people, publishing: publishingDeps,
+    // ~30s covers a normal Solana confirmation; well inside Panta's 40 registers/min.
+    followUp: publishingDeps ? { attempts: 6, everyMs: 5_000 } : null,
   });
   const runtime = { config, proposals, publishing, service };
   runtimes.set(app, runtime);

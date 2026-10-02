@@ -132,10 +132,24 @@ only ones we offer.
    event, and it debited exactly the quoted fee from the signer
    (`PantaChain.verifyTransaction`). The market is then pulled into
    `venue_markets` with a share price, and anyone can call it.
-5. **Failure.** A lost broadcast reply or a Panta refusal leaves the proposal
+5. **Confirming.** Panta lists a create only once `register` is called, and
+   only a status check (`refreshPublish`, or the check inside
+   `submitPublish`) calls it. So three things check a sent create: the server
+   itself, in the background, 6 times 5 s apart after the broadcast; the open
+   publish sheet, 8 times 3 s apart; and "Your markets", whenever it loads.
+   The server's checks are in-process, so after a restart the app's checks
+   (or opening the proposal) finish the job.
+6. **Failure.** A lost broadcast reply or a Panta refusal leaves the proposal
    in `publishing`. It returns to `approved` (and can be published again) only
-   when the chain shows the transaction failed or its blockhash expired without
-   it landing.
+   when the chain shows the transaction failed, or that it expired without
+   landing: our RPC's confirmed block height is past the build's
+   `lastValidBlockHeight`, our RPC no longer accepts its blockhash, and only
+   then is the signature unknown (`PantaChain.neverLanded`).
+7. **Committed but unclaimed.** The signed bytes are stored before the
+   proposal is claimed (`approved` -> `publishing`), and broadcast only after
+   the claim. If the claim's reply is lost, a retry claims it first, or retires
+   the bytes (`FAILED`, never sent) when the proposal changed or the quote
+   expired.
 
 States: `pending_review`, `approved`, `rejected`, `withdrawn`, `publishing`,
 `live`, plus a derived `expired`. A proposal is expired once trading closes
@@ -179,7 +193,7 @@ or a wallet as identity, and none returns the Panta key.
 
 | Piece | Path (mobile repo) |
 | --- | --- |
-| Entry: "Create a market" card on the Markets tab (sign-in first) | `lib/features/calls/presentation/screens/call_markets_screen.dart` |
+| Entry: "Create a market" card on the Markets tab (sign-in first; shown only while `marketCreation.status` says proposals are open) | `lib/features/calls/presentation/screens/call_markets_screen.dart` |
 | "Proposed by @handle on Chumbucket" on a live market | `lib/features/calls/presentation/screens/market_detail_screen.dart` |
 | Your markets, plus the reviewer queue | `lib/features/market_creation/presentation/my_markets_screen.dart` |
 | Propose form (question, YES/NO, category, close, result time, rules, sources) | `lib/features/market_creation/presentation/create_market_screen.dart` |
@@ -267,5 +281,11 @@ create response failed a safety check" and no wallet is opened. See owner action
   money was spent and Panta could not match it. Look at the session row in
   `market_creation_sessions` (it holds the signature and the reviewed binding)
   and contact Panta. Never publish a second time to "fix" it.
+- A proposal that stays `publishing` with no checks happening (nobody opened
+  it after a server restart) is finished by calling `marketCreation.refreshPublish`
+  as its proposer or a reviewer, or by opening it in the app. Panta documents
+  `register` as idempotent per `{createId, signature}`; it does not say whether
+  a late register is accepted after the create session's ~5 minutes, which is
+  why the server and the app both check right after the broadcast.
 - History is permanent. The guard triggers refuse deletes, edits to a
   proposal's content, and changes to a signed or final create.

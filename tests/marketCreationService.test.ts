@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createPrivateKey, sign as edSign } from "node:crypto";
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { MarketCreationError } from "../src/marketCreation/errors.ts";
-import { MarketCreationService, PROPOSER_DAILY_LIMIT, PROPOSER_PENDING_LIMIT, type CreateChain, type ProposeInput } from "../src/marketCreation/MarketCreationService.ts";
+import { MarketCreationService, PROPOSER_DAILY_LIMIT, PROPOSER_PENDING_LIMIT, type CreateChain, type MarketCreationDeps, type ProposeInput } from "../src/marketCreation/MarketCreationService.ts";
 import { PantaMarketCreator } from "../src/marketCreation/PantaMarketCreator.ts";
 import { PUBLISH_MIN_LEAD_MS } from "../src/marketCreation/rules.ts";
 import { InMemoryMarketProposalStore } from "../src/marketCreation/store.ts";
@@ -25,7 +25,7 @@ class FakeChain implements CreateChain {
   async neverLanded() { return this.expired; }
 }
 
-function rig(options: { publishing?: boolean } = {}) {
+function rig(options: { publishing?: boolean; followUp?: MarketCreationDeps["followUp"] } = {}) {
   const clock = new TestClock();
   let ids = 0;
   const newId = () => `20000000-0000-4000-8000-${String(++ids).padStart(12, "0")}`;
@@ -43,6 +43,7 @@ function rig(options: { publishing?: boolean } = {}) {
     store, reviewerIds: new Set([reviewer]), now: () => clock.now(), newId,
     people: { get: id => id === proposer ? { id, handle: "ada", displayName: "Ada" } : undefined },
     publishing: options.publishing === false ? null : { creator, chain, catalog: { ingest: async id => { ingested.push(id); } } },
+    followUp: options.followUp ?? null,
   });
   const input = (overrides: Partial<ProposeInput> = {}): ProposeInput => ({
     question: "Will ETH close above $5,000 on 1 Jan 2027?", category: "crypto",
@@ -324,4 +325,45 @@ test("a proposer missing from the directory mirror is read through for attributi
   expect(loads).toEqual([proposer]); // once; afterwards the mirror has them
   const failing = new MarketCreationService({ store: h.store, reviewerIds: new Set(), people: { get: () => undefined, load: async () => { throw new Error("down"); } } });
   expect(await failing.byMarket(eventPda)).toMatchObject({ proposer: null }); // attribution never fails the read
+});
+
+test("the server keeps checking a sent create in the background until it is live", async () => {
+  const queued: (() => void)[] = [];
+  const h = rig({ followUp: { attempts: 3, everyMs: 5_000, schedule: run => queued.push(run) } });
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  h.panta.registerError = new MarketCreationError("MC_PANTA_REFUSED", "not yet", { providerCode: "TX_NOT_FOUND" });
+  expect((await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).status).toBe("publishing");
+  expect(queued).toHaveLength(1);
+  // A retry of the same approval does not start a second chain.
+  await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  expect(queued).toHaveLength(1);
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+  queued.shift()!();
+  await settle();
+  expect(h.store.proposals.get(p.id)!.status).toBe("publishing");
+  expect(queued).toHaveLength(1);
+  // It lands: the next background check registers and verifies it, and stops.
+  h.panta.registerError = null;
+  h.chain.verified = true;
+  queued.shift()!();
+  await settle();
+  expect(h.store.proposals.get(p.id)!.status).toBe("live");
+  expect(h.ingested).toEqual([eventPda]);
+  expect(queued).toHaveLength(0);
+});
+
+test("background checks are bounded", async () => {
+  const queued: (() => void)[] = [];
+  const h = rig({ followUp: { attempts: 2, everyMs: 5_000, schedule: run => queued.push(run) } });
+  const p = await approved(h);
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  h.panta.registerError = new MarketCreationError("MC_PANTA_REFUSED", "not yet", { providerCode: "TX_NOT_FOUND" });
+  await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
+  const registers = () => h.panta.count("/markets/register/");
+  const before = registers();
+  for (let i = 0; i < 5 && queued.length > 0; i++) { queued.shift()!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+  expect(registers() - before).toBe(2);
+  expect(queued).toHaveLength(0);
+  expect(h.store.proposals.get(p.id)!.status).toBe("publishing");
 });
