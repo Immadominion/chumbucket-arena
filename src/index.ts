@@ -68,10 +68,13 @@ if (calls.prediction && calls.persistence.persisting && process.env.MARKET_SYNC_
       const report = await resultWorker.runOnce();
       if (report.catalog.marketsUpserted || report.catalog.snapshotsRecorded ||
           report.catalog.resolutionsRecorded || report.calledResolutionsRecorded ||
-          report.results.resultsSettled) {
+          report.catalog.unlistedRefreshed || report.results.resultsSettled) {
         console.log("[callResultSync]", JSON.stringify({
           markets: report.catalog.marketsUpserted,
           prices: report.catalog.snapshotsRecorded,
+          pricesUnavailable: report.catalog.snapshotsUnavailable,
+          unlistedRefreshed: report.catalog.unlistedRefreshed,
+          unlistedUnavailable: report.catalog.unlistedUnavailable,
           catalogResolutions: report.catalog.resolutionsRecorded,
           calledResolutions: report.calledResolutionsRecorded,
           resultsSettled: report.results.resultsSettled,

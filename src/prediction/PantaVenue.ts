@@ -48,6 +48,15 @@ export function pantaPriceEvidenceMatches(body: unknown, prices: { yesPrice: str
   const parsed = rowSchema.pick({ yesPrice: true, noPrice: true }).safeParse(body);
   return parsed.success && parsed.data.yesPrice === prices.yesPrice && parsed.data.noPrice === prices.noPrice;
 }
+/** The venue's own reported volume on a captured row, or null. Discovery
+ *  sorting only: `volumeUsdc` is documented as a human-readable catalog figure,
+ *  not settlement or price evidence, so drift reads as unavailable instead of
+ *  failing a sync. Never summed, converted or shown as anything but Panta's. */
+const volumeSchema = z.object({ volumeUsdc: z.string().regex(/^(0|[1-9][0-9]{0,30})(\.[0-9]{1,18})?$/) });
+export function pantaReportedVolume(body: unknown): string | null {
+  const parsed = volumeSchema.safeParse(body);
+  return parsed.success ? parsed.data.volumeUsdc : null;
+}
 // Pagination tokens are opaque, NOT market public keys. Live responses use
 // 134-character tokens (observed 2026-10-01); validating them as addresses
 // rejected the entire catalog before a single row could be read.
@@ -91,7 +100,11 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(50, filters.limit ?? 20))) });
     if (cursor) params.set("cursor", cursor);
-    if (filters.category) params.set("category", filters.category);
+    // Category is filtered locally, never forwarded. Panta validates the query
+    // against its create allowlist (`GET /categories/`), but catalog rows carry
+    // categories outside that list: on 2026-10-02 `pop-culture`, `gaming` and
+    // `commodities` each answered HTTP 400 while open markets in all three
+    // were present in the unfiltered listing.
     // API `status` means phase, not our five-state vocabulary. Filter locally.
     const result = await this.cache.load(`list:${params}:${JSON.stringify(filters)}`, async () => {
       const page = await this.circuit.run(async () => {
@@ -111,7 +124,7 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
         // stay within the provider read budget. Never invent the missing text.
         if (!catalog.title.trim() && (catalog.endTime === null || catalog.endTime * 1000 <= this.clock.now() ||
             catalog.phase === "resolved" || catalog.phase === "cancelled")) continue;
-        if (filters.category && catalog.category !== filters.category) continue;
+        if (filters.category && catalog.category.toLowerCase() !== filters.category.toLowerCase()) continue;
         const detail = await this.detail(catalog.marketId);
         const market = this.normalize(detail);
         if (!market.question.trim() || !market.rulesText.trim()) continue;

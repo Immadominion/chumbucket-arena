@@ -302,6 +302,7 @@ describe("the module-level memo (contracts §6)", () => {
       durable: null,
       marketSync: new MarketSync({ venue: pinnedVenue, store: pinnedStore, clock }),
       ready: Promise.resolve(),
+      clock,
     };
     setPredictionRuntime(app.config, pinned);
     expect(predictionRuntimeFor(app.config)).toBe(pinned);
@@ -323,6 +324,7 @@ describe("the module-level memo (contracts §6)", () => {
       durable: null,
       marketSync: new MarketSync({ venue, store, clock }),
       ready: Promise.resolve(),
+      clock,
     });
 
     const { user } = callers(app);

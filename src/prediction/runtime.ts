@@ -69,6 +69,8 @@ export interface PredictionRuntime {
    * three-line `src/app.ts` patch filed as packet-persist.md §2.
    */
   ready: Promise<void>;
+  /** The clock every read and write above uses; catalog reads judge "open" by it. */
+  clock: Clock;
 }
 
 export interface BuildRuntimeOverrides {
@@ -146,6 +148,9 @@ export function buildPredictionRuntime(
   });
 
   const marketSync = new MarketSync({ venue, store, clock,
+    // Mirror-wide pricing and the unlisted sweep only ever touch this venue's
+    // rows; retired providers' historical rows are never sent to the adapter.
+    venueId: config.venue,
     // Keep the old cursor intact for historical repair/rollback. Panta starts
     // its own walk; numeric Polymarket offsets are not Solana market ids.
     // All Panta categories are discoverable. Start an independent cursor walk
@@ -171,7 +176,7 @@ export function buildPredictionRuntime(
   // cold-start refusal does not become an unhandled rejection before first use.
   void ready.catch(() => undefined);
 
-  return { config, venue, store, service, persistence, durable, marketSync, ready };
+  return { config, venue, store, service, persistence, durable, marketSync, ready, clock };
 }
 
 let RUNTIMES = new WeakMap<AppConfig, PredictionRuntime>();
