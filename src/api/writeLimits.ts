@@ -37,12 +37,29 @@ export interface WriteLimitConfig {
 
 export type WriteScope = "ip" | "session" | "user";
 
-/** Mutations that change nothing. */
+/**
+ * Mutations that change nothing a person asked for: reads, and the status
+ * re-checks the app polls while something settles (they may advance a
+ * ledger row to what the venue or chain already proves, as
+ * pantaTrading.order does). Polling them must never spend the budget real
+ * writes need. deposits.quote stays charged: each one is a call to Crossmint
+ * the person triggers by typing, and the budget is its throttle.
+ */
 export const READ_ONLY_MUTATIONS: ReadonlySet<string> = new Set([
   "auth.whoami",
   "pantaTrading.status",
   "pantaTrading.order",
   "pantaTrading.forCall",
+  // money: positions, an own call's latest order, a win claim's status
+  "pantaTrading.positions",
+  "pantaTrading.callOrder",
+  "pantaTrading.claim",
+  // deposits: availability, a wallet's balance, one order's live status
+  "deposits.status",
+  "deposits.balance",
+  "deposits.order",
+  // create-market: re-check a publishing market against Panta and the chain
+  "marketCreation.refreshPublish",
 ]);
 
 const num = (v: string | undefined, fallback: number): number => {

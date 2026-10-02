@@ -300,3 +300,25 @@ describe("the account-claim proof names chumbucket.fun (identity, app and BFF to
     expect(dart).toContain("const accountClaimUri = 'https://chumbucket.fun';");
   });
 });
+
+describe("write limits know the merged surface (lockdown x money x deposits x create-market)", () => {
+  test("every exempt read is a real mutation on the calls BFF, and the polled status reads are exempt", async () => {
+    const { READ_ONLY_MUTATIONS } = await import("../src/api/writeLimits.ts");
+    const { callsBffRouter } = await import("../src/api/router.ts");
+    const procs = (callsBffRouter as unknown as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def
+      .procedures;
+    const mutations = new Set(Object.entries(procs).filter(([, p]) => p._def.type === "mutation").map(([k]) => k));
+    for (const path of READ_ONLY_MUTATIONS) expect(mutations.has(path), path).toBe(true);
+    for (const polled of [
+      "pantaTrading.positions", "pantaTrading.callOrder", "pantaTrading.claim",
+      "deposits.status", "deposits.balance", "deposits.order", "marketCreation.refreshPublish",
+    ]) {
+      expect(READ_ONLY_MUTATIONS.has(polled), polled).toBe(true);
+    }
+    // Writes, and the person-triggered Crossmint quote, still pay.
+    for (const write of ["pantaTrading.prepare", "pantaTrading.claimSubmit", "deposits.create", "deposits.quote",
+      "account.updateProfile", "calls.addUpdate", "trust.block", "marketCreation.propose"]) {
+      expect(READ_ONLY_MUTATIONS.has(write), write).toBe(false);
+    }
+  });
+});
