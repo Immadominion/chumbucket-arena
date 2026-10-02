@@ -235,6 +235,15 @@ export function venueUrl(market: Market): string | null {
   return null;
 }
 
+/**
+ * Whether the page may label this call "free". Only a call the BFF reports as
+ * unfunded (`NONE`, or no state at all on an older payload) qualifies; any
+ * funding state, even one that is not money yet, is never called free.
+ */
+export function isFreeCall(call: Pick<Call, "fundingState">): boolean {
+  return !call.fundingState || call.fundingState === "NONE";
+}
+
 export function recordLabel(p: Person): string {
   if (p.settledCalls === 0) return "No settled calls yet";
   return `${p.correctCalls} of ${p.settledCalls} settled calls right`;

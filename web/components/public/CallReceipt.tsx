@@ -1,12 +1,13 @@
 /**
  * A call, as its receipt: who said what, when, at what price, and what the
  * venue later decided. The same five facts the app's receipt card shows, and
- * nothing that looks like money on a free call.
+ * nothing that looks like money on a free call (nor "free" on a funded one).
  */
 
 import Link from "next/link";
 import {
   entryLabel,
+  isFreeCall,
   outcomeCopy,
   recordLabel,
   safeAvatar,
@@ -88,7 +89,10 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
         <span>
           <strong>{entry.backCount}</strong> backed · <strong>{entry.fadeCount}</strong> faded
         </span>
-        <span className="pub-receipt-free">Free call · no money at stake</span>
+        {/* Never "free" once any funding state exists; see isFreeCall. */}
+        {isFreeCall(call) ? (
+          <span className="pub-receipt-free">Free call · no money at stake</span>
+        ) : null}
       </footer>
     </article>
   );

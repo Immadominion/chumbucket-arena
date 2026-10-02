@@ -2,9 +2,16 @@
  * Link-preview images (1200x630) for shared calls, people and markets.
  *
  * Rendered with next/og (Satori): flexbox only, every multi-child element is
- * display:flex. Fonts and the logo are read from /public at render time, which
- * the Node runtime traces into the function bundle; if a read fails the card
- * still renders with the built-in font rather than erroring the preview.
+ * display:flex. Fonts and the logo are read from /public at render time; if a
+ * read fails the card still renders with the built-in font rather than
+ * erroring the preview.
+ *
+ * Serverless functions do not get /public: a file reaches the function bundle
+ * only if the build traces it. A computed path (`join(cwd, "public", path)`)
+ * traced the whole of /public into one OG route and nothing into the others,
+ * so the receipt card lost its font and logo in production. The paths below
+ * are literal, and next.config.ts lists them in `outputFileTracingIncludes`
+ * for every opengraph-image route (OG_ASSET_FILES there must match).
  */
 
 import { readFile } from "node:fs/promises";
@@ -21,9 +28,9 @@ const LINE = "#EFE6E9";
 const WON = "#0F7A4F";
 const LOST = "#B4232A";
 
-async function asset(path: string): Promise<Buffer | null> {
+async function read(file: string): Promise<Buffer | null> {
   try {
-    return await readFile(join(process.cwd(), "public", path));
+    return await readFile(file);
   } catch {
     return null;
   }
@@ -31,8 +38,8 @@ async function asset(path: string): Promise<Buffer | null> {
 
 async function fonts() {
   const [regular, bold] = await Promise.all([
-    asset("fonts/PPNeueMachina-Regular.otf"),
-    asset("fonts/PPNeueMachina-Ultrabold.otf"),
+    read(join(process.cwd(), "public", "fonts", "PPNeueMachina-Regular.otf")),
+    read(join(process.cwd(), "public", "fonts", "PPNeueMachina-Ultrabold.otf")),
   ]);
   const out: Array<{ name: string; data: Buffer; weight: 400 | 800; style: "normal" }> = [];
   if (regular) out.push({ name: "Machina", data: regular, weight: 400, style: "normal" });
@@ -41,7 +48,7 @@ async function fonts() {
 }
 
 async function logoDataUrl(): Promise<string | null> {
-  const png = await asset("img/logo-192.png");
+  const png = await read(join(process.cwd(), "public", "img", "logo-192.png"));
   return png ? `data:image/png;base64,${png.toString("base64")}` : null;
 }
 

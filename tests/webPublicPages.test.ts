@@ -5,6 +5,8 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ANDROID_PACKAGE, RELEASE_CERT_SHA256, assetLinks, normaliseFingerprint } from "../web/lib/assetLinks.ts";
 import {
   CALLS_BFF_URL,
@@ -13,6 +15,7 @@ import {
   centsLabel,
   getCall,
   getPerson,
+  isFreeCall,
   outcomeCopy,
   recordLabel,
   safeAvatar,
@@ -121,5 +124,37 @@ describe("presentation", () => {
     const m = { venue: "panta", venueMarketId: "pqZAm6T9" } as Market;
     expect(venueUrl(m)).toBe("https://panta.market/market/pqZAm6T9");
     expect(venueUrl({ ...m, venue: "other" })).toBeNull();
+  });
+});
+
+describe("honesty of the receipt", () => {
+  test("only an unfunded call may be labelled free", () => {
+    expect(isFreeCall({ fundingState: "NONE" })).toBe(true);
+    // Older payloads without the field are free calls (funding never shipped).
+    expect(isFreeCall({ fundingState: undefined as unknown as string })).toBe(true);
+    for (const state of ["QUOTED", "SUBMITTED", "FILLED", "PARTIAL", "FAILED", "CLOSED", "CLAIMABLE", "CLAIMED"]) {
+      expect(isFreeCall({ fundingState: state })).toBe(false);
+    }
+  });
+});
+
+describe("link-preview images", () => {
+  const web = join(import.meta.dir, "../web");
+
+  test("every file the OG card reads is traced into the OG functions", () => {
+    // Serverless functions do not get /public unless the build traces a file.
+    // A computed path traced nothing into /c and /m, so the receipt card lost
+    // its font and logo; next.config.ts now lists them for every OG route.
+    const config = readFileSync(join(web, "next.config.ts"), "utf8");
+    const card = readFileSync(join(web, "lib/ogCard.tsx"), "utf8");
+    const listed = [...config.matchAll(/"\.\/public\/([^"]+)"/g)].map((m) => m[1]!);
+    expect(listed.length).toBeGreaterThan(0);
+    expect(config).toContain('"/**/opengraph-image": OG_ASSET_FILES');
+    for (const rel of listed) {
+      expect(existsSync(join(web, "public", rel))).toBe(true);
+      // ogCard reads it with literal path segments, so the tracer sees it too.
+      const segments = rel.split("/").map((s) => `"${s}"`).join(", ");
+      expect(card).toContain(`join(process.cwd(), "public", ${segments})`);
+    }
   });
 });

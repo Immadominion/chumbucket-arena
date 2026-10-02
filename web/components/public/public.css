@@ -74,6 +74,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   height: 64px;
 }
 .pub-brand {
@@ -118,6 +119,17 @@
 @media (max-width: 420px) {
   .pub-nav a:not(.pub-nav-cta) {
     display: none;
+  }
+}
+@media (max-width: 340px) {
+  /* 320dp phones: keep the brand and the button apart. */
+  .pub-brand {
+    font-size: 17px;
+    gap: 8px;
+  }
+  .pub-nav .pub-nav-cta {
+    padding: 0 14px;
+    font-size: 13.5px;
   }
 }
 
@@ -665,13 +677,15 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 32px;
   align-items: center;
-  padding: 20px 0 40px;
+  /* Block padding only: the element is also .pub-wrap, whose 20px side
+     gutter a `padding` shorthand here would erase on phones. */
+  padding-block: 20px 40px;
 }
 @media (min-width: 900px) {
   .pub-hero {
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
     gap: 56px;
-    padding: 48px 0 64px;
+    padding-block: 48px 64px;
   }
 }
 .pub-hero-title {
@@ -719,7 +733,8 @@
 }
 
 .pub-section {
-  padding: 36px 0;
+  /* Block padding only, for the same reason as .pub-hero. */
+  padding-block: 36px;
   border-top: 1px solid var(--color-line);
 }
 .pub-section-head {
