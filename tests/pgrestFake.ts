@@ -30,6 +30,9 @@
  *   UUID column typing                                            22P02
  *   foreign keys (calls.market_id, calls.snapshot_id,
  *     call_results.market_resolution_id)                          23503
+ *   trg_call_thesis_updates_guard (append-only, author-only,
+ *     after the lock, not withdrawn, <= 20 per call) +
+ *     call_thesis_updates_body_length                             P0001 / 23514
  *
  * NOTHING HERE TOUCHES A NETWORK OR A REAL DATABASE. It is a plain object graph
  * behind a `fetch`-shaped function, injected into the stores under test.
@@ -119,6 +122,8 @@ const TABLES: Record<string, TableSpec> = {
     ],
   },
   call_results: { pk: ["call_id"], uuid: ["call_id", "market_resolution_id"] },
+  // 20261002130000_call_thesis_updates.sql
+  call_thesis_updates: { pk: ["id"], uuid: ["id", "call_id", "author_user_id"] },
 };
 
 // Tracks 20260917120000_venue_market_allow_polymarket.sql. This fake is only
@@ -151,6 +156,9 @@ export interface PgrestFakeOptions {
   serviceRoleKey?: string;
   /** The database's own NOW(), which `calls_guard_insert` compares closes_at to. */
   now?: () => number;
+  /** Tables whose migration is "not applied yet": every request to one is the
+   *  404 PostgREST returns for a relation that does not exist. */
+  omitTables?: string[];
 }
 
 export interface RequestLogEntry {
@@ -179,7 +187,8 @@ export class PgrestFake {
     this.supabaseUrl = opts.supabaseUrl ?? "https://fake.supabase.co";
     this.serviceRoleKey = opts.serviceRoleKey ?? "fake-service-role-key-DO-NOT-LOG-0123456789";
     this.now = opts.now ?? (() => Date.now());
-    for (const t of Object.keys(TABLES)) this.db.set(t, []);
+    const omitted = new Set(opts.omitTables ?? []);
+    for (const t of Object.keys(TABLES)) if (!omitted.has(t)) this.db.set(t, []);
   }
 
   get config(): { supabaseUrl: string; serviceRoleKey: string; network: "devnet" | "mainnet-beta" } {
@@ -351,6 +360,9 @@ export class PgrestFake {
       if (table === "call_results") {
         throw raise("call_results: a derived result is never deleted — accuracy history must survive.");
       }
+      if (table === "call_thesis_updates") {
+        throw raise("call_thesis_updates is append-only: an update may never be deleted.");
+      }
       store.splice(store.indexOf(row), 1);
     }
   }
@@ -432,6 +444,10 @@ export class PgrestFake {
       if (typeof thesis === "string" && thesis.length > 280) {
         throw check("calls_thesis_length", "thesis must be <= 280 chars");
       }
+    }
+    if (table === "call_thesis_updates") {
+      const len = String(row.body ?? "").trim().length;
+      if (len < 1 || len > 280) throw check("call_thesis_updates_body_length", "body must be 1..280 chars");
     }
     if (table === "call_results") {
       const outcome = String(row.outcome);
@@ -542,6 +558,23 @@ export class PgrestFake {
       }
     }
 
+    if (table === "call_thesis_updates") {
+      // ── trg_call_thesis_updates_guard, transcribed ──
+      const call = this.find("calls", "id", row.call_id);
+      if (!call) throw raise(`call_thesis_updates: call ${String(row.call_id)} does not exist.`);
+      if (!this.exists("users", "id", row.author_user_id)) throw fk("call_thesis_updates_author_user_id_fkey");
+      if (call.user_id !== row.author_user_id) {
+        throw raise(`call_thesis_updates: only the author of call ${String(row.call_id)} may add to its thesis.`);
+      }
+      if (Date.parse(String(row.created_at)) < Date.parse(String(call.locked_at))) {
+        throw raise("call_thesis_updates: an update cannot be dated before its call locked.");
+      }
+      if (call.hidden_at) throw raise("call_thesis_updates: the call was withdrawn.");
+      if (this.db.get(table)!.filter((r) => r.call_id === row.call_id).length >= 20) {
+        throw raise("call_thesis_updates: the call already carries 20 updates.");
+      }
+    }
+
     if (table === "call_results") this.assertResultDerivation(row);
     if (table === "venue_orders" && row.funding_state === "FILLED") {
       throw raise("venue_orders: an order may not be INSERTed as FILLED.");
@@ -554,6 +587,9 @@ export class PgrestFake {
     }
     if (table === "call_responses") {
       throw raise("call_responses is append-only: a response is a timestamped fact.");
+    }
+    if (table === "call_thesis_updates") {
+      throw raise("call_thesis_updates is append-only: an update is a timestamped statement.");
     }
     if (table === "calls") {
       // ── trg_calls_guard_immutability, transcribed ──
@@ -709,7 +745,7 @@ export function isEmptyJson(v: unknown): boolean {
 export function seedUser(
   fake: PgrestFake,
   id: string,
-  opts: { handle?: string; wallet?: string | null; fullName?: string } = {},
+  opts: { handle?: string; wallet?: string | null; fullName?: string; bio?: string; createdAt?: string } = {},
 ): string {
   fake.seed("users", {
     id,
@@ -718,6 +754,8 @@ export function seedUser(
     profile_picture: null,
     wallet_address: opts.wallet === undefined ? `Wallet_${id.slice(0, 8)}` : opts.wallet,
     sns_domain: null,
+    ...(opts.bio !== undefined ? { bio: opts.bio } : {}),
+    ...(opts.createdAt !== undefined ? { created_at: opts.createdAt } : {}),
   });
   return id;
 }

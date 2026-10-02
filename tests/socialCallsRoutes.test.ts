@@ -41,19 +41,26 @@ async function scene() {
 }
 
 describe("the call procedures plus canonical follow actions", () => {
-  test("the original eight paths remain stable and person follow adds two paths", () => {
+  test("the original eight paths remain stable; follow and the people layer are additive", () => {
     // The dotted paths are what a caller types, and they must match the §5
     // table character for character: no more procedures, no fewer, no renames.
     expect(Object.keys(callsRouter._def.procedures).sort()).toEqual([
+      // People layer (src/calls/people.ts): additive paths only — none of
+      // the original ten changed name or shape.
+      "calls.addUpdate",
       "calls.create",
       "calls.feed",
       "calls.get",
       "calls.invitations",
       "calls.respond",
+      "calls.top",
       "markets.detail",
       "markets.open",
       "people.follow",
+      "people.following",
       "people.get",
+      "people.leaderboard",
+      "people.search",
       "people.unfollow",
     ]);
   });

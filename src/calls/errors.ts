@@ -40,6 +40,12 @@ export type CallsErrorCode =
   | "RESPONSE_DUPLICATE"
   | "PERSON_NOT_FOUND"
   | "FOLLOW_SELF"
+  /** Only a call's author may append to its thesis thread. */
+  | "THESIS_NOT_AUTHOR"
+  /** A thread is capped at MAX_THESIS_UPDATES_PER_CALL. */
+  | "THESIS_UPDATE_LIMIT"
+  /** The durable table for updates is not present yet (migration pending). */
+  | "THESIS_UPDATES_UNAVAILABLE"
 
   // ── invariants the service must never be able to break (-> CallsFailure) ──
   /** An attempt to change a column §3 freezes after lockedAt. */
@@ -71,6 +77,9 @@ const REJECTED: ReadonlySet<CallsErrorCode> = new Set<CallsErrorCode>([
   "RESPONSE_DUPLICATE",
   "PERSON_NOT_FOUND",
   "FOLLOW_SELF",
+  "THESIS_NOT_AUTHOR",
+  "THESIS_UPDATE_LIMIT",
+  "THESIS_UPDATES_UNAVAILABLE",
 ]);
 
 export interface CallsErrorInit {

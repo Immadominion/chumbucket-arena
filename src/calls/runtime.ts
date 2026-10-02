@@ -34,7 +34,7 @@ import { VenueError } from "../prediction/errors.ts";
 import type { FetchImpl } from "../prediction/pgrest.ts";
 import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runtime.ts";
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
-import { CallsService } from "./CallsService.ts";
+import { CallsService, type CallsIdKind } from "./CallsService.ts";
 import { resolveCallsConfig, type CallsConfig } from "./config.ts";
 import { emptyMarketReader, predictionStoreReader, type VenueMarketReader } from "./markets.ts";
 import { CallReceiptsProjection } from "./receipts.ts";
@@ -80,7 +80,7 @@ export interface BuildCallsRuntimeOverrides {
   allowPantaCalls?: boolean;
   clock?: Clock;
   viewer?: ViewerResolver;
-  newId?: (kind: "call" | "response") => string;
+  newId?: (kind: CallsIdKind) => string;
   /** Packet B's runtime, when it should not come from the module memo. */
   prediction?: PredictionRuntime;
   /** Injected by every test: no network and no real Postgres, ever. */
@@ -90,8 +90,8 @@ export interface BuildCallsRuntimeOverrides {
 }
 
 /**
- * Ids for a persisted store must be UUIDs: `calls.id` and `call_responses.id`
- * are UUID columns. `CallsService`'s default generator produces
+ * Ids for a persisted store must be UUIDs: `calls.id`, `call_responses.id` and
+ * `call_thesis_updates.id` are UUID columns. `CallsService`'s default generator produces
  * `call_1_<base36>`, which Postgres refuses with 22P02 — so the durable path
  * supplies `crypto.randomUUID()` instead. This is the "fix the write" answer
  * rather than the "widen the column" one, and it is the only reason this

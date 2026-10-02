@@ -25,8 +25,10 @@ import type {
   VenueMarket,
 } from "../prediction/types.ts";
 import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
+import type { CallRecordCounts, RecordDisplay } from "../notifications/types.ts";
 
 export type { CallOutcome, FundingState, MarketSnapshot, Resolution, Side, VenueMarket };
+export type { CallRecordCounts, RecordDisplay };
 
 // ── §3 frozen shapes ─────────────────────────────────────────────────────────
 
@@ -127,6 +129,11 @@ export interface Person {
    *  a void is never a win and never a loss (§3). */
   settledCalls: number;
   correctCalls: number;
+  /** The person's own profile line (`public.users.bio`). Absent when unset. */
+  bio?: string | null;
+  /** unix ms the account was created (`public.users.created_at`). Absent
+   *  when the directory row does not carry one — never a guessed date. */
+  joinedAt?: number | null;
 }
 
 /**
@@ -173,12 +180,138 @@ export interface CallDetail {
   entry: CallFeedEntry;
   parent: CallFeedEntry | null;
   responses: CallResponse[];
+  /**
+   * The thesis thread: timestamped follow-ups the AUTHOR appended after the
+   * call locked, oldest first. The original `call.thesis` is untouched by any
+   * of them — an update is a new row, never an edit (see `ThesisUpdate`).
+   */
+  updates: ThesisUpdate[];
+  /** False when the server cannot persist updates yet (its table is absent),
+   *  so a client offers no "Add update" action that would only fail. */
+  updatesAvailable: boolean;
 }
 
 export interface PersonDetail {
   person: Person;
   calls: CallFeedEntry[];
   viewerIsFollowing: boolean;
+  servedAt: number;
+  /** People who follow this person. A count only: the lists are not public. */
+  followerCount: number;
+  /** People this person follows. A count only. */
+  followingCount: number;
+  /** The record the public sees — see `PublicRecord`. */
+  record: PublicRecord;
+}
+
+// ── the thesis thread ────────────────────────────────────────────────────────
+
+/**
+ * One timestamped follow-up to a call's reason, written by the call's author.
+ *
+ * APPEND-ONLY. The original thesis is frozen with the call at `lockedAt`
+ * (§0.1), and nothing here changes that: an update is a separate row with its
+ * own `createdAt`, after the lock, so a reader can always tell what was said
+ * before the result from what was said after. There is no edit and no delete —
+ * the SQL trigger refuses both for every role, as the store does.
+ */
+export interface ThesisUpdate {
+  id: string;
+  callId: string;
+  /** canonical public.users.id of the call's author — nobody else may write one */
+  authorUserId: string;
+  /** 1..280 chars, trimmed */
+  body: string;
+  createdAt: number;
+}
+
+/** Per call, so a thread stays a thread and not a second feed. */
+export const MAX_THESIS_UPDATES_PER_CALL = 20;
+
+// ── the people layer ─────────────────────────────────────────────────────────
+
+/**
+ * What the public may see of a person's record.
+ *
+ * SCOPE: free calls the author made PUBLIC — including ones later hidden.
+ *   · followers-only calls are excluded, so an aggregate never discloses a
+ *     call outside the audience its author chose (visibility is fixed at lock
+ *     time, before any result, so excluding it cannot launder a record);
+ *   · hidden calls are INCLUDED, because hiding happens after the fact and a
+ *     record that withdrawing the losses could improve would be worth nothing
+ *     (§3: "it does not rewrite CallResult or accuracy history");
+ *   · funded positions are never blended in — that is a different band.
+ *
+ * `display` is `record.ts`'s `displayFor`: below the minimum decided sample it
+ * has NO accuracy field at all, so no client can render a percentage it was
+ * never handed.
+ */
+export interface PublicRecord {
+  counts: CallRecordCounts;
+  display: RecordDisplay;
+}
+
+/** A person as the people surfaces list them. Never a wallet. */
+export interface PersonCard {
+  id: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+  record: PublicRecord;
+  viewerIsFollowing: boolean;
+}
+
+export type LeaderboardWindow = "7d" | "30d" | "all";
+
+export interface LeaderboardRow {
+  /** 1-based. Present only for a person with enough decided calls to rank. */
+  rank: number | null;
+  person: Omit<PersonCard, "record" | "viewerIsFollowing">;
+  record: PublicRecord;
+}
+
+export interface Leaderboard {
+  window: LeaderboardWindow;
+  /** People with at least `minimumDecided` decided calls in the window, best first. */
+  ranked: LeaderboardRow[];
+  /** People with at least one decided call in the window but too few to rank.
+   *  Ordered by evidence (decided count), never by a ratio they have not earned. */
+  building: LeaderboardRow[];
+  /** The signed-in viewer's own row, or null when signed out. A viewer with no
+   *  decided call in the window still gets a row (all counts zero). */
+  viewer: (LeaderboardRow & { decidedToRank: number }) | null;
+  minimumDecided: number;
+  /** Plain-language ranking rule, shown under the board. */
+  rule: string;
+  servedAt: number;
+}
+
+/**
+ * An open call surfaced on Home's "Top calls" strip.
+ *
+ * `responses` is backs + fades + challenges: engagement with no direction, so
+ * it says "people are answering this" and never "people agree". The directional
+ * `split` follows the crowd-split gate — null until the VIEWER has their own
+ * call on this market — so the strip cannot leak what `markets.detail`
+ * withholds.
+ */
+export interface TopCall {
+  call: Call;
+  author: Omit<PersonCard, "viewerIsFollowing">;
+  market: VenueMarket;
+  responses: number;
+  split: { backs: number; fades: number } | null;
+  viewerHasCalled: boolean;
+}
+
+export interface TopCallsPage {
+  entries: TopCall[];
+  servedAt: number;
+}
+
+export interface PeopleSearchResult {
+  query: string;
+  people: PersonCard[];
   servedAt: number;
 }
 

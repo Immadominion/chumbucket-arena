@@ -79,6 +79,7 @@ import type {
   CallVisibility,
   FundingState,
   Person,
+  ThesisUpdate,
 } from "./types.ts";
 
 /** Cursor namespace in `public.indexer_cursors` (see `SupabasePredictionStore`). */
@@ -91,6 +92,8 @@ const USERS_TABLE = "users";
 const FOLLOWS_TABLE = "follows";
 const PERSON_FOLLOWS_TABLE = "person_follows";
 const CURSORS_TABLE = "indexer_cursors";
+/** Added by 20261002130000_call_thesis_updates.sql — optional until applied. */
+export const THESIS_UPDATES_TABLE = "call_thesis_updates";
 
 export interface SupabaseCallsStoreOptions {
   config: PgrestConfig & { network: "devnet" | "mainnet-beta" };
@@ -110,6 +113,8 @@ export interface CallsHydrationReport {
   responses: number;
   results: number;
   cursors: number;
+  /** Thesis updates mirrored, or null when the table is not there yet. */
+  thesisUpdates: number | null;
   /**
    * Rows Postgres holds that the mirror could not accept. Always zero for a
    * database written only by this store; non-zero means the mirror and the
@@ -129,6 +134,13 @@ export class SupabaseCallsStore implements CallsStore {
   private readonly network: "devnet" | "mainnet-beta";
   private readonly maxRowsPerTable: number;
   private hydration: CallsHydrationReport | null = null;
+  /**
+   * Whether `call_thesis_updates` answered at hydration. Until it has, no
+   * update is accepted: a write to a table that is not there would be refused
+   * upstream and quarantine the SHARED queue — every call, response and market
+   * write behind it — for a feature that is optional. Fail closed, locally.
+   */
+  private thesisTable = false;
 
   constructor(opts: SupabaseCallsStoreOptions) {
     this.pg = new Pgrest(opts.config, opts.fetchImpl);
@@ -173,6 +185,7 @@ export class SupabaseCallsStore implements CallsStore {
       responses: 0,
       results: 0,
       cursors: 0,
+      thesisUpdates: null,
       skipped: { calls: 0, responses: 0, results: 0 },
       hydratedAt: this.clock.now(),
     };
@@ -274,6 +287,9 @@ export class SupabaseCallsStore implements CallsStore {
       }
     }
 
+    // ── the thesis thread (optional table; never fails the hydration) ──
+    report.thesisUpdates = await this.hydrateThesisUpdates();
+
     // ── cursors ──
     for (const row of await this.pg.select<CursorRow>(
       CURSORS_TABLE,
@@ -289,6 +305,39 @@ export class SupabaseCallsStore implements CallsStore {
 
     this.hydration = report;
     return report;
+  }
+
+  /**
+   * Read the thesis thread into the mirror. The table arrives with its own
+   * additive migration, which may be applied after this code ships, so its
+   * absence — or any failure to read it — disables updates and nothing else.
+   * The calls, responses and results above are the product; this is a thread
+   * hung off them, and it must never be the reason the feed does not boot.
+   */
+  private async hydrateThesisUpdates(): Promise<number | null> {
+    this.thesisTable = false;
+    let rows: ThesisUpdateRow[];
+    try {
+      rows = await this.page<ThesisUpdateRow>(THESIS_UPDATES_TABLE, () => {
+        return new URLSearchParams({ select: THESIS_UPDATE_COLUMNS, order: "created_at.asc,id.asc" });
+      });
+    } catch (err) {
+      console.warn(
+        `[persist] hydrate: ${THESIS_UPDATES_TABLE} unavailable, so thesis updates are off until it is: ${message(err)}`,
+      );
+      return null;
+    }
+    let mirrored = 0;
+    for (const row of rows) {
+      try {
+        this.mirror.insertThesisUpdate(thesisUpdateFromRow(row));
+        mirrored++;
+      } catch (err) {
+        console.error(`[persist] hydrate: ${THESIS_UPDATES_TABLE}/${row.id} could not be mirrored: ${message(err)}`);
+      }
+    }
+    this.thesisTable = true;
+    return mirrored;
   }
 
   /** Forget the mirror and rebuild it from Postgres. The repair path. */
@@ -382,6 +431,10 @@ export class SupabaseCallsStore implements CallsStore {
 
   followingOf(followerUserId: string): string[] {
     return this.mirror.followingOf(followerUserId);
+  }
+
+  followersOf(followeeUserId: string): string[] {
+    return this.mirror.followersOf(followeeUserId);
   }
 
 
@@ -564,6 +617,49 @@ export class SupabaseCallsStore implements CallsStore {
     return this.mirror.listResponses();
   }
 
+  // ── the thesis thread ─────────────────────────────────────────────────────
+
+  insertThesisUpdate(rec: ThesisUpdate): ThesisUpdate {
+    if (!this.thesisTable) {
+      throw new CallsError(
+        "THESIS_UPDATES_UNAVAILABLE",
+        "Thesis updates aren't available yet. Your original call is unchanged.",
+        { details: { callId: rec.callId } },
+      );
+    }
+    // The mirror enforces author-only, not hidden, length, and the per-call
+    // cap — the same list as `call_thesis_updates_guard`.
+    const stored = this.mirror.insertThesisUpdate(rec);
+    this.queue.push(`insert ${THESIS_UPDATES_TABLE}/${rec.id}`, async () => {
+      this.assertUuid(rec.id, `${THESIS_UPDATES_TABLE}.id`);
+      this.assertUuid(rec.callId, `${THESIS_UPDATES_TABLE}.call_id`);
+      this.assertUuid(rec.authorUserId, `${THESIS_UPDATES_TABLE}.author_user_id`);
+      await this.pg.insert(
+        THESIS_UPDATES_TABLE,
+        [
+          {
+            id: stored.id,
+            call_id: stored.callId,
+            author_user_id: stored.authorUserId,
+            body: stored.body,
+            created_at: toTimestamptz(stored.createdAt),
+          },
+        ],
+        // Append-only by trigger: a replay of the same id is the same fact.
+        { onConflict: "id", ignoreDuplicates: true },
+      );
+    });
+    return stored;
+  }
+
+  thesisUpdatesFor(callId: string): ThesisUpdate[] {
+    return this.mirror.thesisUpdatesFor(callId);
+  }
+
+  thesisUpdatesAvailable(): boolean {
+    return this.thesisTable;
+  }
+
   // ── results (service-write only) ──────────────────────────────────────────
 
   /**
@@ -681,7 +777,11 @@ export class SupabaseCallsStore implements CallsStore {
 
 // ── row shapes and mappers ───────────────────────────────────────────────────
 
-const USER_COLUMNS = "id,handle,full_name,profile_picture,wallet_address,sns_domain";
+// `bio` and `created_at` are on `public.users` since the remote baseline and
+// are already granted to anon as public display columns
+// (20260719161500_security_hardening_pii_columns.sql), so reading them here
+// discloses nothing the profile row does not.
+const USER_COLUMNS = "id,handle,full_name,profile_picture,wallet_address,sns_domain,bio,created_at";
 
 interface UserRow {
   id: string;
@@ -690,6 +790,8 @@ interface UserRow {
   profile_picture: string | null;
   wallet_address: string | null;
   sns_domain: string | null;
+  bio?: string | null;
+  created_at?: string | null;
 }
 
 /**
@@ -706,6 +808,8 @@ interface UserRow {
  */
 export function personFromRow(row: UserRow): Person {
   const handle = row.handle ?? row.sns_domain ?? `user-${row.id.slice(0, 8)}`;
+  const bio = row.bio?.trim();
+  const joinedAt = parseTimestamptz(row.created_at ?? null);
   return {
     id: row.id,
     handle,
@@ -714,6 +818,10 @@ export function personFromRow(row: UserRow): Person {
     walletAddress: row.wallet_address,
     settledCalls: 0,
     correctCalls: 0,
+    // Present only when the row carries them: an absent join date is unknown,
+    // never "today".
+    ...(bio ? { bio } : {}),
+    ...(joinedAt !== null ? { joinedAt } : {}),
   };
 }
 
@@ -832,6 +940,26 @@ function evidenceFromResultRow(row: ResultRow, marketId: string): MarketResoluti
 interface CursorRow {
   cursor_key: string;
   last_signature: string | null;
+}
+
+const THESIS_UPDATE_COLUMNS = "id,call_id,author_user_id,body,created_at";
+
+interface ThesisUpdateRow {
+  id: string;
+  call_id: string;
+  author_user_id: string;
+  body: string;
+  created_at: string;
+}
+
+export function thesisUpdateFromRow(row: ThesisUpdateRow): ThesisUpdate {
+  return {
+    id: row.id,
+    callId: row.call_id,
+    authorUserId: row.author_user_id,
+    body: row.body,
+    createdAt: fromTimestamptz(row.created_at, `${THESIS_UPDATES_TABLE}.created_at`),
+  };
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));

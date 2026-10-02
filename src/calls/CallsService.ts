@@ -27,7 +27,8 @@ import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { CallsError } from "./errors.ts";
 import { acceptsNewCalls, type VenueMarketReader } from "./markets.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
-import { accuracyOf, type CallsStore } from "./store.ts";
+import { PeopleDirectory } from "./people.ts";
+import { accuracyOf, THESIS_UPDATE_MAX, type CallsStore } from "./store.ts";
 import {
   assertMoneyFree,
   toCall,
@@ -42,15 +43,24 @@ import {
   type ChallengeInvitation,
   type CreateCallInput,
   type CrowdSplit,
+  type Leaderboard,
+  type LeaderboardWindow,
   type MarketDetail,
+  type PeopleSearchResult,
+  type PersonCard,
   type Person,
   type PersonDetail,
   type RespondToCallInput,
   type Side,
+  type ThesisUpdate,
+  type TopCallsPage,
   type VenueMarket,
 } from "./types.ts";
 
 export type FeedMode = "global" | "following";
+
+/** What a generated id names. A persisted store needs a UUID for each. */
+export type CallsIdKind = "call" | "response" | "update";
 
 export interface CallsServiceDeps {
   /** Local integration seam; production runtime remains gated until release approval. */
@@ -60,7 +70,7 @@ export interface CallsServiceDeps {
   clock?: Clock;
   receipts?: CallReceiptsProjection;
   /** Injectable so ids are deterministic in a test. */
-  newId?: (kind: "call" | "response") => string;
+  newId?: (kind: CallsIdKind) => string;
   /** Bound on a feed page. */
   maxPageSize?: number;
 }
@@ -73,9 +83,11 @@ export class CallsService {
   private readonly clock: Clock;
   private readonly receipts: CallReceiptsProjection | undefined;
   private readonly maxPageSize: number;
-  private readonly newId: (kind: "call" | "response") => string;
+  private readonly newId: (kind: CallsIdKind) => string;
   private seq = 0;
   private readonly allowPantaCalls: boolean;
+  /** Leaderboard, search, top calls and the shared public record. */
+  readonly people: PeopleDirectory;
 
   constructor(deps: CallsServiceDeps) {
     this.allowPantaCalls = deps.allowPantaCalls === true;
@@ -85,6 +97,7 @@ export class CallsService {
     this.receipts = deps.receipts;
     this.maxPageSize = deps.maxPageSize ?? 50;
     this.newId = deps.newId ?? ((kind) => `${kind}_${++this.seq}_${this.clock.now().toString(36)}`);
+    this.people = new PeopleDirectory({ store: this.store, markets: this.markets, clock: this.clock });
   }
 
   // ── 1. calls.feed ─────────────────────────────────────────────────────────
@@ -185,7 +198,55 @@ export class CallsService {
         .responsesForTarget(call.id)
         .sort((a, b) => a.createdAt - b.createdAt)
         .map(toCallResponse),
+      // Exactly as visible as the call itself: requireVisibleCall above is
+      // the only gate, so a thread can never be read around its call.
+      updates: this.store.thesisUpdatesFor(call.id),
+      updatesAvailable: this.store.thesisUpdatesAvailable(),
     };
+  }
+
+  // ── 4b. calls.addUpdate — the thesis thread ──────────────────────────────
+
+  /**
+   * Append a timestamped follow-up to the actor's OWN call. The original
+   * thesis is not touched — it is frozen with the call (§0.1) — so what was
+   * said before the result and what was said after are always distinguishable.
+   *
+   * The actor comes from the verified session. Somebody else's call is refused
+   * with the same "couldn't find" a followers-only call gets when the actor
+   * cannot see it, and with a plain refusal when they can.
+   */
+  appendThesisUpdate(args: { callId: string; body: string }, actorUserId: string): ThesisUpdate {
+    const call = this.requireVisibleCall(args.callId, actorUserId);
+    if (call.userId !== actorUserId) {
+      throw new CallsError("THESIS_NOT_AUTHOR", "Only the person who made this call can add to its thesis.", {
+        details: { callId: call.id },
+      });
+    }
+    if (call.hiddenAt !== null) {
+      // A new update is always written now, so a withdrawn call takes none.
+      throw new CallsError("CALL_HIDDEN", "This call was withdrawn, so its thesis can't take new updates.", {
+        details: { callId: call.id },
+      });
+    }
+    if (!this.store.thesisUpdatesAvailable()) {
+      throw new CallsError(
+        "THESIS_UPDATES_UNAVAILABLE",
+        "Thesis updates aren't available yet. Your original call is unchanged.",
+      );
+    }
+    const body = args.body.trim();
+    if (body.length === 0) throw new CallsError("CALL_INVALID", "Write something before posting an update.");
+    if (body.length > THESIS_UPDATE_MAX) {
+      throw new CallsError("CALL_INVALID", `Keep an update to ${THESIS_UPDATE_MAX} characters.`);
+    }
+    return this.store.insertThesisUpdate({
+      id: this.newId("update"),
+      callId: call.id,
+      authorUserId: actorUserId,
+      body,
+      createdAt: this.clock.now(),
+    });
   }
 
   // ── 5. people.get ─────────────────────────────────────────────────────────
@@ -206,7 +267,32 @@ export class CallsService {
       viewerIsFollowing: viewerUserId !== null && viewerUserId !== person.id
         ? this.store.isFollowing(viewerUserId, person.id) : false,
       servedAt: this.clock.now(),
+      followerCount: this.store.followersOf(person.id).length,
+      followingCount: this.store.followingOf(person.id).length,
+      record: this.people.publicRecord(person.id),
     };
+  }
+
+  // ── 5b. the people layer ─────────────────────────────────────────────────
+
+  /** people.leaderboard — see `PeopleDirectory.leaderboard`. */
+  leaderboard(args: { window: LeaderboardWindow; limit?: number }, viewerUserId: string | null): Leaderboard {
+    return this.people.leaderboard({ window: args.window, limit: clamp(args.limit ?? 50, 1, 100) }, viewerUserId);
+  }
+
+  /** people.search — by handle or name, never by wallet. */
+  searchPeople(args: { query: string; limit?: number }, viewerUserId: string | null): PeopleSearchResult {
+    return this.people.searchPeople({ query: args.query, limit: clamp(args.limit ?? 20, 1, 50) }, viewerUserId);
+  }
+
+  /** people.following — the session's own follow list, and nobody else's. */
+  followingOf(viewerUserId: string): PersonCard[] {
+    return this.people.following(viewerUserId);
+  }
+
+  /** calls.top — open calls worth answering, crowd direction gated. */
+  topCalls(args: { limit?: number }, viewerUserId: string | null): TopCallsPage {
+    return this.people.topCalls({ limit: clamp(args.limit ?? 10, 1, 20) }, viewerUserId);
   }
 
   /** The actor is supplied by the verified session, never by the request. */

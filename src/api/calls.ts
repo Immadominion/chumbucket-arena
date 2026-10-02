@@ -8,6 +8,12 @@
  *   people.get · calls.create · calls.respond · calls.invitations
  *   people.follow · people.unfollow
  *
+ * and the people layer that makes the product people-first (all additive —
+ * no existing path or shape changes; see src/calls/people.ts):
+ *
+ *   people.leaderboard · people.search · people.following
+ *   calls.top · calls.addUpdate
+ *
  * Deliberate properties:
  *  - it is ONE new file and touches no integration-owned file. Nesting it is
  *    three added keys in `src/api/router.ts` (§1/§6), filed as an exact patch in
@@ -55,6 +61,7 @@ import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 const SIDE = z.enum(["YES", "NO"]);
 const VISIBILITY = z.enum(["public", "followers"]);
 const RESPONSE_KIND = z.enum(["back", "fade", "challenge"]);
+const LEADERBOARD_WINDOW = z.enum(["7d", "30d", "all"]);
 const probability = z.number().min(0).max(1);
 const thesis = z.string().max(280);
 
@@ -116,6 +123,9 @@ const CALLS_CODE_MAP: Record<CallsErrorCode, TRPC_ERROR_CODE_KEY> = {
   RESPONSE_DUPLICATE: "CONFLICT",
   PERSON_NOT_FOUND: "NOT_FOUND",
   FOLLOW_SELF: "BAD_REQUEST",
+  THESIS_NOT_AUTHOR: "FORBIDDEN",
+  THESIS_UPDATE_LIMIT: "CONFLICT",
+  THESIS_UPDATES_UNAVAILABLE: "PRECONDITION_FAILED",
 
   // invariants. Reaching one of these from a route means OUR bug, so it is
   // loud rather than dressed up as a user-facing refusal.
@@ -280,6 +290,37 @@ const callsNamespace = router({
     const rt = runtime(ctx.app.config);
     return call(async () => rt.service.invitations(await requireViewer(rt, ctx)));
   }),
+
+  /**
+   * Home's "Top calls": open public calls worth answering, by response VOLUME
+   * and the author's evidence-weighted record. Public. The directional
+   * back/fade `split` is null until the session's own call exists on that
+   * market — the crowd-split gate, applied at the source.
+   */
+  top: publicProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(20).default(10) }).strict().default({ limit: 10 }))
+    .query(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => rt.service.topCalls({ limit: input.limit }, await viewerOf(rt, ctx)));
+    }),
+
+  /**
+   * Append a timestamped update to the session's OWN call's thesis. The
+   * original thesis is immutable and stays exactly as locked; this adds a row
+   * after it. Author-only, append-only, capped per call.
+   */
+  addUpdate: publicProcedure
+    .input(z.object({ callId: z.string().min(1).max(256), body: z.string().trim().min(1).max(280) }).strict())
+    .mutation(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        const actor = await requireViewer(rt, ctx);
+        const update = rt.service.appendThesisUpdate({ callId: input.callId, body: input.body }, actor);
+        // Acknowledged only once Postgres has it, like a call.
+        await rt.durable?.flush();
+        return update;
+      });
+    }),
 });
 
 // ── markets.* ────────────────────────────────────────────────────────────────
@@ -343,6 +384,56 @@ const peopleNamespace = router({
         return state;
       });
     }),
+
+  /**
+   * People ranked by their public call record inside a window. Public. Nobody
+   * is ranked below the minimum decided sample, and nobody is ranked by money.
+   * The session (never an input) only adds the pinned `viewer` row.
+   */
+  leaderboard: publicProcedure
+    .input(
+      z
+        .object({
+          window: LEADERBOARD_WINDOW.default("30d"),
+          limit: z.number().int().min(1).max(100).default(50),
+        })
+        .strict()
+        .default({ window: "30d", limit: 50 }),
+    )
+    .query(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        await rt.ready;
+        return rt.service.leaderboard({ window: input.window, limit: input.limit }, await viewerOf(rt, ctx));
+      });
+    }),
+
+  /** The directory by handle or name. Never by wallet (§0.3). Public. */
+  search: publicProcedure
+    .input(
+      z
+        .object({
+          query: z.string().trim().min(1).max(64),
+          limit: z.number().int().min(1).max(50).default(20),
+        })
+        .strict(),
+    )
+    .query(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        await rt.ready;
+        return rt.service.searchPeople({ query: input.query, limit: input.limit }, await viewerOf(rt, ctx));
+      });
+    }),
+
+  /**
+   * The people the SESSION follows. There is no input naming whose list —
+   * follow lists are not public, only their counts are (people.get).
+   */
+  following: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => {
+    const rt = runtime(ctx.app.config);
+    return call(async () => ({ people: rt.service.followingOf(await requireViewer(rt, ctx)) }));
+  }),
 });
 
 /**

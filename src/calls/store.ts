@@ -29,13 +29,15 @@
 import { deriveCallOutcome, type MarketResolutionRecord } from "../prediction/types.ts";
 import { CallsError } from "./errors.ts";
 import { parseSharePrice, usableSharePrice } from "../prediction/sharePrices.ts";
-import type {
-  Call,
-  CallRecord,
-  CallResponseKind,
-  CallResponseRecord,
-  CallResult,
-  Person,
+import {
+  MAX_THESIS_UPDATES_PER_CALL,
+  type Call,
+  type CallRecord,
+  type CallResponseKind,
+  type CallResponseRecord,
+  type CallResult,
+  type Person,
+  type ThesisUpdate,
 } from "./types.ts";
 
 /**
@@ -71,6 +73,9 @@ export const IMMUTABLE_CALL_FIELDS: ReadonlyArray<{ field: keyof CallRecord; col
   { field: "visibility", column: "visibility", source: "§0.1 (the audience)" },
 ] as const;
 
+/** The same bound `calls.thesis` has (`calls_thesis_length`). */
+export const THESIS_UPDATE_MAX = 280;
+
 /** The ONLY fields any writer may change on a locked call. */
 export const MUTABLE_CALL_FIELDS: ReadonlyArray<keyof CallRecord> = ["hiddenAt", "hiddenReason"] as const;
 
@@ -87,6 +92,7 @@ export interface CallsStore {
   unfollow(followerUserId: string, followeeUserId: string): void;
   isFollowing(followerUserId: string, followeeUserId: string): boolean;
   followingOf(followerUserId: string): string[];
+  followersOf(followeeUserId: string): string[];
 
   // ── calls ─────────────────────────────────────────────────────────────────
   insertCall(rec: CallRecord): CallRecord;
@@ -111,6 +117,21 @@ export interface CallsStore {
   responseBy(actorUserId: string, targetCallId: string, kind: CallResponseKind): CallResponseRecord | undefined;
   responsesByActor(actorUserId: string): CallResponseRecord[];
   listResponses(): CallResponseRecord[];
+
+  // ── the thesis thread (append-only) ─────────────────────────────────────
+  /**
+   * Append one follow-up to a call's reason. Refuses — exactly as
+   * `call_thesis_updates_guard` does — anything but the call's own author, a
+   * hidden call, an empty or over-long body, a duplicate id, or a thread
+   * already at `MAX_THESIS_UPDATES_PER_CALL`. There is no update and no delete
+   * method: an update is a timestamped fact like the call it follows.
+   */
+  insertThesisUpdate(rec: ThesisUpdate): ThesisUpdate;
+  /** Oldest first. */
+  thesisUpdatesFor(callId: string): ThesisUpdate[];
+  /** False when the durable table is not there yet, so nothing is offered
+   *  that could only be refused. Always true in memory. */
+  thesisUpdatesAvailable(): boolean;
 
   // ── results (service-write only) ──────────────────────────────────────────
   /**
@@ -144,6 +165,8 @@ export class InMemoryCallsStore implements CallsStore {
   private readonly responses = new Map<string, CallResponseRecord>();
   private readonly results = new Map<string, CallResult>();
   private readonly cursors = new Map<string, string | null>();
+  private readonly updates = new Map<string, ThesisUpdate[]>();
+  private readonly updateIds = new Set<string>();
 
   // ── people ────────────────────────────────────────────────────────────────
 
@@ -192,6 +215,13 @@ export class InMemoryCallsStore implements CallsStore {
     const out: string[] = [];
     const prefix = `${followerUserId}->`;
     for (const k of this.follows) if (k.startsWith(prefix)) out.push(k.slice(prefix.length));
+    return out;
+  }
+
+  followersOf(followeeUserId: string): string[] {
+    const out: string[] = [];
+    const suffix = `->${followeeUserId}`;
+    for (const k of this.follows) if (k.endsWith(suffix)) out.push(k.slice(0, -suffix.length));
     return out;
   }
 
@@ -385,6 +415,57 @@ export class InMemoryCallsStore implements CallsStore {
 
   listResponses(): CallResponseRecord[] {
     return [...this.responses.values()];
+  }
+
+  // ── the thesis thread ─────────────────────────────────────────────────────
+
+  insertThesisUpdate(rec: ThesisUpdate): ThesisUpdate {
+    const call = this.require(rec.callId);
+    if (rec.authorUserId !== call.userId) {
+      throw new CallsError("THESIS_NOT_AUTHOR", "Only the person who made this call can add to its thesis.", {
+        details: { callId: rec.callId },
+      });
+    }
+    // Withdrawn means no NEW updates. One written before the withdrawal stays
+    // part of the call's history, which is what lets hydration replay it onto
+    // a call that was hidden afterwards.
+    if (call.hiddenAt !== null && rec.createdAt >= call.hiddenAt) {
+      throw new CallsError("CALL_HIDDEN", "This call was withdrawn, so its thesis can't take new updates.", {
+        details: { callId: rec.callId },
+      });
+    }
+    const body = rec.body.trim();
+    if (body.length === 0 || body.length > THESIS_UPDATE_MAX) {
+      throw new CallsError("CALL_INVALID", `An update needs 1 to ${THESIS_UPDATE_MAX} characters.`);
+    }
+    if (rec.createdAt < call.lockedAt) {
+      // An update follows the lock by definition; one dated before it would
+      // read as part of the original statement.
+      throw new CallsError("CALL_INVALID", "An update can't be dated before the call it follows.");
+    }
+    if (this.updateIds.has(rec.id)) {
+      throw new CallsError("CALL_INVALID", `thesis update ${rec.id} already exists`);
+    }
+    const thread = this.updates.get(rec.callId) ?? [];
+    if (thread.length >= MAX_THESIS_UPDATES_PER_CALL) {
+      throw new CallsError(
+        "THESIS_UPDATE_LIMIT",
+        `This thesis already has ${MAX_THESIS_UPDATES_PER_CALL} updates, the most one call can carry.`,
+        { details: { callId: rec.callId } },
+      );
+    }
+    const stored = Object.freeze({ ...rec, body });
+    this.updates.set(rec.callId, [...thread, stored]);
+    this.updateIds.add(rec.id);
+    return stored;
+  }
+
+  thesisUpdatesFor(callId: string): ThesisUpdate[] {
+    return [...(this.updates.get(callId) ?? [])].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  }
+
+  thesisUpdatesAvailable(): boolean {
+    return true;
   }
 
   // ── results ───────────────────────────────────────────────────────────────
