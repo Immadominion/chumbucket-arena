@@ -91,6 +91,12 @@ export interface LinkWalletInput {
   message: string;
   signature: string;
   purpose?: WalletPurpose;
+  /**
+   * How the person holds the key: "mwa" (a wallet app, the default) or
+   * "embedded" (a key the Chumbucket app made on the phone). A label only —
+   * ownership is proven by the signature either way.
+   */
+  walletType?: "mwa" | "embedded";
 }
 
 export interface LinkWalletResult {
@@ -356,6 +362,7 @@ export class WalletLinkService {
       walletAddress: fields.address,
       proofVersion: policy.proofVersion,
       ...(nonceId ? { nonceId } : {}),
+      ...(input.walletType ? { walletType: input.walletType } : {}),
     });
     if (!attached.ok) failAuth(codeForStoreReason(attached.reason, "WALLET_LINK_FAILED"));
 

@@ -332,6 +332,8 @@ export const authRouter = router({
         message: z.string().min(1).max(4096),
         signature: z.string().min(1).max(256),
         purpose: purpose.optional(),
+        /** "embedded": a key the app generated on the phone. Label only. */
+        walletType: z.enum(["mwa", "embedded"]).optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -342,6 +344,7 @@ export const authRouter = router({
           message: input.message,
           signature: input.signature,
           ...(input.purpose ? { purpose: input.purpose } : {}),
+          ...(input.walletType ? { walletType: input.walletType } : {}),
         }),
       ),
     ),

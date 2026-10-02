@@ -86,6 +86,7 @@ interface WalletRow {
   address: string;
   revokedAt: number | null;
   proofVersion: number;
+  walletType: string;
 }
 
 interface ClaimRow {
@@ -140,6 +141,11 @@ export class FakeIdentityStore implements IdentityStore {
   walletOwner(address: string): string | undefined {
     const row = this.wallets.get(address);
     return row && row.revokedAt === null ? row.userId : undefined;
+  }
+
+  /** Direct read used by assertions: how the linked wallet's key is held. */
+  walletTypeOf(address: string): string | undefined {
+    return this.wallets.get(address)?.walletType;
   }
 
   claimFor(provider: string, subject: string): ClaimRow | undefined {
@@ -367,6 +373,7 @@ export class FakeIdentityStore implements IdentityStore {
       address: input.walletAddress,
       revokedAt: null,
       proofVersion: input.proofVersion,
+      walletType: input.walletType ?? "mwa",
     };
     this.wallets.set(row.address, row);
     this.audit.push({ action: "linked", address: row.address, toUserId: input.userId });
