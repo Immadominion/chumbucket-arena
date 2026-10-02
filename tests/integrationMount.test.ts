@@ -80,7 +80,7 @@ describe("pivot sub-routers are mounted on the root router", () => {
 
   test("the SIWS allowlist parses to a real list, and is absent when unset", () => {
     expect(loadConfig({}).authIdentity).toBeUndefined();
-    const cfg = loadConfig({ SIWS_DOMAINS: "chumbucket.app, staging.chumbucket.app ,," });
-    expect(cfg.authIdentity?.siwsDomains).toEqual(["chumbucket.app", "staging.chumbucket.app"]);
+    const cfg = loadConfig({ SIWS_DOMAINS: "chumbucket.fun, staging.chumbucket.fun ,," });
+    expect(cfg.authIdentity?.siwsDomains).toEqual(["chumbucket.fun", "staging.chumbucket.fun"]);
   });
 });

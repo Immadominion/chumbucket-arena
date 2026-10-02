@@ -47,11 +47,16 @@ export interface AuthIdentityPolicy {
  * present — so the integration owner's patch takes effect with no change here.
  *
  * It is a fixture, not a placeholder: shipping with it is safe. It denies every
- * domain except the product's own.
+ * domain except the product's own: chumbucket.fun, the owner's live site and
+ * the domain Supabase's Sign in with Solana already uses. (It used to name
+ * chumbucket.app, which was never registered: anyone who registered it could
+ * have asked people to sign messages this server would accept.) The mobile
+ * app pins the same value (existing_account_proof.dart) and refuses to sign
+ * when the server's allowlist does not include it.
  */
 export const FIXTURE_AUTH_IDENTITY_POLICY = {
-  allowedDomains: ["chumbucket.app"] as const,
-  allowedUris: ["https://chumbucket.app"] as const,
+  allowedDomains: ["chumbucket.fun"] as const,
+  allowedUris: ["https://chumbucket.fun"] as const,
   nonceTtlSeconds: 300,
 };
 

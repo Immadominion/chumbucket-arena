@@ -322,7 +322,7 @@ describe("linkWallet — every rejection, and each one distinct", () => {
   test("a wrong domain is refused", async () => {
     const alice = makeWallet();
     const p = await provenProof(h, "tok-alice", alice);
-    const evil = tamper(p.fields, { domain: "chumbucket.app.evil.example" }, alice);
+    const evil = tamper(p.fields, { domain: "chumbucket.fun.evil.example" }, alice);
 
     expect(
       await codeOf(() =>

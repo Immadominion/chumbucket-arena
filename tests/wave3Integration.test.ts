@@ -278,3 +278,25 @@ describe("top calls follow the call cut-off (money x fomo)", () => {
     expect(noCutoff.topCalls({ limit: 10 }, "u-ann").entries.map((e) => e.market.id).sort()).toEqual(["m-later", "m-soon"]);
   });
 });
+
+describe("the account-claim proof names chumbucket.fun (identity, app and BFF together)", () => {
+  test("the shipped allowlist is the live domain only; the unregistered chumbucket.app is refused", async () => {
+    const { FIXTURE_AUTH_IDENTITY_POLICY, resolveAuthIdentityPolicy } = await import("../src/auth/AuthIdentityRuntime.ts");
+    expect([...FIXTURE_AUTH_IDENTITY_POLICY.allowedDomains]).toEqual(["chumbucket.fun"]);
+    expect([...FIXTURE_AUTH_IDENTITY_POLICY.allowedUris]).toEqual(["https://chumbucket.fun"]);
+    const policy = resolveAuthIdentityPolicy((await testApp()).config);
+    expect(policy.allowedDomains).toEqual(["chumbucket.fun"]);
+    expect(policy.allowedDomains).not.toContain("chumbucket.app");
+  });
+
+  test("the mobile app pins the same domain and URI (when the sibling checkout is present)", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const mobile = process.env.CHUMBUCKET_MOBILE_DIR ?? join(import.meta.dir, "../../chumbucket-social-calls");
+    const file = join(mobile, "lib/features/authentication/session/existing_account_proof.dart");
+    if (!existsSync(file)) return;
+    const dart = readFileSync(file, "utf8");
+    expect(dart).toContain("const accountClaimDomain = 'chumbucket.fun';");
+    expect(dart).toContain("const accountClaimUri = 'https://chumbucket.fun';");
+  });
+});

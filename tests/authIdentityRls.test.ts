@@ -414,9 +414,9 @@ describeLive("auth_identity migrations — LIVE database RLS [requires AUTH_IDEN
       const hash = "c".repeat(64);
       await db`DELETE FROM public.wallet_nonces WHERE nonce_hash = ${hash}`;
       await db`SELECT public.issue_wallet_nonce_v1(${hash}, ${userId}::uuid, 'ProbeAddress', 'link_wallet',
-                'chumbucket.app', 'https://chumbucket.app', 'devnet', 300)`;
+                'chumbucket.fun', 'https://chumbucket.fun', 'devnet', 300)`;
 
-      const args = [hash, userId, "ProbeAddress", "link_wallet", "chumbucket.app", "https://chumbucket.app", "devnet"];
+      const args = [hash, userId, "ProbeAddress", "link_wallet", "chumbucket.fun", "https://chumbucket.fun", "devnet"];
       const [first] = await db`SELECT public.consume_wallet_nonce_v1(${args[0]}, ${args[1]}::uuid, ${args[2]},
                 ${args[3]}, ${args[4]}, ${args[5]}, ${args[6]}) AS r`;
       const [second] = await db`SELECT public.consume_wallet_nonce_v1(${args[0]}, ${args[1]}::uuid, ${args[2]},

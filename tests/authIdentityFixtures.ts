@@ -406,8 +406,8 @@ export class FakeIdentityStore implements IdentityStore {
 
 // ── policy ──────────────────────────────────────────────────────────────────
 
-export const TEST_DOMAIN = "chumbucket.app";
-export const TEST_URI = "https://chumbucket.app";
+export const TEST_DOMAIN = "chumbucket.fun";
+export const TEST_URI = "https://chumbucket.fun";
 
 export const testPolicy = {
   allowedDomains: [TEST_DOMAIN] as const,
