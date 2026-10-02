@@ -4,16 +4,19 @@ import Providers from "@/components/Providers";
 import { SessionProvider } from "@/lib/session";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  title: "ChumBucket - predict football with friends, settled by TxLINE",
+  // Absolute OG/Twitter URLs. Defaults to the live site so a deploy without
+  // NEXT_PUBLIC_SITE_URL never advertises localhost in link previews.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://chumbucket.fun"),
+  title: "Chumbucket: see what people call on real prediction markets",
   description:
-    "Predict a football match, challenge a friend, and let the real score settle it on Solana via TxLINE.",
+    "Follow named people's calls on live Panta prediction markets. Back them, fade them, or challenge a friend, and keep a receipt nobody can edit.",
   icons: { icon: "/img/bucket.png" },
   openGraph: {
-    title: "ChumBucket - predict football with friends, settled by TxLINE",
+    siteName: "Chumbucket",
+    title: "Chumbucket: see what people call on real prediction markets",
     description:
-      "Predict a football match, challenge a friend, and let the real score settle it on Solana via TxLINE.",
-    images: ["/img/logo.png"],
+      "Follow named people's calls on live Panta prediction markets. Back them, fade them, or challenge a friend, and keep a receipt nobody can edit.",
+    images: ["/img/logo-320.png"],
   },
 };
 
