@@ -25,9 +25,9 @@ export default async function Image({ params }: { params: Promise<Params> | Para
       body: market.question,
       stamp:
         outcome.tone === "won"
-          ? { text: "CALLED IT", tone: "won" }
+          ? { text: "CORRECT", tone: "won" }
           : outcome.tone === "lost"
-            ? { text: "MISSED", tone: "lost" }
+            ? { text: "INCORRECT", tone: "lost" }
             : outcome.tone === "void"
               ? { text: "VOID", tone: "neutral" }
               : { text: "PENDING", tone: "neutral" },

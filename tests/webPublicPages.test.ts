@@ -103,7 +103,7 @@ describe("presentation", () => {
 
   test("outcomes and records", () => {
     expect(outcomeCopy(null).tone).toBe("pending");
-    expect(outcomeCopy({ callId: "c", outcome: "CORRECT", resolution: "YES", resolvedAt: 1 }).label).toBe("Called it");
+    expect(outcomeCopy({ callId: "c", outcome: "CORRECT", resolution: "YES", resolvedAt: 1 }).label).toBe("Correct");
     expect(outcomeCopy({ callId: "c", outcome: "INCORRECT", resolution: "NO", resolvedAt: 1 }).tone).toBe("lost");
     const base = { id: "u", handle: "a", displayName: "A", avatarUrl: null };
     expect(recordLabel({ ...base, settledCalls: 0, correctCalls: 0 })).toBe("No settled calls yet");

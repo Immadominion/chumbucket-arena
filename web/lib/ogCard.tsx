@@ -58,7 +58,7 @@ export interface OgCardInput {
   trailing?: string | null;
   /** The market question or a person's record line. */
   body: string;
-  /** Bottom-right stamp, e.g. "CALLED IT". */
+  /** Bottom-right stamp, e.g. "CORRECT". */
   stamp?: { text: string; tone: "won" | "lost" | "neutral" } | null;
   footer: string;
 }

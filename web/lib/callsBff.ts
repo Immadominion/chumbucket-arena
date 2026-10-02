@@ -185,14 +185,15 @@ export function sideLabel(market: Market, side: Side): string {
 
 export function outcomeCopy(result: CallResult | null): { label: string; tone: "pending" | "won" | "lost" | "void" } {
   switch (result?.outcome) {
+    // Same words as the app's receipt badges (call_badges.dart).
     case "CORRECT":
-      return { label: "Called it", tone: "won" };
+      return { label: "Correct", tone: "won" };
     case "INCORRECT":
-      return { label: "Missed", tone: "lost" };
+      return { label: "Incorrect", tone: "lost" };
     case "VOID":
       return { label: "Void", tone: "void" };
     default:
-      return { label: "Waiting on the result", tone: "pending" };
+      return { label: "Pending", tone: "pending" };
   }
 }
 
