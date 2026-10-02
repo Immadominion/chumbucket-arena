@@ -28,6 +28,7 @@ import { predictionsRouter } from "./predictions.ts";
 import { pantaTradingRouter } from "./pantaTrading.ts";
 import { socialCallsRouter, socialMarketsRouter, socialPeopleRouter } from "./calls.ts";
 import { socialNotificationsRouter, socialRecordRouter } from "./notifications.ts";
+import { depositsRouter } from "./deposits.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -83,6 +84,12 @@ export const appRouter = router({
    *  inbox.markRead, record.mine, record.get. */
   inbox: socialNotificationsRouter,
   record: socialRecordRouter,
+
+  /** Add funds: Crossmint onramp to the signed-in person's own verified
+   *  wallet, plus that wallet's real mainnet balance. Distinct from the
+   *  legacy custodial `deposit`/`depositAddress` procedures below. Paths:
+   *  deposits.status, .balance, .quote, .create, .order, .verifyWallet. */
+  deposits: depositsRouter,
 
   // ── health / meta ────────────────────────────────────────────────────────
   health: publicProcedure.query(({ ctx }) => ({

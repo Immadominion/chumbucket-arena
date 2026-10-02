@@ -1,0 +1,319 @@
+# Crossmint deposits: research and integration notes
+
+Read from Crossmint's official docs on 2 October 2026. Every claim below links to
+the page it came from. Crossmint serves each docs page as Markdown when you add
+`.md` to the URL. The full index is at <https://docs.crossmint.com/llms.txt>.
+
+## TL;DR
+
+- **Product:** use **Crossmint Onramp**. It sells stablecoins for card, Apple Pay
+  or Google Pay and delivers them to a wallet address, so it is a top-up rather
+  than the purchase of an item
+  ([checkout vs onramp FAQ](https://docs.crossmint.com/payments/introduction.md)).
+  Onramp is card-rail only (`payment.method: "card"`). Apple Pay and Google Pay
+  ride that rail
+  ([create order](https://docs.crossmint.com/onramp/api-reference/create-order.md),
+  [payment methods](https://docs.crossmint.com/onramp/concepts/payment-methods.md)).
+- **Asset:** USDC on Solana. In production the token locator is
+  `solana:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`, which is the same
+  mainnet mint Panta trades in. In staging it is
+  `solana:4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`, devnet test USDC
+  ([create order, tokenLocator table](https://docs.crossmint.com/onramp/api-reference/create-order.md)).
+- **Our wallets are "external" to Crossmint.** Before an order can name a wallet
+  as the recipient, the server must link that wallet to a Crossmint user. If it
+  does not, order creation fails with `ExternalWalletNotLinkedToUserError`
+  ([recipient schema](https://docs.crossmint.com/onramp/api-reference/create-order.md),
+  [external wallets guide](https://docs.crossmint.com/onramp/guides/onramp-to-external-wallets.md)).
+- **Mobile:** load the documented embedded-checkout URL in a WebView or in an
+  in-app browser
+  ([Mobile WebView Integration](https://docs.crossmint.com/payments/embedded/guides/webview-integration.md)).
+  Crossmint publishes a Flutter SDK (`crossmint_flutter`), but this repo resolves
+  packages `--offline` and that package is not in the cache. The app therefore
+  uses `webview_flutter`, which is already a dependency, with the settings
+  Crossmint lists for each platform.
+- **Status:** poll `GET /api/2022-06-09/orders/{orderId}` with the server key.
+  Crossmint documents polling (about every 2.5 s, never below 500 ms) as a
+  supported way to track delivery, and recommends it, or webhooks, for native
+  apps ([delivery phase](https://docs.crossmint.com/payments/headless/guides/order-lifecycle/delivery-phase.md)).
+  **Webhooks are optional**, so this integration ships no webhook route.
+- **Production is not self-serve.** It requires a signed Order Form and a
+  completed KYB check of the business
+  ([account verification](https://docs.crossmint.com/introduction/platform/account-verification.md),
+  [onramp FAQ](https://docs.crossmint.com/onramp/overview.md)).
+
+## 1. Products that put USDC on Solana into a given wallet
+
+| Product | What it does | Fits "deposit with anything"? |
+| --- | --- | --- |
+| **Onramp** ([overview](https://docs.crossmint.com/onramp/overview.md)) | The user buys a stablecoin with a debit or credit card (Visa, Mastercard), Apple Pay or Google Pay. Crossmint delivers it to the `recipient.walletAddress`. Bank transfer is "coming soon". | **Yes. This is the product to use.** |
+| Token checkout ([intro](https://docs.crossmint.com/payments/introduction.md)) | Buy a *specific* token (memecoins and the like) with fiat or cross-chain crypto. | No. Crossmint positions it for selling items, not for topping up a balance. It is unavailable to EEA buyers from 1 July 2026. Self-serve fungible-token checkout covers Solana only ([supported chains notes](https://docs.crossmint.com/introduction/supported-chains.md)). |
+| Pay-ins / treasury onramps ([stablecoin orchestration](https://docs.crossmint.com/stablecoin-orchestration/overview.md)) | Bank funding of company treasury wallets. | No. These are company wallets, not user deposits. |
+
+**"Other tokens".** Onramp accepts only the card rail. Onramp does not let a user
+pay with ETH, SOL or another token. For someone who already holds crypto, the
+honest path is a direct transfer: send USDC (or SOL for fees) on Solana to their
+own address. The app's Add funds sheet offers this as **"Send from another
+wallet or exchange"**, using the address and QR code that are already there.
+
+## 2. Server API
+
+### Hosts, auth and versions
+
+| | Staging | Production |
+| --- | --- | --- |
+| API base | `https://staging.crossmint.com/api` | `https://www.crossmint.com/api` |
+| Chains | Testnets (Solana devnet) | Mainnets (Solana) |
+| Server key prefix | `sk_staging_` | `sk_production_` |
+| Client key prefix | `ck_staging_` | `ck_production_` |
+| Console | `https://staging.crossmint.com/console` | `https://www.crossmint.com/console` |
+
+- The server key goes in the `X-API-KEY` header
+  ([create order security scheme](https://docs.crossmint.com/onramp/api-reference/create-order.md)).
+  Keys are scoped per environment and per project
+  ([llms.txt key facts](https://docs.crossmint.com/llms.txt)).
+- A staging key only works against the staging host, and a production key only
+  against the production host. The same rule applies to token locators
+  ([WebView guide troubleshooting](https://docs.crossmint.com/payments/embedded/guides/webview-integration.md),
+  [create order](https://docs.crossmint.com/onramp/api-reference/create-order.md)).
+- Path versions: orders use `2022-06-09` and users/linked wallets use
+  `2025-06-09`. The embedded checkout page lives at
+  `/sdk/2024-03-05/embedded-checkout`.
+
+### Scopes
+
+| Call | Scope | Key |
+| --- | --- | --- |
+| `POST /2022-06-09/orders` | `orders.create` | server |
+| `GET /2022-06-09/orders/{orderId}` | `orders.read` | server (or the order's `clientSecret` as `Authorization`) |
+| `PUT /2025-06-09/users/{userLocator}/linked-wallets/{address}` | `users.create` | server |
+
+Sources: [create order](https://docs.crossmint.com/onramp/api-reference/create-order.md),
+[get order](https://docs.crossmint.com/onramp/api-reference/get-order.md),
+[link wallet](https://docs.crossmint.com/api-reference/users/link-wallet.md),
+[scopes](https://docs.crossmint.com/introduction/platform/api-keys/scopes.md).
+
+Two inconsistencies in Crossmint's docs:
+- The scopes table lists `users.create` under client keys only. However, the
+  external-wallet guide calls link-wallet from the server with the server key.
+  Enable `users.create` on the **server** key.
+- The WebView guide asks for a client key with `orders.read`. The scopes table
+  says client keys only get `orders.create`. Our app never reads orders with the
+  client key (the server polls), so the client key needs **only what the
+  embedded checkout needs**. Crossmint notes that staging keys include all scopes
+  ([Swift quickstart](https://docs.crossmint.com/onramp/quickstarts/swift.md)).
+
+### Linking the user's wallet (required for external wallets)
+
+```
+PUT {base}/2025-06-09/users/userId:chumbucket-<public.users.id>/linked-wallets/<address>
+X-API-KEY: <server key>
+{ "chain": "solana" }
+```
+
+- A `userLocator` can be `email:`, `userId:`, `phoneNumber:`, `twitter:` or
+  `x:`. `userId:` takes "your app's internal user ID"
+  ([link wallet](https://docs.crossmint.com/api-reference/users/link-wallet.md),
+  [wallet locators](https://docs.crossmint.com/wallets/concepts/wallet-locators.md)).
+  Crossmint creates the user if the locator does not exist yet
+  ([external wallets guide](https://docs.crossmint.com/onramp/guides/onramp-to-external-wallets.md)).
+- The call is idempotent, and `proof` is optional. Without a proof, the response
+  includes `ownership.verified: false` and a CAIP-122 `verificationChallenge`.
+- **Ownership proof:** Crossmint asks for it only when a transaction is above
+  US$1,000, **or** the user's 30-day onramp volume is above US$1,000. The
+  threshold applies to users verified outside the US. Above the threshold, the
+  order's `payment.status` is `requires-recipient-verification` and
+  `payment.preparation.message` holds the message to sign. The wallet signs that
+  exact message. The signature goes back through the same PUT as `proof`. For
+  Solana the docs' example sends a base64 ed25519 detached signature
+  ([external wallets guide, steps 2-4](https://docs.crossmint.com/onramp/guides/onramp-to-external-wallets.md)).
+
+### Creating an order
+
+```
+POST {base}/2022-06-09/orders
+X-API-KEY: <server key>
+{
+  "recipient": { "walletAddress": "<server-resolved address>" },
+  "payment":   { "method": "card", "currency": "usd", "receiptEmail": "<email>" },
+  "lineItems": [{ "tokenLocator": "solana:<USDC mint>",
+                  "executionParameters": { "mode": "exact-in", "amount": "25" } }]
+}
+```
+
+- `receiptEmail` is **required**. Crossmint uses it to decide whether KYC is
+  needed and to send the receipt
+  ([create order Payment schema](https://docs.crossmint.com/onramp/api-reference/create-order.md)).
+- In `exact-in` mode, `amount` is the fiat amount the user spends. In
+  `exact-out` mode, it is the token amount they receive.
+- `currency` is `usd` or `eur` self-serve. GBP, AUD and COP are available on
+  request. EUR, GBP, AUD and COP are not available to US residents
+  ([local currencies](https://docs.crossmint.com/onramp/guides/local-currencies.md)).
+- A `201` response returns `{ clientSecret, order }`. `clientSecret` is scoped to
+  that one order.
+- `"state": "draft"` returns a **quote preview** and persists nothing. A draft
+  cannot be paid or polled. The preview shows `quote.totalPrice` (fiat, all fees
+  included), `lineItems[0].quote.quantityRange` (lowest and highest USDC) and
+  `quote.expiresAt`. Fees depend partly on the card, so a draft returns a range.
+  The range collapses, and `charges.crossmintFees` appears, once the user enters
+  card details ([get a quote](https://docs.crossmint.com/onramp/guides/get-a-quote.md)).
+- Limit errors return `400` with `code: single_purchase_exceeded |
+  daily_transaction_exceeded` and `parameters { limit, remainingAmount,
+  hoursUntilReset }` ([get order 400Response](https://docs.crossmint.com/api-reference/headless/get-order.md)).
+
+### Order lifecycle (what `GET /orders/{id}` returns)
+
+`order.phase` moves through `quote` → `payment` → `delivery` → `completed`.
+
+`payment.status` takes these values: `requires-quote`, `requires-email`,
+`requires-recipient-verification`, `requires-kyc`, `manual-kyc`,
+`pending-kyc-review`, `failed-kyc`, `awaiting-payment`, `in-progress`,
+`completed`, and `failed`. A `failed` status comes with a `failureReason
+{ code, message }`
+([onramp get order](https://docs.crossmint.com/onramp/api-reference/get-order.md),
+[status codes](https://docs.crossmint.com/payments/headless/guides/status-codes.md),
+[error codes](https://docs.crossmint.com/onramp/api-reference/error-codes.md)).
+
+`lineItems[0].delivery.status` takes these values: `awaiting-payment`,
+`in-progress`, `completed` (with `txId`) and `failed`. A failed delivery is
+**refunded automatically**.
+
+`phase === "completed"` does **not** mean success. Always read the line item's
+`delivery.status`
+([completed phase](https://docs.crossmint.com/payments/headless/guides/order-lifecycle/completed-phase.md)).
+
+Crossmint places an authorization hold on the card and captures it only on
+success. If the transaction fails, the hold is released
+([checkout FAQ](https://docs.crossmint.com/payments/introduction.md)).
+
+### Webhooks (optional, not used)
+
+Checkout V3 events are `orders.quote.created`, `orders.quote.updated`,
+`orders.payment.succeeded`, `orders.payment.failed`,
+`orders.delivery.initiated`, `orders.delivery.completed` and
+`orders.delivery.failed`. Each one carries `{ actionId, type, data }`, where
+`data` is the full order. Crossmint signs them with Svix, using a per-endpoint
+signing secret from the console
+([webhooks](https://docs.crossmint.com/payments/advanced/webhooks.md),
+[verify](https://docs.crossmint.com/introduction/platform/webhooks/verify-webhooks.md)).
+
+We do not need them. The app is open while the user pays, and the server polls
+the order on demand, which the docs support. If we later want server-side
+receipts, add a `/webhooks/crossmint` route that checks the Svix signature
+before trusting anything. Never trust a webhook body alone.
+
+### KYC, handled by Crossmint
+
+- Every onramp user completes KYC before buying. In the Crossmint-hosted mode
+  (ours), the embedded checkout collects KYC itself, and we never touch KYC data
+  ([user onboarding](https://docs.crossmint.com/onramp/introduction/user-onboarding.md)).
+- **Progressive (light) KYC** covers up to US$1,000 of volume in 12 months. It
+  needs name, date of birth, nationality, country, address, email and phone
+  (phone is required for US residents). An ID or SSN number is required for US
+  and EU/EEA residents. No documents are required.
+- **Full KYC** applies above the light tier. It adds due diligence, verification
+  history, an identity document and a selfie
+  ([data requirements](https://docs.crossmint.com/identity/data-requirements.md)).
+- The embedded checkout moves users between tiers automatically in Crossmint-hosted mode.
+
+### Limits, fees, minimums, regions
+
+- **Limits:** the standard limit is US$2,000 per user per day. It resets at
+  midnight US Eastern time. Sales can raise it
+  ([onramp FAQ](https://docs.crossmint.com/onramp/overview.md)).
+- **Minimum:** a card charge must be at least US$0.50. **In staging, USDC orders
+  are capped at US$10**
+  ([testing tips](https://docs.crossmint.com/payments/advanced/testing-tips.md)).
+- **Fees:** Crossmint publishes no fixed fee schedule. Every quote includes its
+  fees. A draft shows the fiat total and a USDC range, and the final
+  `crossmintFees` appear once card details are entered
+  ([get a quote](https://docs.crossmint.com/onramp/guides/get-a-quote.md)).
+  Commercial terms are set in the Order Form. The app shows Crossmint's own
+  quote and never computes a fee itself.
+- **Regions:** onramp works in 160+ countries. Sales has the current country
+  list. Onramp to **Solana, Polygon and Base is supported in all regions (EU, US,
+  rest of world)**
+  ([onramp FAQ](https://docs.crossmint.com/onramp/overview.md),
+  [supported chains notes](https://docs.crossmint.com/introduction/supported-chains.md)).
+- **Rate limits** (self-serve): 120 POST/PUT per minute per project and 360 GET
+  per minute per project. Exceeding them returns HTTP 429
+  ([rate limits](https://docs.crossmint.com/introduction/platform/api-keys/rate-limits.md)).
+  The BFF therefore rate-limits each person and caches order reads briefly.
+- **Liability:** Crossmint takes on chargeback liability, AML screening and
+  sanctions checks
+  ([payment methods concept](https://docs.crossmint.com/onramp/concepts/payment-methods.md)).
+
+## 3. Mobile integration options
+
+| Option | Notes |
+| --- | --- |
+| Crossmint Flutter SDK `crossmint_flutter` ([Flutter onramp quickstart](https://docs.crossmint.com/onramp/quickstarts/flutter.md)) | It renders and configures the WebView for you. It is not in this machine's pub cache, so `flutter pub get --offline` cannot add it. It is the cleanest upgrade later. |
+| **Own WebView with the embedded-checkout URL** ([WebView guide](https://docs.crossmint.com/payments/embedded/guides/webview-integration.md)) | **Used.** URL: `{host}/sdk/2024-03-05/embedded-checkout?orderId&clientSecret&apiKey=<ck_>&payment=<json>&appearance=<json>`. Requires JavaScript, DOM storage, a **standard mobile browser user agent** (otherwise the checkout hides the wallet buttons), Android `setPaymentRequestEnabled(true)` plus the `org.chromium.intent.action.PAY` / `IS_READY_TO_PAY` / `UPDATE_PAYMENT_DETAILS` `<queries>` for Google Pay, and iOS inline media playback. Navigation must stay unrestricted: the checkout moves through `crossmint.com`, `stripe.com`, `checkout.com`, `pay.google.com`, `applepay.cdn-apple.com`, `withpersona.com` and `sardine.ai`. No Apple Pay domain registration is needed, because the page is served from `crossmint.com`. |
+| Hosted URL in a browser (`SFSafariViewController` or Chrome Custom Tabs) | The docs say the same URL "renders in SFSafariViewController, Chrome Custom Tabs, or a regular browser tab" and needs less configuration. **Used as the fallback**, through "Open in browser", for any device where the WebView cannot complete a step, such as a full-KYC selfie that needs camera access. |
+
+Google Pay in production requires Google's own approval of the Android app in
+the Google Pay & Wallet Console. The approval needs a release-signed APK and
+screenshots, and takes about one business day
+([Google Pay mobile](https://docs.crossmint.com/payments/embedded/guides/google-pay.md)).
+Apple Pay on iOS needs a physical iPhone running iOS 17 or later. It never shows
+on Android, and Google Pay never shows on iOS
+([WebView guide](https://docs.crossmint.com/payments/embedded/guides/webview-integration.md),
+[payment methods concept](https://docs.crossmint.com/onramp/concepts/payment-methods.md)).
+
+Staging test cards: `4242 4242 4242 4242`, any future expiry, any CVC
+([testing tips](https://docs.crossmint.com/payments/advanced/testing-tips.md)).
+
+## 4. How Chumbucket uses it
+
+```
+App (Add funds sheet)                    BFF (deposits.*)                       Crossmint
+───────────────────────                  ─────────────────────────────          ─────────────
+deposits.status ───────────────────────► session → person → verified wallets
+deposits.balance ──────────────────────► mainnet RPC (genesis-pinned) SOL + USDC
+deposits.quote {amountUsd} ────────────► link wallet (PUT, idempotent) ───────► users/linked-wallets
+                                         POST orders state:"draft" ───────────► orders (draft)
+deposits.create {amountUsd, key} ──────► POST orders ─────────────────────────► orders
+          ◄── { orderId, checkoutUrl }   checkoutUrl = embedded-checkout(ck_, clientSecret)
+WebView(checkoutUrl)  ─────────────────────────────────────────────────────────► KYC + payment
+deposits.order {orderId} every 3 s ────► GET orders/{id} (server key) ────────► orders
+                                         ownership: recipient ∈ person's wallets
+deposits.verifyWallet {orderId, sig} ──► ed25519 check vs preparation.message
+                                         PUT linked-wallets {proof} ──────────► ownership proof
+```
+
+- **The recipient is never a client-supplied address.** The server resolves the
+  person from the GoTrue-verified Supabase session. It collects the
+  **server-verified** wallets: the session's Sign-in-with-Solana address, plus
+  `linked_wallets` rows that are active (`revoked_at IS NULL`) and proven
+  (`verified_at IS NOT NULL`). The app may name *which* of those wallets it is
+  using, for example an MWA wallet or a device wallet. An address outside that
+  set is refused.
+- **Order reads are owner-checked.** `deposits.order` returns an order only if
+  its delivery recipient is one of the caller's verified wallets and its token is
+  the configured USDC locator.
+- **Receipt email:** the server prefers the account's confirmed email from
+  Supabase Auth, read through the admin API with the service role. If the
+  account has none (wallet or X sign-ins), the app asks for one. We do not store
+  it. It goes only to Crossmint, which requires it.
+- **When anything is missing,** `deposits.status` returns `available: false` with
+  a plain reason, and the app says so. Missing items include a key, the env, a
+  key/env mismatch, the switch, or the account database. Nothing is simulated.
+- **Staging is labelled.** In staging, Crossmint delivers *devnet test USDC*.
+  The balance shown is always **mainnet**, which is what Panta spends, so the
+  sheet shows a "Test mode" note and never claims the test USDC arrived in the
+  trading balance.
+
+## 5. Configuration (BFF env)
+
+| Variable | Value |
+| --- | --- |
+| `CROSSMINT_ENV` | `staging` or `production` |
+| `CROSSMINT_SERVER_API_KEY` | `sk_staging_…` / `sk_production_…`, matching `CROSSMINT_ENV`. Scopes: `orders.create`, `orders.read`, `users.create` |
+| `CROSSMINT_CLIENT_API_KEY` | `ck_staging_…` / `ck_production_…`, matching `CROSSMINT_ENV` |
+| `DEPOSITS_ENABLED` | Exact `true` turns deposits on. Anything else is the emergency stop |
+| `CROSSMINT_MAX_ORDER_USD` | Optional per-order ceiling. Default 500 in production, 10 in staging. Clamped to stay below the US$1,000 single-transaction proof threshold |
+| `CROSSMINT_MIN_ORDER_USD` | Optional per-order floor. Default 5 in production, 1 in staging. Never below Crossmint's US$0.50 card minimum |
+
+Supabase (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) must already be
+configured. The deposit procedures resolve the person through the same identity
+runtime as Panta trading. `SOLANA_RPC_URL` must be a mainnet HTTPS RPC for the
+balance read; the read pins the mainnet genesis hash.
