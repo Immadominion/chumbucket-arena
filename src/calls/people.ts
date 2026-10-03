@@ -502,7 +502,7 @@ export class PeopleDirectory {
  * "Deleted account", handle `deleted_<hex>` or none). Its calls stay public
  * records, but it is never suggested as someone to follow.
  */
-const isDeletedAccount = (person: Person): boolean =>
+export const isDeletedAccount = (person: Person): boolean =>
   person.displayName === "Deleted account" && (!person.handle || person.handle.startsWith("deleted_"));
 
 /** Rule 1's scope, in one place. */

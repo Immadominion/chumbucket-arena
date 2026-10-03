@@ -365,6 +365,47 @@ export interface PeopleSearchResult {
 }
 
 /**
+ * people.find — who an X handle, a @username or a wallet belongs to, for the
+ * add-a-friend confirmation card. Session only. No wallet, email or provider
+ * subject anywhere in it: a wallet query is answered with a person, never
+ * echoed back.
+ */
+export type PersonLookupKind = "x" | "handle" | "wallet";
+
+/** How a match was found. `x`: their X account has that username. */
+export type PersonMatchedBy = "x" | "username" | "wallet";
+
+export interface PersonMatch {
+  /** The same card, record included, the people lists show. */
+  person: PersonCard;
+  matchedBy: PersonMatchedBy;
+  /** Their X username, when they signed in with (or linked) X. */
+  xHandle: string | null;
+  /** Their X profile picture from that sign-in, on X's CDN, or null. */
+  xAvatarUrl: string | null;
+  /** The signed-in person themselves: nothing to add. */
+  isViewer: boolean;
+}
+
+/** An X handle with no Chumbucket account behind it. */
+export interface PersonNotOnChumbucket {
+  xHandle: string;
+  /** Their public X profile picture, when one could be found; else null. */
+  xAvatarUrl: string | null;
+}
+
+export interface PersonLookup {
+  kind: PersonLookupKind;
+  /** The handle looked up, without @, lowercase. Null for a wallet. */
+  handle: string | null;
+  /** Most likely first. Empty when nobody matched. */
+  matches: PersonMatch[];
+  /** Set only when nobody matched and the query can be an X handle. */
+  notOnChumbucket: PersonNotOnChumbucket | null;
+  servedAt: number;
+}
+
+/**
  * A targeted rematch invitation produced by a `challenge` response.
  *
  * NOT a frozen contract type: §3 freezes `kind = 'challenge'` but declares no
