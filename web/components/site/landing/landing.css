@@ -155,12 +155,10 @@
   display: grid;
   margin-top: calc(32 * var(--u));
 }
-/* Figma's spacing: 27px above the second item, 37px above the third. */
+/* Figma spaced these 27px then 37px, fitted to its old copy; with three
+   two-line bodies the rhythm is even (the same 64px in all). */
 .cb-feature + .cb-feature {
-  margin-top: calc(27 * var(--u));
-}
-.cb-feature + .cb-feature + .cb-feature {
-  margin-top: calc(37 * var(--u));
+  margin-top: calc(32 * var(--u));
 }
 .cb-feature__title {
   display: flex;
@@ -398,7 +396,11 @@
   align-content: center;
   min-height: calc(340 * var(--u));
   width: calc(442 * var(--u));
-  margin: calc(125 * var(--u)) 0 0 calc(648 * var(--u));
+  /* The surface hangs 36px past the column (Figma). On narrower desktops
+     the gutter is only 40px, so the card moves in until its surface stays
+     24px clear of the screen edge. */
+  --card-shift: max(0px, calc(var(--card-x) - (100vw - var(--container)) / 2 + 24px));
+  margin: calc(125 * var(--u)) 0 0 calc(648 * var(--u) - var(--card-shift));
 }
 .cb-proof__call::before,
 .cb-proof__call::after {
@@ -539,10 +541,11 @@
   border-radius: var(--cb-radius-card);
   background: var(--cb-white);
 }
-/* Checkerboard: pink on the diagonal (1, 4, 5, 8 ... in reading order). */
+/* Checkerboard: pink on the diagonal (1, 4, 5, 8 ... in reading order).
+   The deep pink, so the white answers pass AA. */
 .cb-faq__item:nth-child(4n + 1),
 .cb-faq__item:nth-child(4n) {
-  background: var(--cb-pink);
+  background: var(--cb-pink-deep);
   color: var(--cb-white);
 }
 .cb-faq__q {
@@ -568,10 +571,23 @@
   text-align: left;
   cursor: pointer;
 }
-/* Inside the card, in the card's own text colour: pink on pink would vanish. */
+/* Inside the card, in the card's own text colour: pink on pink would vanish.
+   (Fallback only: where :has() works the ring goes round the whole card.) */
 .cb-faq__toggle:focus-visible {
   outline-color: currentColor;
   outline-offset: -4px;
+}
+/* The ring goes round the card, outside it, like every other focus ring on
+   the site: the button's own box ends just under the question, so a ring on
+   it would cut through the descenders. */
+@supports selector(:has(*)) {
+  .cb-faq__item:has(.cb-faq__toggle:focus-visible) {
+    outline: 2px solid var(--cb-pink-strong);
+    outline-offset: 3px;
+  }
+  .cb-faq__toggle:focus-visible {
+    outline: none;
+  }
 }
 /* Plus that turns into a minus (its upright bar lies down). */
 .cb-faq__icon {
@@ -862,8 +878,7 @@
     gap: 24px;
     margin-top: 28px;
   }
-  .cb-feature + .cb-feature,
-  .cb-feature + .cb-feature + .cb-feature {
+  .cb-feature + .cb-feature {
     margin-top: 0;
   }
   .cb-feature__title {
@@ -1136,6 +1151,11 @@
   .cb-landing .cb-benefits__row--settle .cb-stage {
     margin: 110px calc(150 * var(--u)) 110px 24px;
   }
+  /* The lifted call card reaches 63 design px past the phone's right side:
+     end it on the content edge instead of under the screen edge. */
+  .cb-landing .cb-benefits__row--follow .cb-stage {
+    margin-right: calc(63 * var(--u));
+  }
   .cb-faq__grid {
     gap: 20px;
   }
@@ -1158,21 +1178,12 @@
     color: var(--cb-text-muted);
   }
   .cb-faq__item:nth-child(odd) {
-    background: var(--cb-pink);
+    background: var(--cb-pink-deep);
     color: var(--cb-white);
   }
   .cb-faq__item:nth-child(odd) .cb-faq__a {
     color: var(--cb-white);
   }
-  .cb-faq__item:nth-child(even) {
-    padding-inline: 0;
-  }
-  .cb-faq__item:nth-child(even) .cb-faq__toggle {
-    width: 100%;
-    margin-inline: 0;
-    padding-inline: 0;
-  }
-  .cb-faq__item:nth-child(even) .cb-faq__toggle:focus-visible {
-    outline-offset: 2px;
-  }
+  /* White cards keep the pink cards' inset, so every question, answer and
+     plus lines up down the one column. */
 }

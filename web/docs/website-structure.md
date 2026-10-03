@@ -65,8 +65,9 @@ composition at a readable size; 768 and phones get a real one-column layout
 
 | Token | Value | Figma use |
 | --- | --- | --- |
-| `--cb-pink` | `#ff5a76` | eyebrows, FAQ cards, icon badges, glows |
-| `--cb-pink-strong` | `#ff3355` | icon strokes, floating button, focus ring |
+| `--cb-pink` | `#ff5a76` | icon badges, glows, the current nav link (20px bold, large text) |
+| `--cb-pink-strong` | `#ff3355` | icon strokes, focus ring |
+| `--cb-pink-deep` | `#e0294d` | pink that carries small text (eyebrows, the pink FAQ cards, the floating button): 4.6:1 with white either way, where `#ff5a76` is 3.0:1 and `#ff3355` 3.6:1. The app does the same with its darker `pinkInk` |
 | `--cb-pink-soft` | `#ffb0c0` | paler half of each glow |
 | `--cb-mist` | `#f5eef1` | empty avatar circles, screen placeholder |
 | `--cb-plum` | `#26161b` | phone notch, lead avatar |
@@ -162,7 +163,7 @@ Data, all from the public BFF, server-side:
 | --- | --- |
 | "faq" / "Questions" | `faq.eyebrow`, `faq.title` |
 | Eight cards, pink on the diagonal (alternating in one column) | `faq.item.{free,panta,settle,lose,wallet,web,where,start}` |
-| Each card is an accordion item: the question is a button (`aria-expanded`, `aria-controls`) over the answer panel; `data-open` on the card | `.cb-faq__toggle`, `.cb-faq__icon` (plus / minus), `.cb-faq__panel` > `.cb-faq__panel-inner` |
+| Each card is an accordion item: the question is a button (`aria-expanded`, `aria-controls`) over the answer panel; `data-open` on the card. Keyboard focus rings the whole card (`:has()`), outside it, like every other focus ring | `.cb-faq__toggle`, `.cb-faq__icon` (plus / minus), `.cb-faq__panel` > `.cb-faq__panel-inner` |
 
 Open by default on desktop (all eight, as the grid always showed them),
 folded under 1024px. CSS draws that default from the breakpoint before
@@ -184,13 +185,17 @@ folded under 1024px. CSS draws that default from the breakpoint before
 `footer.brand`, `footer.links`, `footer.more`, `footer.product`,
 `footer.updates`, `footer.follow`, `footer.money` (the plain statement that
 calls are free and trades are real USDC that can be lost), `footer.copyright`.
+Headings and links are all lower case (the Figma footer's voice; it mixed in
+a few capitals).
 
 ### Floating button
 `float.get-app`, class `.cb-fab` (desktop only; phones get the sticky header
 instead). Not `.cb-float`: `app/globals.css` gives that class the Arena's
 idle bob, which would make this button drift up and down. It tucks away
 (`data-fab="away"` on the root) while the get-the-app panel is on screen,
-where it would repeat the panel's own button.
+where it would repeat the panel's own button; tucked away it is
+`visibility: hidden`, so it takes no Tab stop. It sits in its own `<aside>`
+landmark.
 
 ## Motion
 
@@ -245,7 +250,7 @@ data attributes and CSS variables.
 | `data-reveal` | fades up `--rise` when it scrolls in; `style="--i: n"` delays it n x `--stagger` |
 | `data-reveal="stage"` | the element stays; its phone rises, rings and glow fade in, a lifted card comes off (per-section rules) |
 | `data-reveal="panel"` | fades up further (the CTA panel); its copy and phones follow |
-| `data-inview="in"` / `"static"` | set by MotionRoot: scrolled in (animate) / was already on screen (just show) |
+| `data-inview="in"` / `"static"` | set by MotionRoot: scrolled in (animate) / was already on screen, or took keyboard focus before it scrolled in (just show) |
 
 ### Every animation, by name
 
@@ -301,7 +306,9 @@ prediction markets" reads in full, the rest bleeds off. Both scale with the
 screen's width (the stage is an inline-size container) and its height
 (`svh`), so on short phones they shrink to stay under the copy
 (`max-height: 720px` also tightens the copy). Checked at 320 x 568,
-375 x 667, 360 x 780, 390 x 844 and 768 x 1024: no horizontal scroll, and
+360 x 740, 375 x 667, 390 x 844, 414 x 896, 600 x 900, 720 x 900,
+768 x 1024 and 844 x 390: no horizontal scroll, the hero exactly one screen
+(at 320 x 568 it runs 52px past it, the ribbon's tag below the fold), and
 every tap target on small screens is at least 44px (footer links, the
 logos and the small avatars get the extra through padding or a `::before`,
 so the layout does not move).
@@ -346,17 +353,21 @@ Intentional:
   the CTA phones are gone; the FAQ cards are an even height with the same
   gap under every question (Figma's ran 41 to 74px; the gap below the grid
   keeps the CTA and footer where they were); the CTA button shows the
-  Android robot instead of an Apple logo.
+  Android robot instead of an Apple logo; the footer's "TM" is a superscript
+  after the wordmark instead of a 4px mark over the K.
 - A short money statement sits above the copyright.
 - Body grey is 54% black instead of 50%, and the footer's @handle is
   `#7f7076` instead of `#988990`, so both pass WCAG AA.
-- Kept from Figma on purpose, though they look accidental: 27px then 37px
-  between the three feature items, and the footer "Follow" label set 40px
-  from the left of its button rather than centred.
+- Small pink text and the pink FAQ cards use `--cb-pink-deep` (`#e0294d`)
+  instead of `#ff5a76`, and the floating button instead of `#ff3355`, so
+  their text passes WCAG AA (axe finds no contrast failures at 1440 or 390).
+- The three feature items are spaced evenly (32px, 32px); Figma's 27px then
+  37px fitted its old copy.
+- Kept from Figma on purpose, though it looks accidental: the footer
+  "Follow" label set 40px from the left of its button rather than centred.
 - From 720 to 1023px the phone stages leave room on the copy side for their
   rings (they reach 142 design px past the phone), so no ring runs under
   text.
 
 Not yet:
-- White text on the `#ff5a76` FAQ cards is 3:1, under AA for 18px text; it
-  is kept for fidelity. Darkening `--cb-pink` on those cards fixes it.
+- The phone screenshots still show the old app (see "Assets to replace").

@@ -1,7 +1,8 @@
 /**
  * Site footer: brand, three link columns, the follow-along box, the plain
  * statement of what money is and is not involved, and the copyright line.
- * Server component.
+ * Server component. Footer headings and links are all lower case, the
+ * Figma footer's voice (it mixed in a few capitals; they are gone).
  */
 
 import Image from "next/image";
@@ -13,9 +14,9 @@ const COLUMNS = [
     id: "links",
     title: "links",
     items: [
-      { href: "/", label: "Home" },
-      { href: "/#features", label: "How it works" },
-      { href: "/#benefits", label: "Receipts" },
+      { href: "/", label: "home" },
+      { href: "/#features", label: "how it works" },
+      { href: "/#benefits", label: "receipts" },
       { href: X_URL, label: "twitter / x", external: true },
     ],
   },
@@ -87,8 +88,8 @@ export function SiteFooter() {
           ))}
 
           <div className="cb-footer__updates" data-el="footer.updates">
-            <h2 className="cb-footer__title">Updates</h2>
-            <p>Follow along</p>
+            <h2 className="cb-footer__title">updates</h2>
+            <p>follow along</p>
             <a className="cb-follow" href={X_URL} target="_blank" rel="noopener" data-el="footer.follow">
               <span className="cb-follow__handle">@{X_HANDLE}</span>
               <span className="cb-follow__button">Follow</span>

@@ -19,7 +19,11 @@
   --cb-black: #000;
   --cb-white: #fff;
   --cb-pink: #ff5a76; /* brand accent: buttons, eyebrows, cards, glows */
-  --cb-pink-strong: #ff3355; /* icon strokes, the floating button, focus */
+  --cb-pink-strong: #ff3355; /* icon strokes, focus */
+  /* Pink that carries small text: white on it, or it on white, at 4.6:1
+     (WCAG AA). As text, #ff5a76 is 3.0:1 and #ff3355 3.6:1; the app keeps a
+     darker pink for text for the same reason (AppColors.pinkInk). */
+  --cb-pink-deep: #e0294d; /* eyebrows, pink FAQ cards, the floating button */
   --cb-pink-soft: #ffb0c0; /* the paler half of every glow */
   --cb-mist: #f5eef1; /* empty avatar circles, screen placeholders */
   --cb-plum: #26161b; /* phone notch, the lead avatar */
@@ -151,6 +155,11 @@
 :where(.cb-site) [id] {
   scroll-margin-top: calc(var(--cb-header-h) + 16px);
 }
+/* Tabbing scrolls the focused control clear of the sticky header and of the
+   floating button in the bottom corner. */
+:where(.cb-site) :where(a[href], button) {
+  scroll-margin-block: calc(var(--cb-header-h) + 16px) 96px;
+}
 
 .cb-container {
   position: relative;
@@ -190,7 +199,7 @@
 
 /* Small tracked label above a section title ("features", "faq"). */
 .cb-eyebrow {
-  color: var(--cb-pink);
+  color: var(--cb-pink-deep);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
   letter-spacing: var(--cb-tracking-eyebrow);
@@ -628,10 +637,12 @@
   line-height: var(--lh-small);
 }
 .cb-footer__tm {
+  /* Superscript after the word, as in the header. (Figma set a 4px "TM" over
+     the K, where it read as a stray accent.) */
   position: absolute;
-  left: calc(84 * var(--u));
-  top: calc(2 * var(--u)); /* Figma: 5.7px from the top of the 32px row */
-  font-size: calc(4.15 * var(--u));
+  left: calc(100% + 1px);
+  top: calc(1 * var(--u));
+  font-size: calc(7 * var(--u));
   line-height: 1;
   color: #221217;
 }
@@ -718,6 +729,7 @@
   font-size: calc(14 * var(--u));
   line-height: calc(22 * var(--u));
   text-align: center;
+  text-wrap: pretty;
 }
 .cb-footer__money a {
   text-decoration: underline;
@@ -726,6 +738,7 @@
 .cb-footer__copy {
   margin-top: calc(40 * var(--u));
   text-align: center;
+  text-wrap: balance;
 }
 
 @media (max-width: 1023.98px) {
@@ -800,6 +813,8 @@
   }
   .cb-footer__copy {
     margin-top: 20px;
+    font-size: 14px;
+    line-height: 22px;
     text-align: left;
   }
 }
@@ -817,7 +832,7 @@
   gap: 10px;
   padding: 14px 22px;
   border-radius: var(--cb-radius-pill);
-  background: var(--cb-pink-strong);
+  background: var(--cb-pink-deep);
   color: var(--cb-white);
   font-size: 15px;
   line-height: 22px;

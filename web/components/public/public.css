@@ -56,7 +56,7 @@
 /* ── type ─────────────────────────────────────────────────────────────── */
 
 .pub-eyebrow {
-  color: var(--cb-pink);
+  color: var(--cb-pink-deep);
   font-size: 18px;
   line-height: 28px;
   letter-spacing: var(--cb-tracking-eyebrow);

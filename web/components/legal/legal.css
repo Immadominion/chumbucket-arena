@@ -47,7 +47,7 @@
 }
 .legal__nav a:hover,
 .legal__nav a[aria-current="page"] {
-  color: var(--cb-pink);
+  color: var(--cb-pink-deep);
 }
 .legal__nav a[aria-current="page"] {
   font-weight: var(--cb-bold);

@@ -38,10 +38,13 @@ export function SiteShell({
         {children}
       </main>
       <SiteFooter />
-      <a className="cb-fab" href={GET_APP_HREF} data-el="float.get-app">
-        <AndroidIcon size={19} />
-        Get the Android app
-      </a>
+      {/* In a landmark of its own, so no page content sits outside one. */}
+      <aside aria-label="Get the app">
+        <a className="cb-fab" href={GET_APP_HREF} data-el="float.get-app">
+          <AndroidIcon size={19} />
+          Get the Android app
+        </a>
+      </aside>
       <MotionRoot />
     </div>
   );

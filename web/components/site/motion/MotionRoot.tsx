@@ -9,7 +9,8 @@
  * - Reveals: `[data-reveal]` elements below the fold are hidden once this
  *   runs and get `data-inview="in"` as they scroll into view (once). Those
  *   already on screen get `data-inview="static"` first, so nothing visible
- *   ever blinks out.
+ *   ever blinks out. A block that receives keyboard focus first gets
+ *   "static" too.
  * - Loops: each `[data-section]` gets `data-playing` while on screen; CSS
  *   pauses a section's looping animations (float, twinkle, nudge) otherwise.
  * - Header: `data-js` on the root (the desktop header sticks only then) and
@@ -85,6 +86,22 @@ export function MotionRoot() {
     );
     for (const el of reveals) if (!el.hasAttribute("data-inview")) revealIO.observe(el);
     cleanups.push(() => revealIO.disconnect());
+    // Keyboard focus can land in a block before it has scrolled in (Tab
+    // scrolls smoothly): show that block at once, so the focus ring is never
+    // drawn around something still invisible.
+    const onFocusIn = (e: FocusEvent) => {
+      const block = (e.target as Element | null)?.closest?.<HTMLElement>("[data-reveal]:not([data-inview])");
+      if (!block) return;
+      revealIO.unobserve(block);
+      // Without its reveal transition: commit the shown state, then hand the
+      // element its own transitions back.
+      block.style.transition = "none";
+      block.setAttribute("data-inview", "static");
+      void block.offsetWidth;
+      block.style.removeProperty("transition");
+    };
+    root.addEventListener("focusin", onFocusIn);
+    cleanups.push(() => root.removeEventListener("focusin", onFocusIn));
 
     /* loops play only while their section is on screen */
     const playIO = new IntersectionObserver(

@@ -253,19 +253,25 @@
     scale: 0.9;
   }
 }
+/* Hidden, not just transparent: a tucked-away button must not take a Tab
+   stop (visibility also takes it out of the accessibility tree). */
 .cb-site[data-fab="away"] .cb-fab {
   opacity: 0;
   translate: 0 20px;
   pointer-events: none;
+  visibility: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   /* Backwards fill only: once in, the button's own resting values take
      over, so "away" (above) can still move it. */
   .cb-fab {
     animation: cb-fab-in 700ms var(--ease-spring) 1.5s backwards;
+    /* visibility steps at the end of the fade out and at the start of the
+       fade in, so the button stays visible while it moves either way. */
     transition:
       opacity var(--dur-medium) var(--ease-out),
       translate var(--dur-medium) var(--ease-out),
+      visibility var(--dur-medium),
       scale var(--dur-press) var(--ease-out),
       transform var(--dur-micro) ease-out,
       box-shadow var(--dur-micro) ease-out;

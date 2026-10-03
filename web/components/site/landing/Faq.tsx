@@ -37,7 +37,7 @@ export const FAQS = [
   {
     id: "wallet",
     q: "Do I need a wallet?",
-    a: "Not to call: sign in with a wallet, Google or X. To trade, you need a Solana wallet with USDC.",
+    a: "Not to call: you can sign in with Google or X. To trade, you need a Solana wallet with USDC.",
   },
   {
     id: "web",
