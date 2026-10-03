@@ -169,6 +169,8 @@ export interface SolTopUpDeps {
 }
 
 const SPKI_ED25519 = Buffer.from("302a300506032b6570032100", "hex");
+/** An SPL token account's size, for the WSOL account's rent. */
+const TOKEN_ACCOUNT_BYTES = 165;
 /** A Metis order's blockhash lives ~60–90 s; the review never outlives 60 s. */
 const ORDER_TTL_MS = 60_000;
 const PRICE_TTL_MS = 30_000;
@@ -254,7 +256,7 @@ export class SolTopUpService {
     if (amount < min || amount > max) {
       throw new TopUpError("AMOUNT_OUT_OF_RANGE", `Choose from ${usdc(min)} to ${usdc(max)} USDC.`);
     }
-    const [balance, need] = await Promise.all([this.balance(wallet), this.need()]);
+    const [balance, need, tokenRent] = await Promise.all([this.balance(wallet), this.need(), this.tokenAccountRent()]);
     if (BigInt(balance.usdcBaseUnits) < amount) {
       throw new TopUpError("NEEDS_USDC", `This wallet has ${usdc(BigInt(balance.usdcBaseUnits))} USDC. Add funds first. ${NOTHING_SIGNED}`);
     }
@@ -285,6 +287,9 @@ export class SolTopUpService {
       });
       if (checked.feePayer !== order.signatureFeePayer) throw new SwapCheckError("fee payer differs from the quote");
       if (router === "metis" && checked.feePayer !== JUPITER_GAS_WALLET) throw new SwapCheckError("unknown sponsor");
+      // The rent repaid can only be what the close just refunded: a token
+      // account's rent today (verify.ts's ceiling is the old, higher rate).
+      if (checked.rentRepayLamports > tokenRent) throw new SwapCheckError("rent repayment above today's rent");
     } catch (error) {
       if (error instanceof SwapCheckError) {
         throw new TopUpError("SWAP_REJECTED", `The swap Jupiter offered didn't pass our checks. ${NOTHING_SIGNED} Try again in a moment.`);
@@ -418,6 +423,15 @@ export class SolTopUpService {
   private async need(): Promise<SolNeed> {
     try {
       return await solNeed(this.deps.rent);
+    } catch {
+      throw new TopUpError("BALANCE_UNAVAILABLE", "We couldn't read Solana's fees just now. Try again in a moment.");
+    }
+  }
+
+  /** Today's rent for a 165-byte token account (the WSOL account a swap opens). */
+  private async tokenAccountRent(): Promise<bigint> {
+    try {
+      return await this.deps.rent.minimumBalance(TOKEN_ACCOUNT_BYTES);
     } catch {
       throw new TopUpError("BALANCE_UNAVAILABLE", "We couldn't read Solana's fees just now. Try again in a moment.");
     }

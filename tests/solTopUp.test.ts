@@ -272,7 +272,7 @@ describe("server inspection: lookup tables resolved, mainnet simulated", () => {
     for (const slot of checked().mintSlots) expect(loaded[slot.accountIndex - statics]).toBe(slot.mint);
   });
 
-  function rpcFake(opts: { genesis?: string; swapMints?: boolean; simErr?: unknown; postLamports?: number; postUsdc?: bigint } = {}) {
+  function rpcFake(opts: { genesis?: string; swapMints?: boolean; simErr?: unknown; postLamports?: number; postUsdc?: bigint; wsolExists?: boolean } = {}) {
     const calls: string[] = [];
     const fetchImpl = (async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -287,11 +287,17 @@ describe("server inspection: lookup tables resolved, mainnet simulated", () => {
           if (opts.swapMints) for (const [i, v] of Object.entries(table)) if (v === WSOL_MINT) table[i] = USDC_MINT;
           return reply({ ...ctx, value: { data: [altAccountData(tableAddresses(table)).toString("base64"), "base64"], executable: false, lamports: 1, owner: "AddressLookupTab1e1111111111111111111111111", rentEpoch: 0, space: 0 } });
         }
-        case "getMultipleAccounts":
-          return reply({ ...ctx, value: [
-            { data: ["", "base64"], executable: false, lamports: 0, owner: "11111111111111111111111111111111", rentEpoch: 0, space: 0 },
-            { data: [tokenAccountData(USDC_MINT, OWNER, 20_000_000n), "base64"], executable: false, lamports: 2_039_280, owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", rentEpoch: 0, space: 165 },
-          ] });
+        case "getMultipleAccounts": {
+          const wanted = body.params[0] as string[];
+          const byAddress: Record<string, unknown> = {
+            [OWNER]: { data: ["", "base64"], executable: false, lamports: 0, owner: "11111111111111111111111111111111", rentEpoch: 0, space: 0 },
+            [ownerTokenAccount(OWNER, USDC_MINT)]: { data: [tokenAccountData(USDC_MINT, OWNER, 20_000_000n), "base64"], executable: false, lamports: 2_039_280, owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", rentEpoch: 0, space: 165 },
+            [ownerTokenAccount(OWNER, WSOL_MINT)]: opts.wsolExists
+              ? { data: [tokenAccountData(WSOL_MINT, OWNER, 0n), "base64"], executable: false, lamports: 2_039_280, owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", rentEpoch: 0, space: 165 }
+              : null,
+          };
+          return reply({ ...ctx, value: wanted.map((a) => byAddress[a] ?? null) });
+        }
         case "simulateTransaction":
           return reply({ ...ctx, value: {
             err: opts.simErr ?? null, logs: [], unitsConsumed: 1,
@@ -313,6 +319,15 @@ describe("server inspection: lookup tables resolved, mainnet simulated", () => {
     expect(effect).toEqual({ lamportsDelta: 106_119_149n, usdcDelta: -METIS.inAmount });
     expect(calls).toContain("simulateTransaction");
     expect(calls).not.toContain("sendTransaction");
+  });
+
+  test("refuses to repay rent for a WSOL account the person already had", async () => {
+    // The fixture repays the rent of a WSOL account the sponsor opens. Had the
+    // person one already, the create would be a no-op and the repayment theirs.
+    expect(checked().rentRepayLamports).toBeGreaterThan(0n);
+    const { fetchImpl, calls } = rpcFake({ wsolExists: true });
+    await expect(new RpcSwapInspector("https://rpc.synthetic.invalid", fetchImpl).inspect(VersionedTransaction.deserialize(bytesOf(METIS.unsignedBase64)), OWNER, checked())).rejects.toBeInstanceOf(SwapCheckError);
+    expect(calls).not.toContain("simulateTransaction");
   });
 
   test("refuses a route whose lookup table holds another mint", async () => {
@@ -413,7 +428,7 @@ const person = (over: Partial<DepositPerson> = {}): DepositPerson => ({
   ...over,
 });
 
-function rig(opts: { lamports?: string; usdc?: string; nowSeconds?: number; inspector?: SwapInspector } = {}) {
+function rig(opts: { lamports?: string; usdc?: string; nowSeconds?: number; inspector?: SwapInspector; rent?: RentReader } = {}) {
   const jupiter = new FakeJupiter();
   const config: SolTopUpConfig = {
     apiBase: JUPITER_SWAP_API,
@@ -438,7 +453,7 @@ function rig(opts: { lamports?: string; usdc?: string; nowSeconds?: number; insp
   };
   const nowMs = (opts.nowSeconds ?? METIS.blockTime) * 1000;
   const clock = { now: nowMs };
-  const service = new SolTopUpService({ config, jupiter, inspector, rent, balances, now: () => clock.now });
+  const service = new SolTopUpService({ config, jupiter, inspector, rent: opts.rent ?? rent, balances, now: () => clock.now });
   return { jupiter, service, inspected, clock };
 }
 
@@ -551,6 +566,19 @@ describe("SolTopUpService.order", () => {
     const echo = rig();
     echo.jupiter.nextOrders = [metisOrder({ taker: stranger.publicKey.toBase58() })];
     await expect(echo.service.order(person(), { amountBaseUnits: METIS.inAmount.toString() })).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
+  });
+
+  test("refuses a rent repayment above today's rent for the WSOL account", async () => {
+    // The fixture repays 1,488,440 lamports: today's 165-byte rent. Were rent
+    // lower, the person would hand Jupiter more than the close refunded them.
+    const cheaper: RentReader = { async minimumBalance(bytes) { return bytes === 165 ? 1_400_000n : rent.minimumBalance(bytes); } };
+    const { jupiter, service, inspected } = rig({ rent: cheaper });
+    jupiter.nextOrders.push(metisOrder());
+    await expect(service.order(person(), { amountBaseUnits: METIS.inAmount.toString() })).rejects.toMatchObject({ code: "SWAP_REJECTED" });
+    expect(inspected).toHaveLength(0);
+    const ok = rig();
+    ok.jupiter.nextOrders.push(metisOrder());
+    await expect(ok.service.order(person(), { amountBaseUnits: METIS.inAmount.toString() })).resolves.toMatchObject({ requestId: "req-metis-0001" });
   });
 
   test("refuses when the mainnet simulation disagrees", async () => {
