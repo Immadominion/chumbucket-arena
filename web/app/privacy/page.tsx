@@ -22,6 +22,7 @@ const toc = [
 export default function PrivacyPage() {
   return (
     <LegalDoc
+      current="/privacy"
       title="Privacy Policy"
       toc={toc}
       intro={

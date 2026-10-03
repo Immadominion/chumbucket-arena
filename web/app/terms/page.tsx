@@ -27,6 +27,7 @@ const toc = [
 export default function TermsPage() {
   return (
     <LegalDoc
+      current="/terms"
       title="Terms of Service"
       toc={toc}
       intro={

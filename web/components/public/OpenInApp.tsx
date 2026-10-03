@@ -53,7 +53,7 @@ export default function OpenInApp({ kind, id, label }: { kind: Kind; id: string;
         ) : platform === "other" ? (
           <p>Chumbucket is an Android app. Open this link on your Android phone to jump straight in.</p>
         ) : (
-          <p>Back it, fade it, or challenge a friend to call it. Calls are free.</p>
+          <p>Back it, fade it, or dare a friend to call it. Calls are free.</p>
         )}
       </div>
       <div className="pub-cta-actions">

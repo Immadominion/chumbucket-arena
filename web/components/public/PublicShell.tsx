@@ -1,53 +1,30 @@
 /**
- * Frame for the public, shareable pages (/, /c, /u, /m): a slim header, the
- * page, and a footer that says plainly what the product is and is not.
+ * Frame for the public, shareable pages (/c, /u, /m): the site header and
+ * footer (components/site), the page on a soft pink glow, nothing else.
  * Server component; no client JS of its own.
  */
 
 import Link from "next/link";
+import { DecorLayer, Glow, Sparkle, at } from "@/components/site/decor/Decor";
+import { SiteShell } from "@/components/site/SiteShell";
 import "./public.css";
 
 /* eslint-disable @next/next/no-img-element */
 
 export function PublicShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="pub">
-      <a href="#main" className="pub-skip">
-        Skip to content
-      </a>
-      <header className="pub-header">
-        <div className="pub-wrap pub-header-row">
-          <Link href="/" className="pub-brand" aria-label="Chumbucket home">
-            <img src="/img/logo-192.png" alt="" width={36} height={36} />
-            <span>Chumbucket</span>
-          </Link>
-          <nav aria-label="Primary" className="pub-nav">
-            <Link href="/#how">How it works</Link>
-            <Link href="/#get" className="pub-nav-cta">
-              Get the app
-            </Link>
-          </nav>
+    <SiteShell>
+      <div className="pub" data-section="share-page">
+        <div className="cb-container pub-decor-anchor">
+          <DecorLayer className="pub-decor">
+            <Glow shape="pair" style={at(760, 40)} el="share.glow" />
+            <Sparkle x={1000} y={10} size={64} el="share.sparkle-1" />
+            <Sparkle x={-120} y={260} size={48} r={45} el="share.sparkle-2" />
+          </DecorLayer>
         </div>
-      </header>
-      <main id="main" className="pub-main">
         {children}
-      </main>
-      <footer className="pub-footer">
-        <div className="pub-wrap">
-          <p>
-            Calls on Chumbucket are free and carry no money. A funded position is a real trade on{" "}
-            <a href="https://panta.market" rel="noopener" target="_blank">
-              Panta
-            </a>
-            , paid in USDC on Solana mainnet from your own wallet. Prices move, and you can lose what you put in.
-          </p>
-          <p className="pub-footer-meta">
-            <span>© {new Date().getUTCFullYear()} Cleva Labs</span>
-            <span>Markets and prices by Panta. Check that prediction markets are legal where you live before you trade.</span>
-          </p>
-        </div>
-      </footer>
-    </div>
+      </div>
+    </SiteShell>
   );
 }
 

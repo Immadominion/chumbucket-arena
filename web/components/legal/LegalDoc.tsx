@@ -1,127 +1,114 @@
 /**
- * Shared frame for the legal pages (/terms, /privacy, /delete-account).
- * A server component: no client JavaScript, readable on a phone, and every
- * page carries the same unmistakable DRAFT banner until counsel signs off.
+ * Shared frame for the legal pages (/terms, /privacy, /delete-account), in
+ * the site's design language: the site header and footer, a narrow reading
+ * column set in PP Neue Machina, and the unmistakable DRAFT banner every
+ * page carries until counsel signs off. Server component, no client JS.
  */
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { DecorLayer, Glow, Sparkle, at } from "@/components/site/decor/Decor";
+import { SiteShell } from "@/components/site/SiteShell";
+import "./legal.css";
 
 export const LEGAL_VERSION = "2026-10-02-draft";
 export const LEGAL_DATE = "2 October 2026";
 
-const INK = "#1A1013";
-const BODY = "#493A40";
-const CORAL = "#D81E4A";
-const LINE = "#EFE6E9";
+const LEGAL_LINKS = [
+  { href: "/terms", label: "Terms" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/delete-account", label: "Delete your account" },
+];
 
 export function LegalDoc({
   title,
   intro,
   children,
   toc,
+  current,
 }: {
   title: string;
   intro: ReactNode;
   toc?: { id: string; label: string }[];
   children: ReactNode;
+  /** Which legal page this is, for the sub-navigation. */
+  current?: "/terms" | "/privacy" | "/delete-account";
 }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#FAF6F7", color: BODY }}>
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 20px 96px" }}>
-        <nav style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14, fontWeight: 600, marginBottom: 28 }}>
-          <Link href="/" style={{ color: CORAL, textDecoration: "none" }}>
-            Chumbucket
-          </Link>
-          <Link href="/terms" style={{ color: INK, textDecoration: "none" }}>
-            Terms
-          </Link>
-          <Link href="/privacy" style={{ color: INK, textDecoration: "none" }}>
-            Privacy
-          </Link>
-          <Link href="/delete-account" style={{ color: INK, textDecoration: "none" }}>
-            Delete your account
-          </Link>
-        </nav>
-
-        <div
-          role="note"
-          style={{
-            border: `1px solid ${CORAL}`,
-            background: "#FFE7EC",
-            color: "#7A0F2A",
-            borderRadius: 14,
-            padding: "12px 16px",
-            fontSize: 14,
-            lineHeight: 1.5,
-            marginBottom: 24,
-          }}
-        >
-          <strong>Draft for legal review.</strong> This text describes how Chumbucket actually works today and
-          is awaiting review by counsel. Items in [square brackets] are still to be filled in. Version {LEGAL_VERSION},{" "}
-          {LEGAL_DATE}.
+    <SiteShell>
+      <div className="legal" data-section="legal">
+        <div className="cb-container legal__decor-anchor">
+          <DecorLayer className="legal__decor">
+            <Glow shape="pair" style={at(800, 40)} el="legal.glow" />
+            <Sparkle x={1010} y={90} size={64} el="legal.sparkle" />
+          </DecorLayer>
         </div>
 
-        <h1 className="cd" style={{ fontSize: 38, lineHeight: 1.08, color: INK, margin: 0, letterSpacing: -0.5 }}>
-          {title}
-        </h1>
-        <div style={{ fontSize: 16, lineHeight: 1.65, margin: "14px 0 0" }}>{intro}</div>
+        <article className="legal__column">
+          <nav className="legal__nav" aria-label="Legal">
+            <ul>
+              {LEGAL_LINKS.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href} aria-current={current === l.href ? "page" : undefined}>
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
 
-        {toc && toc.length > 0 && (
-          <ol
-            style={{
-              margin: "28px 0 0",
-              padding: "16px 16px 16px 36px",
-              background: "#fff",
-              border: `1px solid ${LINE}`,
-              borderRadius: 14,
-              fontSize: 14,
-              lineHeight: 1.9,
-            }}
-          >
-            {toc.map((t) => (
-              <li key={t.id}>
-                <a href={`#${t.id}`} style={{ color: INK }}>
-                  {t.label}
-                </a>
-              </li>
-            ))}
-          </ol>
-        )}
+          <div className="legal__draft" role="note">
+            <strong>Draft for legal review.</strong> This text describes how Chumbucket actually works today and is
+            awaiting review by counsel. Items in [square brackets] are still to be filled in. Version {LEGAL_VERSION},{" "}
+            {LEGAL_DATE}.
+          </div>
 
-        <div style={{ marginTop: 12 }}>{children}</div>
+          <p className="cb-eyebrow">legal</p>
+          <h1 className="legal__title">{title}</h1>
+          <div className="legal__intro">{intro}</div>
 
-        <footer style={{ marginTop: 56, paddingTop: 20, borderTop: `1px solid ${LINE}`, fontSize: 13, lineHeight: 1.6 }}>
-          Chumbucket shows markets from and routes funded trades to Panta. Powered by Panta. Chumbucket is not
-          affiliated with or endorsed by Panta unless stated in writing.
-        </footer>
+          {toc && toc.length > 0 && (
+            <nav className="legal__toc" aria-label="On this page">
+              <ol>
+                {toc.map((t) => (
+                  <li key={t.id}>
+                    <a href={`#${t.id}`}>{t.label}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+
+          <div className="legal__body">{children}</div>
+
+          <p className="legal__venue">
+            Chumbucket shows markets from and routes funded trades to Panta. Powered by Panta. Chumbucket is not
+            affiliated with or endorsed by Panta unless stated in writing.
+          </p>
+        </article>
       </div>
-    </div>
+    </SiteShell>
   );
 }
 
 export function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} style={{ marginTop: 36, scrollMarginTop: 24 }}>
-      <h2 className="cd" style={{ fontSize: 22, color: INK, margin: "0 0 10px", lineHeight: 1.2 }}>
-        {title}
-      </h2>
-      <div style={{ fontSize: 15.5, lineHeight: 1.7 }}>{children}</div>
+    <section id={id} className="legal__section">
+      <h2>{title}</h2>
+      <div>{children}</div>
     </section>
   );
 }
 
 export function P({ children }: { children: ReactNode }) {
-  return <p style={{ margin: "0 0 12px" }}>{children}</p>;
+  return <p className="legal__p">{children}</p>;
 }
 
 export function List({ items }: { items: ReactNode[] }) {
   return (
-    <ul style={{ margin: "0 0 12px", paddingLeft: 22 }}>
+    <ul className="legal__list">
       {items.map((item, i) => (
-        <li key={i} style={{ marginBottom: 6 }}>
-          {item}
-        </li>
+        <li key={i}>{item}</li>
       ))}
     </ul>
   );
@@ -129,7 +116,7 @@ export function List({ items }: { items: ReactNode[] }) {
 
 export function Ext({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: CORAL }}>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="legal__ext">
       {children}
     </a>
   );

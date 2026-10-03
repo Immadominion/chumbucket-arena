@@ -1,0 +1,209 @@
+/* ==========================================================================
+   Legal pages (/terms, /privacy, /delete-account): a 720px reading column in
+   the site's type and colours. Rendered inside .cb-site (site.css tokens).
+   ========================================================================== */
+
+.legal {
+  --u: 1px;
+  position: relative;
+  padding: 64px 0 120px;
+}
+.legal__decor-anchor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+}
+@media (max-width: 1023.98px) {
+  .legal {
+    padding: 32px 0 88px;
+  }
+  .legal__decor {
+    display: none;
+  }
+}
+
+.legal__column {
+  position: relative;
+  width: min(720px, var(--container));
+  margin-inline: auto;
+  color: #3b2e33;
+  font-size: 17px;
+  line-height: 28px;
+}
+
+.legal__nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-bottom: 28px;
+}
+.legal__nav a {
+  font-size: 16px;
+  line-height: 26px;
+  color: var(--cb-text);
+  transition: color 0.18s ease;
+}
+.legal__nav a:hover,
+.legal__nav a[aria-current="page"] {
+  color: var(--cb-pink);
+}
+.legal__nav a[aria-current="page"] {
+  font-weight: var(--cb-bold);
+}
+
+.legal__draft {
+  margin-bottom: 32px;
+  padding: 14px 18px;
+  border: 1px solid var(--cb-pink);
+  border-radius: var(--cb-radius-card);
+  background: #ffe7ec;
+  color: #7a0f2a;
+  font-size: 15px;
+  line-height: 24px;
+}
+.legal__draft strong {
+  font-weight: var(--cb-bold);
+}
+
+.legal__title {
+  margin-top: 4px;
+  color: var(--cb-text);
+  font-size: clamp(34px, 7vw, 48px);
+  line-height: 1.04;
+  font-weight: var(--cb-bold);
+}
+.legal__intro {
+  margin-top: 18px;
+}
+
+.legal__column .legal__toc ol {
+  margin-top: 32px;
+  padding: 22px 24px 22px 44px;
+  border: 1px solid #efe6e9;
+  border-radius: var(--cb-radius-card);
+  background: var(--cb-white);
+  box-shadow: -13px 13px 104px rgb(161 161 161 / 0.12);
+  list-style: decimal;
+  font-size: 15px;
+  line-height: 30px;
+}
+.legal__toc a {
+  color: var(--cb-text);
+  transition: color 0.18s ease;
+}
+.legal__toc a:hover {
+  color: var(--cb-pink);
+}
+
+.legal__section {
+  margin-top: 44px;
+}
+.legal__section h2 {
+  margin-bottom: 12px;
+  color: var(--cb-text);
+  font-size: clamp(22px, 4vw, 28px);
+  line-height: 1.15;
+  font-weight: var(--cb-bold);
+}
+.legal__column .legal__p {
+  margin-bottom: 12px;
+}
+.legal__column .legal__list {
+  margin-bottom: 12px;
+  padding-left: 22px;
+  list-style: disc;
+}
+.legal__list li {
+  margin-bottom: 8px;
+}
+.legal__list li::marker {
+  color: var(--cb-pink);
+}
+.legal__body a:not(.cb-btn),
+.legal__intro a,
+.legal__venue a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.legal__ext {
+  color: var(--cb-text);
+}
+.legal__ext:hover {
+  color: var(--cb-pink);
+}
+
+.legal__venue {
+  margin-top: 56px;
+  padding-top: 20px;
+  border-top: 1px solid #efe6e9;
+  color: var(--cb-text-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* ── the deletion request form ── */
+
+.legal-form {
+  margin-top: 8px;
+}
+.legal-form label {
+  display: block;
+  margin-top: 18px;
+  color: var(--cb-text);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: var(--cb-bold);
+}
+.legal-form input,
+.legal-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 13px 14px;
+  border: 1px solid #d9c3c9;
+  border-radius: var(--cb-radius-button);
+  background: var(--cb-white);
+  color: var(--cb-text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: var(--cb-regular);
+}
+.legal-form textarea {
+  resize: vertical;
+}
+.legal-form input:focus-visible,
+.legal-form textarea:focus-visible {
+  border-color: var(--cb-black);
+  outline-offset: 1px;
+}
+.legal-form__honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.legal-form .cb-btn {
+  margin-top: 24px;
+}
+.legal-status {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--cb-radius-card);
+  font-size: 15px;
+  line-height: 24px;
+}
+.legal-status--ok {
+  border: 1px solid #86efac;
+  background: #e8f6ee;
+  color: #14532d;
+}
+.legal-status--error {
+  border: 1px solid #ffb0c0;
+  background: #ffe7ec;
+  color: #7a0f2a;
+}

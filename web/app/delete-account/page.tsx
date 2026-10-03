@@ -1,27 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { LegalDoc, List, P, Section } from "@/components/legal/LegalDoc";
 
 export const metadata: Metadata = {
   title: "Delete your Chumbucket account",
   description: "How to delete your Chumbucket account in the app, or request deletion here.",
 };
-
-const FIELD: CSSProperties = {
-  display: "block",
-  width: "100%",
-  boxSizing: "border-box",
-  marginTop: 6,
-  padding: "12px 14px",
-  fontSize: 16,
-  borderRadius: 12,
-  border: "1px solid #D9C3C9",
-  background: "#fff",
-  color: "#1A1013",
-};
-
-const LABEL: CSSProperties = { display: "block", fontSize: 14, fontWeight: 600, color: "#1A1013", marginTop: 16 };
 
 const STATUS: Record<string, { tone: "ok" | "error"; text: string }> = {
   sent: {
@@ -48,6 +32,7 @@ export default async function DeleteAccountPage({
   return (
     <LegalDoc
       title="Delete your account"
+      current="/delete-account"
       intro={
         <P>
           You can delete your Chumbucket account at any time. The quickest way is in the app; if you can&rsquo;t get
@@ -83,18 +68,7 @@ export default async function DeleteAccountPage({
 
       <Section id="request" title="Request deletion">
         {status && (
-          <div
-            role="status"
-            style={{
-              borderRadius: 12,
-              padding: "12px 14px",
-              margin: "0 0 12px",
-              fontSize: 15,
-              background: status.tone === "ok" ? "#E8F6EE" : "#FFE7EC",
-              color: status.tone === "ok" ? "#14532D" : "#7A0F2A",
-              border: `1px solid ${status.tone === "ok" ? "#86EFAC" : "#FFB0C0"}`,
-            }}
-          >
+          <div role="status" className={`legal-status legal-status--${status.tone}`}>
             {status.text}
           </div>
         )}
@@ -102,45 +76,31 @@ export default async function DeleteAccountPage({
           Tell us how to reach you and which account it is. We will ask you to prove the account is yours (for example
           by signing in, or signing a message with its wallet) before we delete anything.
         </P>
-        <form method="post" action="/delete-account/request" style={{ marginTop: 8 }}>
-          <label style={LABEL}>
+        <form method="post" action="/delete-account/request" className="legal-form">
+          <label>
             Email or X handle we can reply to
-            <input name="contact" required minLength={3} maxLength={254} autoComplete="email" style={FIELD} />
+            <input name="contact" required minLength={3} maxLength={254} autoComplete="email" />
           </label>
-          <label style={LABEL}>
+          <label>
             Your Chumbucket @username (optional)
-            <input name="handle" maxLength={40} autoComplete="off" style={FIELD} />
+            <input name="handle" maxLength={40} autoComplete="off" />
           </label>
-          <label style={LABEL}>
+          <label>
             Wallet address you sign in with (optional)
-            <input name="wallet" maxLength={64} autoComplete="off" spellCheck={false} style={FIELD} />
+            <input name="wallet" maxLength={64} autoComplete="off" spellCheck={false} />
           </label>
-          <label style={LABEL}>
+          <label>
             Anything else we should know (optional)
-            <textarea name="details" maxLength={1000} rows={4} style={{ ...FIELD, resize: "vertical" }} />
+            <textarea name="details" maxLength={1000} rows={4} />
           </label>
           {/* Left empty by people; bots fill it. */}
-          <div aria-hidden="true" style={{ position: "absolute", left: -10000, width: 1, height: 1, overflow: "hidden" }}>
+          <div aria-hidden="true" className="legal-form__honeypot">
             <label>
               Leave this empty
               <input name="website" tabIndex={-1} autoComplete="off" />
             </label>
           </div>
-          <button
-            type="submit"
-            style={{
-              marginTop: 20,
-              minHeight: 48,
-              padding: "12px 22px",
-              borderRadius: 999,
-              border: 0,
-              background: "#D81E4A",
-              color: "#fff",
-              fontSize: 16,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
+          <button type="submit" className="cb-btn cb-btn--dark">
             Send deletion request
           </button>
         </form>
