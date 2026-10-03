@@ -256,8 +256,10 @@ export const FIND_REFRESH_TIMEOUT_MS = 3_000;
 const FIND_UNAVAILABLE = "We couldn't look that up right now. Try again in a moment.";
 
 /** A read-through that must finish (found or not) in time, or fail the lookup. */
-async function within<T>(work: Promise<T>, ms: number): Promise<T> {
+export async function within<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Promise.race subscribes to `work`, so a read that fails after losing the
+  // race is already handled and never surfaces as an unhandled rejection.
   try {
     return await Promise.race([
       work,

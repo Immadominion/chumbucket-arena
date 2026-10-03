@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { callsRouter } from "../src/api/calls.ts";
+import { callsRouter, within } from "../src/api/calls.ts";
 import { READ_ONLY_MUTATIONS } from "../src/api/writeLimits.ts";
 import { findPerson, parseFindQuery, type PersonIdentityReader, type XIdentity } from "../src/calls/personFinder.ts";
 import { buildCallsRuntime, setCallsRuntime } from "../src/calls/runtime.ts";
@@ -440,5 +440,28 @@ describe("findPerson read-through", () => {
     const rt = buildCallsRuntime(undefined, { store: new InMemoryCallsStore() });
     expect(await rt.identities.byXHandle("irfan")).toEqual([]);
     expect(await rt.xAvatars.avatarFor("irfan")).toBeNull();
+  });
+});
+
+describe("within (people.find's bounded read-through)", () => {
+  test("a read in time is its own answer; a slow one fails the lookup", async () => {
+    expect(await within(Promise.resolve("row"), 50)).toBe("row");
+    await expect(within(new Promise((r) => setTimeout(() => r("late"), 200)), 10)).rejects.toThrow(
+      "read-through took longer than 10ms",
+    );
+  });
+
+  test("a read that fails after losing the race never surfaces later", async () => {
+    let unhandled = 0;
+    const onUnhandled = () => unhandled++;
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const late = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db down")), 20));
+      await expect(within(late, 5)).rejects.toThrow("read-through took longer");
+      await new Promise((r) => setTimeout(r, 40));
+      expect(unhandled).toBe(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });
