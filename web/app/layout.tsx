@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   title: "Chumbucket: see what people call on real prediction markets",
   description:
     "Follow named people's calls on live Panta prediction markets. Back them, fade them, or challenge a friend, and keep a receipt nobody can edit.",
-  icons: { icon: "/img/bucket.png" },
+  // Small square crops of /img/bucket.png (2.3 MB, too heavy for a tab icon).
+  icons: {
+    icon: [{ url: "/img/bucket-64.png", sizes: "64x64", type: "image/png" }],
+    apple: [{ url: "/img/bucket-180.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: {
     siteName: "Chumbucket",
     title: "Chumbucket: see what people call on real prediction markets",
@@ -31,22 +35,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        {/* Warm every font origin in parallel before the render-blocking CSS
-            requests them, the stylesheet host AND the woff2 file host each need
-            their own connection (fonts are always fetched with CORS). */}
-        {/* PP Neue Machina (display) is served locally from /public/fonts via
-            @font-face in globals.css, matches the landing. Inter (body) + mono
-            from Google. */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      {/* Client providers (Privy, React Query, tRPC, session) are mounted by
-          the routes that use them: see components/AppProviders.tsx. */}
+      {/* Client providers (Privy, React Query, tRPC, session) and the Arena's
+          Google fonts (components/ArenaFonts.tsx) are mounted by the routes
+          that use them: see components/AppProviders.tsx. The public site
+          loads only its own woff2 through next/font. */}
       <body>{children}</body>
     </html>
   );
