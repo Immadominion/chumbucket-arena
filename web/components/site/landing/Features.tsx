@@ -43,7 +43,7 @@ export function Features() {
         <div className="cb-features__visual cb-stage" data-el="features.visual" data-reveal="stage" aria-hidden="true">
           <Glow shape="pairLarge" style={at(-78, 280.851, { t: "scaleY(-1)" })} el="features.glow-1" />
           <Orbit shape="feature" style={at(-235, -108)} el="features.orbit" />
-          <Phone screen="home" el="features.phone" />
+          <Phone screen="markets" el="features.phone" />
         </div>
 
         <div className="cb-features__copy">

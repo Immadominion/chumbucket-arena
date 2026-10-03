@@ -41,12 +41,12 @@ export function Hero({ proofLink }: { proofLink: { href: string; label: string; 
             </Depth>
             <Depth depth={0.55}>
               <Sparkle x={333.941} y={589} size={48} r={45} el="hero.visual.sparkle-1" />
-              <Phone screen="friends" className="cb-at" style={at(256, 285.51, { r: -15 })} el="hero.phone-3" />
+              <Phone screen="receipt" className="cb-at" style={at(256, 285.51, { r: -15 })} el="hero.phone-3" />
             </Depth>
             <Depth depth={0.8}>
               <Sparkle x={561} y={17} size={64} el="hero.visual.sparkle-2" />
               <Sparkle x={193.569} y={684.569} size={48} r={150} el="hero.visual.sparkle-3" />
-              <Phone screen="calls" width={249.593} className="cb-at" style={at(133, 217.599, { r: -15 })} el="hero.phone-2" />
+              <Phone screen="call" width={249.593} className="cb-at" style={at(133, 217.599, { r: -15 })} el="hero.phone-2" />
             </Depth>
             <Depth depth={1}>
               <Phone screen="home" className="cb-at" style={at(11, 140.51, { r: -15 })} el="hero.phone-1" priority />

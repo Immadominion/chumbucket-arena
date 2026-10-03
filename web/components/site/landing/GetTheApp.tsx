@@ -111,9 +111,9 @@ export function GetTheApp() {
           </div>
 
           <div className="cb-cta__phones" data-el="cta.phones" aria-hidden="true">
-            <PanelPhone screen="home" x={557.06} y={222.472} w={209.333} inset={8.898} band={33.087} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-left" />
-            <PanelPhone screen="calls" x={861.726} y={227.741} w={209.333} inset={8.838} band={27.818} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-right" />
-            <PanelPhone screen="profile" x={698} y={160.291} w={234} inset={7.762} band={29.007} radius={30} shot={{ top: -18.275, height: 478.342 }} notch={false} el="cta.phone-centre" />
+            <PanelPhone screen="call" x={557.06} y={222.472} w={209.333} inset={8.898} band={33.087} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-left" />
+            <PanelPhone screen="profile" x={861.726} y={227.741} w={209.333} inset={8.838} band={27.818} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-right" />
+            <PanelPhone screen="welcome" x={698} y={160.291} w={234} inset={7.762} band={29.007} radius={30} shot={{ top: -18.275, height: 478.342 }} notch={false} el="cta.phone-centre" />
           </div>
         </div>
       </div>

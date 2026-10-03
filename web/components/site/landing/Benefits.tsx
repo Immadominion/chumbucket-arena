@@ -10,7 +10,7 @@
  */
 
 import Image from "next/image";
-import { SCREENS } from "../config";
+import { CALL_CARD } from "../config";
 import { DecorLayer, Glow, Orbit, Phone, Sparkle, at } from "../decor/Decor";
 import { BellIcon, StarIcon } from "../icons";
 
@@ -45,10 +45,10 @@ export function Benefits() {
         <div className="cb-benefits__visual cb-stage" data-el="benefits.follow.visual" data-reveal="stage" aria-hidden="true">
           <Glow shape="pair" style={at(-56, 204.221)} el="benefits.follow.glow" />
           <Orbit shape="feature" style={at(-235, -107)} el="benefits.follow.orbit" />
-          <Phone screen="calls" width={249.593} el="benefits.follow.phone" />
+          <Phone screen="home" width={249.593} el="benefits.follow.phone" />
           {/* A call card from the same screen, lifted off the phone. */}
           <div className="cb-benefits__card cb-at" style={at(112, 233.221, { w: 201 })} data-el="benefits.follow.card">
-            <Image src={SCREENS.calls.src} alt="" fill sizes="(max-width: 1023px) 40vw, 201px" />
+            <Image src={CALL_CARD.src} alt="" fill sizes="(max-width: 1023px) 40vw, 201px" />
           </div>
         </div>
       </div>
@@ -62,7 +62,7 @@ export function Benefits() {
         <div className="cb-benefits__visual cb-stage" data-el="benefits.settle.visual" data-reveal="stage" aria-hidden="true">
           <Glow shape="pairLarge" style={at(-31, 266.578, { t: "matrix(0.767, 0.641, 0.641, -0.767, 0, 0)" })} el="benefits.settle.glow" />
           <Orbit shape="feature" style={at(-235, -108)} el="benefits.settle.orbit" />
-          <Phone screen="calls" el="benefits.settle.phone" />
+          <Phone screen="receipt" el="benefits.settle.phone" />
         </div>
 
         <div className="cb-benefits__copy">

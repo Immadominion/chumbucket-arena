@@ -31,7 +31,7 @@ code that draws it, so motion can be added one element at a time.
 
 Assets: `public/site/phone-frame.png` (the Figma device frame),
 `public/img/bucket.png` (the Chum Bucket logo, served through `next/image`),
-`public/product-shots/*.png` (app screenshots, see "Assets to replace").
+`public/product-shots/*.webp` (app screenshots, see "Product screenshots").
 
 ## Sizing model
 
@@ -104,13 +104,13 @@ class. Motion can target either.
 | Round badge + second link: "open web app" with a window-and-arrow icon when `NEXT_PUBLIC_WEB_APP_URL` names a web app that serves the calls product; until then a play badge and "see a receipt" (a real settled call), "see a live call" or "see live calls" | `hero.proof-link` (`data-kind` = `web` / `receipt` / `call` / `live`), badge `hero.proof-icon` (`.cb-hero__play`) |
 | The ribbon and the phones (one box under 1024px, see "Phones and tablets") | `.cb-hero__stage` |
 | Folded ribbon illustration (one SVG) | `hero.ribbon`; parts `hero.ribbon.band` (black band), `.stop-1` / `.stop-2` (its two labelled stops), `.fold` (pink band + "Make a call"), `.tag` (pink tag, bar, dividers), `.sparkle`, `.tag-label`, `.glyph` (the big "a") |
-| Phone cluster, in four depth layers (`.cb-depth`, `--d` 0.3 / 0.55 / 0.8 / 1) | `hero.visual`; glow `hero.visual.glow`, rings `hero.visual.orbit`, phones `hero.phone-1` (front, Home), `-2` (Calls), `-3` (back, Friends), sparkles `hero.visual.sparkle-1..3` |
+| Phone cluster, in four depth layers (`.cb-depth`, `--d` 0.3 / 0.55 / 0.8 / 1) | `hero.visual`; glow `hero.visual.glow`, rings `hero.visual.orbit`, phones `hero.phone-1` (front, Home), `-2` (a call), `-3` (back, a receipt), sparkles `hero.visual.sparkle-1..3` |
 | Sparkles left of the logo and under the button | `hero.sparkle-1`, `hero.sparkle-2` |
 
 ### Features (`Features.tsx`, `#features`)
 | Visual | Hook |
 | --- | --- |
-| Phone (Home) in its rings with the flipped glow | `features.visual`, `features.phone`, `features.orbit`, `features.glow-1` |
+| Phone (Markets) in its rings with the flipped glow | `features.visual`, `features.phone`, `features.orbit`, `features.glow-1` |
 | Right-edge glow, left sparkle | `features.glow-2`, `features.sparkle` |
 | "how it works" / "Your move" | `features.eyebrow`, `features.title` |
 | Three items (icon, title, body) | `features.item.{call,back-fade,receipt}` |
@@ -120,8 +120,8 @@ class. Motion can target either.
 | --- | --- |
 | "why chumbucket" / "Receipts, not hype" | `benefits.eyebrow`, `benefits.title` |
 | Row 1: bell badge + "Follow people who call it" | `benefits.follow.item` |
-| Row 1: phone (Calls), rings, glow, lifted call card | `benefits.follow.visual`, `.phone`, `.orbit`, `.glow`, `.card` |
-| Row 2: phone (Calls), rings, rotated glow | `benefits.settle.visual`, `.phone`, `.orbit`, `.glow` |
+| Row 1: phone (Home), rings, glow, lifted call card | `benefits.follow.visual`, `.phone`, `.orbit`, `.glow`, `.card` |
+| Row 2: phone (a receipt), rings, rotated glow | `benefits.settle.visual`, `.phone`, `.orbit`, `.glow` |
 | Row 2: star badge + "Panta settles it" | `benefits.settle.item` |
 | Sparkles | `benefits.follow.sparkle`, `benefits.settle.sparkle-1/-2` |
 
@@ -179,7 +179,7 @@ folded under 1024px. CSS draws that default from the breakpoint before
 | Glow and sparkles outside the panel | `cta.glow-outside`, `cta.sparkle-1/-2` |
 | "Call it before it happens." (the app's Welcome title) + text | `cta.title`, `cta.text` |
 | White button "get the app" (when `NEXT_PUBLIC_ANDROID_INSTALL_URL` is set) or the white "Search Chumbucket in the Solana dApp Store" badge | `cta.button` |
-| Three phones rising out of the panel (Home, Profile, Calls) | `cta.phones`, `cta.phone-left`, `cta.phone-centre`, `cta.phone-right` |
+| Three phones rising out of the panel (a call, Welcome, Profile) | `cta.phones`, `cta.phone-left`, `cta.phone-centre`, `cta.phone-right` |
 
 ### Footer (`SiteFooter.tsx`)
 `footer.brand`, `footer.links`, `footer.more`, `footer.product`,
@@ -326,15 +326,39 @@ root metadata for those words, and that nothing links `/signin` or `/arena`
 (still the retired football product). Positioning, proof points and voice:
 `docs/positioning.md`.
 
-## Assets to replace
+## Product screenshots
 
-The phone screenshots (`public/product-shots/{home,calls,friends,profile}.png`,
-mapped in `components/site/config.ts`) are captures from before the move
-to Panta markets: they show football fixtures, SOL challenges and "Call too"
-pots. They are kept so the page matches the old one; replace them with
-current captures (1170 x 2462 PNG, status bar included) of the Home feed of
-calls, a call or receipt, a profile with its record, and the Calls / people
-feed, and every mockup updates.
+The phones show the current Android app, captured on a Seeker signed in as
+the owner (@dev), mapped in `components/site/config.ts` (`SCREENS`, plus
+`CALL_CARD` for the card lifted off the Benefits phone):
+
+| Slot | Screen | File |
+| --- | --- | --- |
+| Hero front / back / middle | Home feed, a receipt, a call | `home-feed`, `receipt-missed`, `call-on-record` |
+| Features ("Your move") | Markets | `markets` |
+| Benefits row 1 + lifted card | Home feed + its first call's header | `home-feed`, `home-call-card` |
+| Benefits row 2 ("Panta settles it") | Receipt "Missed this one." | `receipt-missed` |
+| CTA left / centre / right | A call, Welcome, Profile | `call-on-record`, `welcome`, `profile-record` |
+
+How they were made from the 1200 x 2670 captures: the real status bar
+(rows 0-110, with personal notification icons) is rebuilt from the
+screen's own background, column by column (Welcome keeps its coral
+gradient), and a neutral one is drawn on top (9:41, wifi, full signal, full
+battery, black at 60% like Android's own icons). Rows 28-2624 are kept,
+which drops the gesture handle and gives the phone screen's exact ratio
+(`.cb-phone__shot`, 0.4622); exported at 720 x 1558 WebP, over 3x the
+largest rendered phone screen (224 CSS px). The CTA phones are a touch
+narrower (0.454 to 0.457) and crop under 1% off each side with
+`object-fit: cover`; their top band hides the status bar by design. The
+lifted card is 804 x 246, the card's own ratio.
+
+Profile is only used in the CTA, where the panel edge cuts it above its
+"Escrow challenge still open" card (a leftover of the retired escrow
+product that would contradict "Panta settles it"). Its wallet line shows
+the owner's real balance.
+
+`public/product-shots/home.png` is the old football-era Home: only the
+retired `/signin` page still uses it.
 
 ## Known differences from the old page
 
@@ -368,6 +392,3 @@ Intentional:
 - From 720 to 1023px the phone stages leave room on the copy side for their
   rings (they reach 142 design px past the phone), so no ring runs under
   text.
-
-Not yet:
-- The phone screenshots still show the old app (see "Assets to replace").

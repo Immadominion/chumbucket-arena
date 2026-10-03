@@ -39,15 +39,30 @@ export const NAV_ITEMS = [
  * Product screenshots shown inside the phone mockups. Swap a path here to
  * change every mockup that shows that screen.
  *
- * These are captures of the Android app from before the move to Panta
- * markets (they still show football fixtures). Replace them with current
- * captures at the same 1170 x 2462 size; see docs/website-structure.md.
+ * Captures of the current Android app on a Seeker, signed in as the owner
+ * (@dev). The real status bar is replaced by a neutral one (9:41, full
+ * signal and battery) and the gesture handle is cropped off. Each is
+ * 720 x 1558, the phone screen's ratio (0.4622); the call-to-action phones
+ * crop a hair off the sides. `label` says what the screen shows; the phones
+ * themselves are decorative (the copy beside them says the same).
+ * See docs/website-structure.md, "Product screenshots".
  */
 export const SCREENS = {
-  home: { src: "/product-shots/home.png", label: "Home" },
-  calls: { src: "/product-shots/calls.png", label: "Calls" },
-  friends: { src: "/product-shots/friends.png", label: "Friends" },
-  profile: { src: "/product-shots/profile.png", label: "Profile" },
+  home: { src: "/product-shots/home-feed.webp", label: "Home: a receipt banner over the feed of calls" },
+  call: { src: "/product-shots/call-on-record.webp", label: "A call: “You’re on record”, with its locked side, price and time" },
+  receipt: { src: "/product-shots/receipt-missed.webp", label: "A receipt: “Missed this one.”, settled by Panta" },
+  markets: { src: "/product-shots/markets.webp", label: "Markets: categories and YES / NO prices in USDC per share" },
+  profile: { src: "/product-shots/profile-record.webp", label: "Profile: wallet and the record of calls" },
+  welcome: { src: "/product-shots/welcome.webp", label: "Welcome: “Call it before it happens.”" },
 } as const;
 
 export type ScreenName = keyof typeof SCREENS;
+
+/**
+ * The first call's header from the Home screen (caller, side, close, free
+ * call), lifted off the phone in Benefits. 804 x 246, the card's ratio.
+ */
+export const CALL_CARD = {
+  src: "/product-shots/home-call-card.webp",
+  label: "A call on Home: Dominion (@dev), NO, closes in 47d, free call",
+} as const;
