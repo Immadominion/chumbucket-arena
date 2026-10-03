@@ -517,6 +517,9 @@ function summaryOf(person: Person): LeaderboardRow["person"] {
     handle: person.handle,
     displayName: person.displayName,
     avatarUrl: person.avatarUrl,
+    // The avatar the person chose (account.updateProfile), so people lists
+    // show the same picture as their calls do.
+    avatarId: person.avatarId ?? null,
   };
 }
 

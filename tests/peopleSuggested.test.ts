@@ -190,6 +190,15 @@ describe("people.suggested", () => {
     ).rejects.toThrow();
   });
 
+  test("each person carries the avatar they chose, so the row matches their calls", async () => {
+    const h = scene();
+    h.calls.upsertPerson(person("u-hot", { avatarId: 3 }));
+    const { anon } = await routes(h);
+    const page = await anon.people.suggested({});
+    expect(page.people.find((p) => p.id === "u-hot")!.avatarId).toBe(3);
+    expect(page.people.find((p) => p.id === "u-ace")!.avatarId).toBeNull();
+  });
+
   test("no money and no wallet on the wire", async () => {
     const h = scene();
     h.rt.friends = friendsOf({ "u-me": ["u-pal"] });

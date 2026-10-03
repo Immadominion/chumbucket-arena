@@ -28,6 +28,17 @@ export function buildAccountRuntime(
   return { store, push, sender: push.enabled ? new FcmHttpV1Sender(push.account) : null };
 }
 
+/**
+ * Whether this server actually delivers pushes: a store that keeps device
+ * tokens, a configured FCM sender, and the notification scheduler running
+ * (it is what derives and dispatches them; src/index.ts). The app asks for
+ * notification permission only when this is true, so it never promises a
+ * push nobody sends (onboarding spec §8).
+ */
+export function pushDelivers(rt: AccountRuntime, env: Record<string, string | undefined> = process.env): boolean {
+  return rt.store.enabled && rt.sender !== null && env.NOTIFICATIONS_SCHEDULER_ENABLED !== "false";
+}
+
 let RUNTIMES = new WeakMap<AppConfig, AccountRuntime>();
 
 export function accountRuntimeFor(config: AppConfig): AccountRuntime {

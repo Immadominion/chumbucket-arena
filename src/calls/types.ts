@@ -277,6 +277,8 @@ export interface PersonCard {
   handle: string;
   displayName: string;
   avatarUrl: string | null;
+  /** One of the app's five fixed avatars (1..5), when the person chose one. */
+  avatarId?: number | null;
   record: PublicRecord;
   viewerIsFollowing: boolean;
 }
