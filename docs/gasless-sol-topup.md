@@ -192,10 +192,15 @@ independently):
 7. Fee ≤ 300 bps and ≤ the quote; slippage ≤ 300 bps; a JupiterZ fill expires
    within 10 minutes; the transaction must deliver at least 99% of the quoted
    SOL.
-8. Server only: lookup tables resolved and mints checked; then a mainnet
-   **simulation** (unsigned, `sigVerify: false`, blockhash not replaced) must
-   debit **exactly** the reviewed USDC and credit **at least** the reviewed
-   minimum SOL. If the RPC can't answer, nothing is offered.
+8. Server only: lookup tables resolved and mints checked; a rent repayment
+   is at most **today's** 165-byte rent (read live, so the person never hands
+   back more than the close refunded them — 2,039,280 above is only the
+   phone's offline ceiling), and only when the person had **no** WSOL account
+   before (otherwise the create is a no-op and the "repayment" would be their
+   own rent); then a mainnet **simulation** (unsigned, `sigVerify: false`,
+   blockhash not replaced) must debit **exactly** the reviewed USDC and credit
+   **at least** the reviewed minimum SOL. If the RPC can't answer, nothing is
+   offered.
 9. Execute: the signed bytes must carry the **same message** (sha-256), a
    valid ed25519 signature from the person in their slot, and every other slot
    unchanged. One execute per order; a lost reply allows resending only the
@@ -218,6 +223,18 @@ independently):
 - **Unconfigured:** `solTopUp.status` answers `available: false` with a
   reason; the app shows "Swapping USDC for SOL isn't set up yet" and the
   existing "send a little SOL from another wallet" path.
+
+### The funded-trading attestation does not gate this swap
+
+Decided in review (3 October 2026). The 18+ / jurisdiction / Panta-terms
+attestation (`trust.acceptFundedTrading`) is enforced on the server where a
+stake is placed, `pantaTrading.prepare`, and stays there. The swap places no
+stake and sends nothing to Panta: it turns the person's own USDC into their own
+SOL, which also pays for claiming a win and publishing a market. Add funds
+(card → USDC) is not gated either, and anyone holding USDC can make this swap on
+Jupiter directly, so a gate here would only add a dead end — the trade itself
+is still refused without the attestation. The swap is attributed to Jupiter on
+every screen; Jupiter's own terms are the owner's to accept (§7).
 
 ## 6. Alternatives considered
 
