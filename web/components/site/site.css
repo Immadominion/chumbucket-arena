@@ -36,7 +36,6 @@
   --cb-radius-card: 8px;
   --cb-radius-chip: 10px;
   --cb-radius-pill: 40px;
-  --cb-shadow-follow: -13.011px 13.011px 104.089px rgb(161 161 161 / 0.1);
   --cb-shadow-float: 0 14px 38px rgb(255 51 85 / 0.4);
 
   /* ── type ── */
@@ -541,7 +540,10 @@
 }
 .cb-footer__logo {
   position: relative;
-  display: inline-flex;
+  /* A flex box, not inline-flex: on a text line it would sit on the
+     baseline and push the facts below it 9px down. */
+  display: flex;
+  width: max-content;
   align-items: center;
   height: calc(32 * var(--u));
   padding-left: calc(11.8 * var(--u));
@@ -553,13 +555,14 @@
 }
 .cb-footer__logo > span {
   position: relative;
+  top: calc(1 * var(--u)); /* Figma: the word sits 4px into the 32px row */
   font-size: var(--fs-small);
   line-height: var(--lh-small);
 }
 .cb-footer__tm {
   position: absolute;
   left: calc(84 * var(--u));
-  top: calc(-2 * var(--u));
+  top: calc(2 * var(--u)); /* Figma: 5.7px from the top of the 32px row */
   font-size: calc(4.15 * var(--u));
   line-height: 1;
   color: #221217;
@@ -592,6 +595,13 @@
   gap: calc(16 * var(--u));
   margin-top: calc(16 * var(--u));
 }
+/* Figma: the "links" title is centred in an 82px box and its links sit 3px in. */
+.cb-footer__col--links .cb-footer__title {
+  padding-left: calc(1 * var(--u));
+}
+.cb-footer__col--links ul {
+  padding-left: calc(3 * var(--u));
+}
 
 .cb-footer__updates p {
   margin-top: calc(16 * var(--u));
@@ -605,14 +615,20 @@
   padding: calc(10 * var(--u)) calc(10 * var(--u)) calc(10 * var(--u)) calc(24 * var(--u));
   border-radius: var(--cb-radius-button);
   background: var(--cb-white);
-  box-shadow: var(--cb-shadow-follow);
+  /* Figma gives this box a faint shadow, but the old page clipped it to the
+     box, so it never showed; none here either. */
 }
 .cb-follow__handle {
+  /* Figma: 28px from the top of the 81px box, half a pixel below centre. */
+  margin-top: calc(1 * var(--u));
   color: var(--cb-text-subtle);
 }
 .cb-follow__button {
   display: grid;
-  place-items: center;
+  align-items: center;
+  /* Figma sets the label 40px in from the left (not centred) and 18px
+     from the top of the 61px button. */
+  padding: calc(1 * var(--u)) 0 0 calc(40 * var(--u));
   width: calc(160 * var(--u));
   height: calc(61 * var(--u));
   border-radius: var(--cb-radius-button);
@@ -684,6 +700,10 @@
     width: 24px;
     height: 24px;
   }
+  .cb-footer__col--links .cb-footer__title,
+  .cb-footer__col--links ul {
+    padding-left: 0;
+  }
   .cb-footer__col ul,
   .cb-footer__updates p {
     gap: 12px;
@@ -696,8 +716,10 @@
     padding: 8px 8px 8px 20px;
   }
   .cb-follow__button {
+    justify-items: center;
     width: 128px;
     height: 56px;
+    padding-left: 0;
   }
   .cb-footer__money {
     max-width: none;
@@ -713,8 +735,9 @@
 }
 
 /* ── floating "Get the Android app" ───────────────────────────────────── */
+/* Not ".cb-float": app/globals.css gives that class the Arena's idle bob. */
 
-.cb-float {
+.cb-fab {
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -734,14 +757,14 @@
     transform 0.18s ease,
     box-shadow 0.18s ease;
 }
-.cb-float:hover {
+.cb-fab:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 42px rgb(255 51 85 / 0.45);
 }
 
 /* Small screens keep "Get the app" in the sticky header instead. */
 @media (max-width: 1023.98px) {
-  .cb-float {
+  .cb-fab {
     display: none;
   }
 }
@@ -754,7 +777,7 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-  .cb-float:hover {
+  .cb-fab:hover {
     transform: none;
   }
 }

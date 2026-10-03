@@ -34,7 +34,7 @@ export function SiteShell({
         {children}
       </main>
       <SiteFooter />
-      <a className="cb-float" href={GET_APP_HREF} data-el="float.get-app">
+      <a className="cb-fab" href={GET_APP_HREF} data-el="float.get-app">
         <AndroidIcon size={19} />
         Get the Android app
       </a>

@@ -67,7 +67,7 @@ export function SiteFooter() {
           </div>
 
           {COLUMNS.map((col) => (
-            <nav key={col.id} className="cb-footer__col" aria-labelledby={`footer-${col.id}`} data-el={`footer.${col.id}`}>
+            <nav key={col.id} className={`cb-footer__col cb-footer__col--${col.id}`} aria-labelledby={`footer-${col.id}`} data-el={`footer.${col.id}`}>
               <h2 id={`footer-${col.id}`} className="cb-footer__title">
                 {col.title}
               </h2>

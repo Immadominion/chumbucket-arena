@@ -23,6 +23,7 @@ function PanelPhone({
   band,
   radius,
   shot,
+  notch = true,
   el,
 }: {
   screen: ScreenName;
@@ -36,6 +37,8 @@ function PanelPhone({
   radius: number;
   /** The screenshot's box inside the screen (top offset and height). */
   shot: { top: number; height: number };
+  /** The camera pill in the top band (the Figma centre phone has none). */
+  notch?: boolean;
   el: string;
 }) {
   const style = {
@@ -48,7 +51,7 @@ function PanelPhone({
   } as CSSProperties;
   return (
     <div className="cb-panel-phone cb-at" style={style} data-el={el} data-screen={screen}>
-      <span className="cb-panel-phone__notch" />
+      {notch ? <span className="cb-panel-phone__notch" /> : null}
       <div className="cb-panel-phone__screen">
         <div className="cb-panel-phone__shot">
           <Image src={SCREENS[screen].src} alt="" fill sizes="(max-width: 1023px) 34vw, 220px" />
@@ -103,7 +106,7 @@ export function GetTheApp() {
           <div className="cb-cta__phones" data-el="cta.phones" aria-hidden="true">
             <PanelPhone screen="home" x={557.06} y={222.472} w={209.333} inset={8.898} band={33.087} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-left" />
             <PanelPhone screen="calls" x={861.726} y={227.741} w={209.333} inset={8.838} band={27.818} radius={28} shot={{ top: -16.12, height: 421.93 }} el="cta.phone-right" />
-            <PanelPhone screen="profile" x={698} y={160.291} w={234} inset={7.762} band={29.007} radius={30} shot={{ top: -18.275, height: 478.342 }} el="cta.phone-centre" />
+            <PanelPhone screen="profile" x={698} y={160.291} w={234} inset={7.762} band={29.007} radius={30} shot={{ top: -18.275, height: 478.342 }} notch={false} el="cta.phone-centre" />
           </div>
         </div>
       </div>

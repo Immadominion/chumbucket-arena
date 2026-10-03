@@ -156,7 +156,9 @@ right now." Nothing is invented.
 calls are free and trades are real USDC that can be lost), `footer.copyright`.
 
 ### Floating button
-`float.get-app` (desktop only; phones get the sticky header instead).
+`float.get-app`, class `.cb-fab` (desktop only; phones get the sticky header
+instead). Not `.cb-float`: `app/globals.css` gives that class the Arena's
+idle bob, which would make this button drift up and down.
 
 ## Adding motion
 
@@ -206,11 +208,19 @@ Intentional:
   the clipped "+234 802 508" phone number and the email address with no mail
   server behind it are replaced by "Android · dApp Store" and "Markets by
   Panta"; the copyright sits on one centred line; the black rectangles over
-  the CTA phones are gone; the FAQ cards are an even height (the gap below
+  the CTA phones are gone; the FAQ cards are an even height with the same
+  gap under every question (Figma's ran 41 to 74px; the gap below the grid
   keeps the CTA and footer where they were); the CTA button shows the
   Android robot instead of an Apple logo.
 - A short money statement sits above the copyright.
-- Body grey is 54% black instead of 50% so it passes WCAG AA.
+- Body grey is 54% black instead of 50%, and the footer's @handle is
+  `#7f7076` instead of `#988990`, so both pass WCAG AA.
+- Kept from Figma on purpose, though they look accidental: 27px then 37px
+  between the three feature items, and the footer "Follow" label set 40px
+  from the left of its button rather than centred.
+- From 720 to 1023px the phone stages leave room on the copy side for their
+  rings (they reach 142 design px past the phone), so no ring runs under
+  text.
 
 Not yet:
 - White text on the `#ff5a76` FAQ cards is 3:1, under AA for 18px text; it
