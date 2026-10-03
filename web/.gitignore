@@ -17,3 +17,6 @@ next-env.d.ts
 /public/img/gaffer.png
 /components/Gaffer3D.tsx
 /lib/gaffer.ts
+
+# Design reference screenshots (local only)
+/.design-ref

@@ -1,0 +1,864 @@
+/* ==========================================================================
+   Landing page sections. Lengths are Figma design px x --u (see site.css).
+   Desktop first (>= 1024px), then the single-column layout below 1024px.
+   Every block carries a data-section / data-el hook for motion work.
+   ========================================================================== */
+
+/* A positioned box sized to the phone inside it; orbit and glow are placed
+   relative to the phone's top-left corner, so the group moves as one. */
+.cb-stage {
+  position: relative;
+  align-self: start;
+  justify-self: start;
+}
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+
+.cb-hero__inner {
+  height: calc(856 * var(--u));
+}
+.cb-hero__copy {
+  position: relative;
+  width: calc(560 * var(--u));
+  padding-top: calc(115 * var(--u));
+}
+.cb-hero__title {
+  font-size: var(--fs-display);
+  line-height: var(--lh-display);
+  font-weight: var(--cb-regular);
+}
+.cb-line {
+  display: block;
+}
+.cb-hero__lead {
+  max-width: calc(520 * var(--u));
+  margin-top: calc(101 * var(--u));
+  color: var(--cb-text-lead);
+  font-size: var(--fs-lead);
+  line-height: var(--lh-lead);
+}
+.cb-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: calc(40 * var(--u));
+  margin-top: calc(30 * var(--u));
+}
+.cb-hero__primary {
+  justify-content: space-between;
+}
+.cb-hero__arrow {
+  flex: none;
+  width: calc(28 * var(--u));
+  height: calc(14 * var(--u));
+}
+.cb-hero__secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(14 * var(--u));
+  transition: color 0.18s ease;
+}
+.cb-hero__secondary:hover {
+  color: var(--cb-pink);
+}
+.cb-hero__play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(29 * var(--u));
+  height: calc(29 * var(--u));
+  padding-left: calc(1.5 * var(--u));
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.cb-hero__play svg {
+  width: calc(8.5 * var(--u));
+  height: calc(11 * var(--u));
+}
+.cb-ribbon {
+  height: auto;
+}
+.cb-ribbon path,
+.cb-ribbon rect {
+  fill: var(--cb-black);
+}
+.cb-ribbon .cb-ribbon__pink {
+  fill: var(--cb-pink);
+}
+.cb-ribbon__dot {
+  fill: var(--cb-pink);
+  stroke: var(--cb-pink-strong);
+  stroke-width: 0.654;
+}
+.cb-ribbon__label {
+  font-family: var(--cb-font);
+  font-size: 11.763px;
+  font-weight: var(--cb-regular);
+  fill: var(--cb-black);
+}
+.cb-ribbon__label--bold {
+  font-weight: var(--cb-bold);
+}
+.cb-ribbon__label--light {
+  fill: var(--cb-white);
+}
+.cb-ribbon__label--small {
+  font-size: 10.456px;
+}
+.cb-ribbon__glyph {
+  font-family: var(--cb-font);
+  font-size: 106.385px;
+  font-weight: var(--cb-bold);
+  fill: var(--cb-black);
+}
+.cb-hero__visual {
+  position: absolute;
+  left: calc(585 * var(--u));
+  top: calc(-60 * var(--u));
+  width: calc(680 * var(--u));
+  height: calc(813 * var(--u));
+}
+/* Narrow desktops: the phones hang 120px past the column at 1440; shrink the
+   cluster so the back phone stays on screen. */
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  .cb-hero__visual {
+    --u: calc(var(--container) / 1240);
+  }
+  /* It would sit on the header button at this size. */
+  .cb-hero__visual [data-el="hero.visual.sparkle-2"] {
+    display: none;
+  }
+}
+
+/* ── features ─────────────────────────────────────────────────────────── */
+
+.cb-features__inner {
+  display: grid;
+  grid-template-columns: calc(497 * var(--u)) minmax(0, 1fr);
+  height: calc(639.5 * var(--u));
+}
+.cb-features__visual {
+  margin: calc(108 * var(--u)) 0 0 calc(48 * var(--u));
+}
+.cb-features__copy {
+  position: relative;
+  padding-top: calc(128 * var(--u));
+}
+.cb-features__list {
+  display: grid;
+  gap: calc(30 * var(--u));
+  margin-top: calc(32 * var(--u));
+}
+.cb-feature__title {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--cb-bold);
+}
+.cb-feature__icon {
+  flex: none;
+  width: calc(24 * var(--u));
+  height: calc(24 * var(--u));
+  color: var(--cb-pink-strong);
+}
+.cb-feature__body {
+  max-width: calc(380 * var(--u));
+  margin-top: calc(12 * var(--u));
+  color: var(--cb-text-muted);
+}
+
+/* ── benefits ─────────────────────────────────────────────────────────── */
+
+.cb-benefits__row {
+  display: grid;
+}
+.cb-benefits__copy {
+  position: relative;
+}
+.cb-benefits__row--follow {
+  grid-template-columns: calc(697 * var(--u)) minmax(0, 1fr);
+  height: calc(639.5 * var(--u));
+}
+.cb-benefits__row--follow .cb-benefits__copy {
+  /* Figma hangs this column 58px left of the content edge; never closer
+     than 16px to the screen edge on narrower desktops. */
+  margin-left: max(calc(-58 * var(--u)), calc((var(--container) - 100vw) / 2 + 16px));
+  padding-top: calc(198 * var(--u));
+}
+.cb-benefits__row--follow .cb-benefits__visual {
+  margin-top: calc(107 * var(--u));
+}
+.cb-benefits__row--settle {
+  grid-template-columns: calc(497 * var(--u)) minmax(0, 1fr);
+  height: calc(746.733 * var(--u));
+}
+.cb-benefits__row--settle .cb-benefits__visual {
+  margin: calc(108 * var(--u)) 0 0 calc(50 * var(--u));
+}
+.cb-benefits__row--settle .cb-benefits__copy {
+  padding-top: calc(254 * var(--u));
+}
+.cb-benefit {
+  margin-top: calc(32 * var(--u));
+}
+.cb-benefits__row--settle .cb-benefit {
+  margin-top: 0;
+}
+.cb-benefit__title {
+  display: flex;
+  align-items: center;
+  gap: calc(15 * var(--u));
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  font-weight: var(--cb-bold);
+  white-space: nowrap;
+}
+.cb-benefit__badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(48 * var(--u));
+  height: calc(48 * var(--u));
+  border-radius: 50%;
+  background: var(--cb-pink);
+}
+.cb-benefit__icon {
+  width: calc(24 * var(--u));
+  height: calc(24 * var(--u));
+  color: var(--cb-pink-strong);
+}
+.cb-benefit__icon--light {
+  color: var(--cb-white);
+}
+.cb-benefit__body {
+  max-width: calc(420 * var(--u));
+  margin-top: calc(23 * var(--u));
+  color: var(--cb-text-muted);
+}
+.cb-benefits__card {
+  height: calc(61.468 * var(--u));
+  border-radius: var(--cb-radius-chip);
+  overflow: hidden;
+}
+.cb-benefits__card img {
+  object-fit: cover;
+}
+
+/* ── social proof ─────────────────────────────────────────────────────── */
+
+.cb-proof__inner {
+  height: calc(889 * var(--u));
+}
+.cb-proof__head {
+  position: relative;
+  width: calc(455 * var(--u));
+  margin-inline: auto;
+  text-align: center;
+}
+.cb-proof__art {
+  position: absolute;
+  left: calc(-95 * var(--u));
+  top: calc(108 * var(--u));
+  width: calc(713 * var(--u));
+  height: calc(713 * var(--u));
+  --ring: 1.124px;
+}
+.cb-proof__circles {
+  aspect-ratio: 439.366 / 416.892;
+}
+.cb-proof__circle {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--cb-mist);
+}
+.cb-proof__circle img {
+  object-fit: cover;
+}
+.cb-proof__quote {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  padding-bottom: calc(3.4 * var(--u));
+  border-radius: 50%;
+  background: var(--cb-pink);
+  color: var(--cb-white);
+}
+.cb-proof__quote svg {
+  width: calc(34.835 * var(--u));
+  height: auto;
+}
+.cb-proof__call {
+  position: relative;
+  width: calc(442 * var(--u));
+  margin: calc(125 * var(--u)) 0 0 calc(648 * var(--u));
+}
+.cb-proof__question {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  font-weight: var(--cb-bold);
+}
+.cb-proof__question a {
+  transition: color 0.18s ease;
+}
+.cb-proof__question a:hover {
+  color: var(--cb-pink);
+}
+.cb-proof__text {
+  /* Keeps the people row where the Figma avatars sat when the text is short. */
+  min-height: calc(190 * var(--u));
+  margin-top: calc(14 * var(--u));
+  color: var(--cb-text-muted);
+}
+.cb-proof__people {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+  margin-top: calc(40 * var(--u));
+}
+.cb-proof__person {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: calc(30 * var(--u));
+  height: calc(30 * var(--u));
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--cb-grey, #988990);
+  color: var(--cb-white);
+  font-size: calc(11 * var(--u));
+  line-height: 1;
+  font-weight: var(--cb-bold);
+  opacity: 0.5;
+  transition: opacity 0.18s ease;
+}
+.cb-proof__person:hover {
+  opacity: 1;
+}
+.cb-proof__person--lead {
+  width: calc(40 * var(--u));
+  height: calc(40 * var(--u));
+  background: var(--cb-plum);
+  font-size: calc(14 * var(--u));
+  opacity: 1;
+}
+.cb-proof__person img {
+  object-fit: cover;
+}
+.cb-proof__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 calc(16 * var(--u));
+  margin-top: calc(8 * var(--u));
+}
+.cb-proof__status strong {
+  font-weight: var(--cb-bold);
+}
+.cb-proof__link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.18s ease;
+}
+.cb-proof__link:hover {
+  color: var(--cb-pink);
+}
+
+/* ── faq ──────────────────────────────────────────────────────────────── */
+
+.cb-faq__inner {
+  /* Figma's last pink card ran 40px taller than the rest; the cards here are
+     even, and the gap below keeps the CTA and footer where they were. */
+  padding-bottom: calc(155 * var(--u));
+}
+.cb-faq__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(20 * var(--u));
+  margin-top: calc(88 * var(--u));
+}
+.cb-faq__item {
+  position: relative;
+  min-height: calc(181 * var(--u));
+  padding: calc(31 * var(--u)) calc(30 * var(--u)) calc(30 * var(--u)) calc(31 * var(--u));
+  border-radius: var(--cb-radius-card);
+  background: var(--cb-white);
+}
+/* Checkerboard: pink on the diagonal (1, 4, 5, 8 ... in reading order). */
+.cb-faq__item:nth-child(4n + 1),
+.cb-faq__item:nth-child(4n) {
+  background: var(--cb-pink);
+  color: var(--cb-white);
+}
+.cb-faq__q {
+  font-size: var(--fs-h3);
+  line-height: var(--lh-h3);
+  font-weight: var(--cb-bold);
+}
+.cb-faq__a {
+  max-width: calc(466 * var(--u));
+  margin-top: calc(36 * var(--u));
+  color: var(--cb-text-muted);
+  text-align: justify;
+}
+.cb-faq__item:nth-child(4n + 1) .cb-faq__a,
+.cb-faq__item:nth-child(4n) .cb-faq__a {
+  color: var(--cb-white);
+}
+
+/* ── call to action ───────────────────────────────────────────────────── */
+
+.cb-cta__inner {
+  padding-bottom: calc(155 * var(--u));
+}
+.cb-cta__panel {
+  position: relative;
+  isolation: isolate;
+  height: calc(508 * var(--u));
+  border-radius: var(--cb-radius-card);
+  overflow: hidden;
+  background: var(--cb-black);
+  color: var(--cb-white);
+}
+.cb-cta__decor,
+.cb-cta__phones {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.cb-orbit--light,
+.cb-sparkle--light {
+  color: var(--cb-white);
+}
+.cb-cta__copy {
+  position: relative;
+  width: calc(708 * var(--u));
+  padding: calc(156 * var(--u)) 0 0 calc(77 * var(--u));
+}
+.cb-cta__title {
+  font-size: var(--fs-h2);
+  line-height: var(--lh-h2);
+  font-weight: var(--cb-bold);
+}
+.cb-cta__text {
+  max-width: calc(470 * var(--u));
+  margin-top: calc(16 * var(--u));
+}
+.cb-cta__button,
+.cb-cta__store {
+  margin-top: calc(16 * var(--u));
+  min-width: calc(208 * var(--u));
+  justify-content: space-between;
+  padding: 0 calc(21 * var(--u)) 0 calc(22 * var(--u));
+}
+.cb-cta__glyph {
+  flex: none;
+  width: calc(28 * var(--u));
+  height: calc(28 * var(--u));
+}
+.cb-cta__store {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(16 * var(--u));
+  min-height: calc(60 * var(--u));
+  border-radius: var(--cb-radius-button);
+  background: var(--cb-white);
+  color: var(--cb-black);
+  font-size: var(--fs-body);
+  line-height: calc(22 * var(--u));
+}
+.cb-cta__store > span {
+  display: grid;
+}
+.cb-cta__store-small {
+  color: var(--cb-text-muted);
+  font-size: calc(12 * var(--u));
+  line-height: calc(16 * var(--u));
+}
+
+/* CTA phones: a dark bezel drawn in CSS around a screenshot. */
+.cb-panel-phone {
+  height: calc(420 * var(--u));
+  border: calc(var(--inset) * var(--u)) solid var(--cb-bezel);
+  border-bottom: 0;
+  border-radius: calc(var(--radius) * var(--u)) calc(var(--radius) * var(--u)) 0 0;
+  background: var(--cb-black);
+}
+.cb-panel-phone__notch {
+  position: absolute;
+  left: 50%;
+  top: calc((20.513 - var(--inset)) * var(--u));
+  width: calc(53.474 * var(--u));
+  height: calc(14.32 * var(--u));
+  margin-left: calc(-26.737 * var(--u));
+  border-radius: 999px;
+  background: var(--cb-plum);
+}
+.cb-panel-phone__screen {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc((var(--band) - var(--inset)) * var(--u));
+  bottom: 0;
+  overflow: hidden;
+  background: var(--cb-mist);
+}
+.cb-panel-phone__shot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--shot-top) * var(--u));
+  height: calc(var(--shot-h) * var(--u));
+}
+.cb-panel-phone__shot img {
+  object-fit: cover;
+  object-position: center top;
+}
+
+/* ==========================================================================
+   Below 1024px: one column. Each illustration sets its own --u so it fits.
+   ========================================================================== */
+
+@media (max-width: 1023.98px) {
+  .cb-landing .cb-decor {
+    display: none;
+  }
+  .cb-landing .cb-hero__back {
+    display: block;
+  }
+
+  /* hero */
+  .cb-hero__inner {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    padding-top: 36px;
+  }
+  .cb-hero__copy {
+    order: 1;
+    width: auto;
+    padding-top: 0;
+  }
+  .cb-landing .cb-hero__back {
+    --u: 0.8px;
+  }
+  .cb-hero__lead {
+    max-width: 34em;
+    margin-top: 20px;
+  }
+  .cb-hero__actions {
+    flex-wrap: wrap;
+    gap: 16px 28px;
+    margin-top: 28px;
+  }
+  .cb-hero__primary {
+    min-width: 172px;
+  }
+  .cb-hero__arrow {
+    width: 28px;
+    height: 14px;
+  }
+  .cb-hero__secondary {
+    gap: 12px;
+    min-height: 44px;
+  }
+  .cb-hero__play {
+    width: 29px;
+    height: 29px;
+    padding-left: 1.5px;
+  }
+  .cb-hero__play svg {
+    width: 8.5px;
+    height: 11px;
+  }
+  .cb-site.cb-landing .cb-hero__ribbon {
+    order: 2;
+    position: relative;
+    left: auto;
+    top: auto;
+    width: min(100%, 588px);
+    margin: 20px 0 0 -6px;
+  }
+  .cb-hero__visual {
+    --u: min(1px, calc(var(--container) / 620));
+    order: 3;
+    position: relative;
+    left: auto;
+    top: auto;
+    margin: 0 0 0 calc((var(--container) - 660 * var(--u)) / 2);
+  }
+
+  /* shared: a phone stage centred under its copy */
+  .cb-landing .cb-stage {
+    --u: min(1px, calc(var(--container) / 470));
+    justify-self: center;
+    align-self: center;
+    margin: calc(120 * var(--u)) auto calc(120 * var(--u));
+  }
+
+  /* features */
+  .cb-features__inner {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    padding-top: 72px;
+  }
+  .cb-features__copy {
+    order: 1;
+    padding-top: 0;
+  }
+  .cb-features__visual {
+    order: 2;
+  }
+  .cb-features__list {
+    gap: 24px;
+    margin-top: 28px;
+  }
+  .cb-feature__title {
+    gap: 8px;
+  }
+  .cb-feature__icon {
+    width: 24px;
+    height: 24px;
+  }
+  .cb-feature__body {
+    max-width: 36em;
+    margin-top: 6px;
+  }
+
+  /* benefits */
+  .cb-benefits__row {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+  .cb-benefits__row--follow {
+    padding-top: 32px;
+  }
+  .cb-benefits__row .cb-benefits__copy {
+    order: 1;
+    margin-left: 0;
+    padding-top: 0;
+  }
+  .cb-benefits__row .cb-benefits__visual {
+    order: 2;
+  }
+  .cb-benefits__row--settle {
+    padding-top: 16px;
+  }
+  .cb-benefit {
+    margin-top: 28px;
+  }
+  .cb-benefit__title {
+    gap: 14px;
+    white-space: normal;
+  }
+  .cb-benefit__badge {
+    width: 48px;
+    height: 48px;
+  }
+  .cb-benefit__icon {
+    width: 24px;
+    height: 24px;
+  }
+  .cb-benefit__body {
+    max-width: 36em;
+    margin-top: 14px;
+  }
+
+  /* social proof */
+  .cb-proof__inner {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    padding-top: 40px;
+  }
+  .cb-proof__head {
+    width: auto;
+    max-width: 460px;
+  }
+  .cb-proof__art {
+    --u: min(1px, calc(var(--container) / 520));
+    position: relative;
+    left: auto;
+    top: auto;
+    margin: calc(-30 * var(--u)) 0 calc(-60 * var(--u)) calc((var(--container) - 713 * var(--u)) / 2);
+  }
+  .cb-proof__call {
+    width: auto;
+    max-width: 560px;
+    margin: 8px 0 0;
+  }
+  .cb-proof__text {
+    min-height: 0;
+    margin-top: 12px;
+  }
+  .cb-proof__people {
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .cb-proof__person {
+    width: 30px;
+    height: 30px;
+    font-size: 11px;
+  }
+  .cb-proof__person--lead {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+  .cb-proof__status {
+    gap: 0 16px;
+    margin-top: 10px;
+  }
+
+  /* faq */
+  .cb-faq__inner {
+    padding: 80px 0 72px;
+  }
+  .cb-faq__grid {
+    gap: 16px;
+    margin-top: 32px;
+  }
+  .cb-faq__item {
+    min-height: 0;
+    padding: 26px 24px 28px;
+  }
+  .cb-faq__a {
+    max-width: none;
+    margin-top: 14px;
+    text-align: left;
+  }
+
+  /* call to action */
+  .cb-cta__inner {
+    padding-bottom: 72px;
+  }
+  .cb-cta__panel {
+    --u: min(1px, calc((var(--container) - 32px) / 520));
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+  .cb-cta__copy {
+    width: auto;
+    padding: 48px 24px 0;
+  }
+  .cb-cta__title {
+    font-size: clamp(30px, 7.6vw, 48px);
+    line-height: 1.05;
+  }
+  .cb-cta__text {
+    max-width: 30em;
+    margin-top: 14px;
+    font-size: 17px;
+    line-height: 27px;
+  }
+  .cb-cta__button,
+  .cb-cta__store {
+    min-width: 208px;
+    min-height: 60px;
+    margin-top: 24px;
+    padding: 0 21px 0 22px;
+    gap: 16px;
+    font-size: 18px;
+    line-height: 22px;
+  }
+  .cb-cta__store-small {
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .cb-cta__glyph {
+    width: 28px;
+    height: 28px;
+  }
+  .cb-cta__phones {
+    position: relative;
+    inset: auto;
+    width: calc(520 * var(--u));
+    height: calc(300 * var(--u));
+    margin: 32px auto 0;
+  }
+  /* The Figma phones sit at x 557-1071 of the panel; shift them into view. */
+  .cb-cta__phones .cb-panel-phone {
+    margin-left: calc(-554 * var(--u));
+    margin-top: calc(-160 * var(--u));
+  }
+  .cb-cta__decor .cb-orbit:first-child,
+  .cb-cta__decor [data-el="cta.sparkle-4"] {
+    display: none;
+  }
+  .cb-landing .cb-cta__decor [data-el="cta.sparkle-3"] {
+    left: auto;
+    right: 18px;
+    top: 18px;
+  }
+  .cb-landing .cb-cta__decor .cb-glow {
+    left: calc(-60 * var(--u));
+    top: calc(330 * var(--u));
+  }
+  .cb-h2,
+  .cb-benefit__title,
+  .cb-cta__title,
+  .cb-faq__q {
+    text-wrap: balance;
+  }
+}
+
+/* Tablets: copy and phone side by side again, phones a little smaller. */
+@media (min-width: 720px) and (max-width: 1023.98px) {
+  .cb-features__inner,
+  .cb-benefits__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 32px;
+  }
+  .cb-benefits__row--settle {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .cb-benefits__row--settle .cb-benefits__visual {
+    order: 0;
+  }
+  .cb-landing .cb-stage {
+    --u: 0.82px;
+    margin: 110px 40px 110px 40px;
+  }
+  .cb-faq__grid {
+    gap: 20px;
+  }
+  .cb-faq__q {
+    font-size: 24px;
+    line-height: 28px;
+  }
+}
+
+@media (max-width: 719.98px) {
+  .cb-faq__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* One column: alternate pink and white. */
+  .cb-faq__item:nth-child(n) {
+    background: var(--cb-white);
+    color: var(--cb-text);
+  }
+  .cb-faq__item:nth-child(n) .cb-faq__a {
+    color: var(--cb-text-muted);
+  }
+  .cb-faq__item:nth-child(odd) {
+    background: var(--cb-pink);
+    color: var(--cb-white);
+  }
+  .cb-faq__item:nth-child(odd) .cb-faq__a {
+    color: var(--cb-white);
+  }
+  .cb-faq__item:nth-child(even) {
+    padding-inline: 0;
+  }
+}
