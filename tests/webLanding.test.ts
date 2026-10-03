@@ -20,6 +20,8 @@ import {
 } from "../web/lib/landingProof.ts";
 
 const OCT_2 = Date.UTC(2026, 9, 2, 14, 3);
+/** How the sentence prints that day: no-break spaces, so it never splits. */
+const DAY = "2\u00A0Oct\u00A02026";
 
 function person(id: string, over: Partial<Person> = {}): Person {
   return { id, handle: id, displayName: `Person ${id}`, avatarUrl: null, settledCalls: 0, correctCalls: 0, ...over };
@@ -92,6 +94,13 @@ describe("landing social proof", () => {
     expect(heroProofLink(proofState({ entries: [pending] }))).toEqual({ href: "/c/p1", label: "see a live call" });
   });
 
+  test("the hero's second link opens the web app only when the deploy names one", () => {
+    const state = proofState({ entries: [entry("s1", { outcome: "CORRECT" })] });
+    expect(heroProofLink(state, null)).toEqual({ href: "/c/s1", label: "see a receipt" });
+    expect(heroProofLink(state, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app" });
+    expect(heroProofLink({ kind: "unavailable" }, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app" });
+  });
+
   test("the people row is the real distinct authors, the featured one first, at most five", () => {
     const a = person("a");
     const b = person("b");
@@ -107,14 +116,14 @@ describe("landing social proof", () => {
   test("the sentence states who, which side, the locked price, the day and Panta's result", () => {
     const author = person("dev", { displayName: "Dominion" });
     expect(callSentence(entry("x", { author, outcome: "INCORRECT" }))).toBe(
-      "Dominion (@dev) called Yes at 50¢ on 2 Oct 2026. Panta settled it No.",
+      `Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta settled it No.`,
     );
-    expect(callSentence(entry("y", { author }))).toBe("Dominion (@dev) called Yes at 50¢ on 2 Oct 2026. Panta hasn’t settled it yet.");
+    expect(callSentence(entry("y", { author }))).toBe(`Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta hasn’t settled it yet.`);
     expect(callSentence(entry("z", { author, outcome: "VOID", price: null }))).toBe(
-      "Dominion (@dev) called Yes on 2 Oct 2026. Panta voided the market.",
+      `Dominion (@dev) called Yes on ${DAY}. Panta voided the market.`,
     );
     expect(callSentence(entry("t", { author, thesis: "  ETF bid is priced in " }))).toBe(
-      "“ETF bid is priced in” Dominion (@dev) called Yes at 50¢ on 2 Oct 2026. Panta hasn’t settled it yet.",
+      `“ETF bid is priced in” Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta hasn’t settled it yet.`,
     );
     expect(dayLabel(null)).toBeNull();
   });
@@ -129,18 +138,21 @@ describe("landing social proof", () => {
   });
 });
 
-/** Every .tsx under a directory, comments stripped: the words a visitor can read. */
+/** A source file with its comments stripped: the words a visitor can read. */
+function readCopy(path: string): { file: string; text: string } {
+  const text = readFileSync(path, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return { file: path, text };
+}
+
+/** Every .ts/.tsx under a directory, comments stripped. */
 function copyOf(dir: string): Array<{ file: string; text: string }> {
   const out: Array<{ file: string; text: string }> = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) out.push(...copyOf(path));
-    else if (name.endsWith(".tsx") || name.endsWith(".ts")) {
-      const text = readFileSync(path, "utf8")
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/(^|[^:])\/\/.*$/gm, "$1");
-      out.push({ file: path, text });
-    }
+    else if (name.endsWith(".tsx") || name.endsWith(".ts")) out.push(readCopy(path));
   }
   return out;
 }
@@ -164,10 +176,17 @@ describe("landing copy", () => {
     /\bpots?\b/i,
     /\bTxLINE\b/,
     /\bfootball\b/i,
+    /\bchallenge a friend\b/i,
+    /\bsafe\b/i,
+    /\bchance\b/i,
+    /\bprofit\b/i,
   ];
   const files = [
     ...copyOf(join(import.meta.dir, "../web/components/site")),
-    ...copyOf(join(import.meta.dir, "../web/lib")).filter((f) => f.file.endsWith("landingProof.ts")),
+    readCopy(join(import.meta.dir, "../web/lib/landingProof.ts")),
+    // The page and root metadata: titles, descriptions and link previews.
+    readCopy(join(import.meta.dir, "../web/app/page.tsx")),
+    readCopy(join(import.meta.dir, "../web/app/layout.tsx")),
   ];
 
   test("uses none of the banned words", () => {
@@ -183,5 +202,11 @@ describe("landing copy", () => {
     expect(all).toContain("Calls are free");
     expect(all).toMatch(/can lose what you put in/);
     expect(all).toContain("Panta");
+  });
+
+  test("never links the sign-in or Arena routes, which still serve the retired football product", () => {
+    for (const { file, text } of files) {
+      expect({ file, match: text.match(/["'`]\/(signin|arena)\b/)?.[0] ?? null }).toEqual({ file, match: null });
+    }
   });
 });

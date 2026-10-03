@@ -15,6 +15,7 @@
 import type { Metadata } from "next";
 // The shell (and with it site.css) first, so landing.css cascades after it.
 import { SiteShell } from "@/components/site/SiteShell";
+import { WEB_APP_URL } from "@/components/site/config";
 import { Benefits } from "@/components/site/landing/Benefits";
 import { Faq } from "@/components/site/landing/Faq";
 import { Features } from "@/components/site/landing/Features";
@@ -27,15 +28,15 @@ import { heroProofLink, proofState } from "@/lib/landingProof";
 
 export const revalidate = 60;
 
-const TITLE = "Chumbucket: see what people call on real prediction markets";
+const TITLE = "Chumbucket: FOMO for prediction markets";
 const DESCRIPTION =
-  "Follow named people's calls on live Panta prediction markets. Back them, fade them, or make your own call, and keep the receipt when the market settles.";
+  "See what people call on real Panta prediction markets and how often they’re right. Back them, fade them or make your own call, free, and keep the receipt.";
 
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/" },
-  openGraph: { title: TITLE, description: DESCRIPTION, url: "/", images: ["/img/logo-320.png"] },
+  openGraph: { siteName: "Chumbucket", title: TITLE, description: DESCRIPTION, url: "/", images: ["/img/logo-320.png"] },
   twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
 };
 
@@ -43,7 +44,7 @@ export default async function HomePage() {
   const state = proofState(await maybe(getFeed(12)));
   return (
     <SiteShell current="home" className="cb-landing">
-      <Hero proofLink={heroProofLink(state)} />
+      <Hero proofLink={heroProofLink(state, WEB_APP_URL)} />
       <Features />
       <Benefits />
       <SocialProof state={state} />

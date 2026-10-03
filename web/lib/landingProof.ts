@@ -1,5 +1,5 @@
 /**
- * What the landing page's social-proof section ("from people calling it")
+ * What the landing page's social-proof section ("See who’s calling it")
  * shows, decided from the public calls feed. Pure functions, so the honest
  * empty and failure states are tested (tests/webLanding.test.ts).
  *
@@ -60,7 +60,8 @@ export function dayLabel(ms: number | null | undefined): string | null {
 export function callSentence(entry: CallFeedEntry): string {
   const { call, author, market, result } = entry;
   const price = entryLabel(call);
-  const day = dayLabel(call.lockedAt);
+  // No-break spaces: "2 Oct 2026" never splits across lines.
+  const day = dayLabel(call.lockedAt)?.replace(/ /g, "\u00A0");
   const who = `${author.displayName} (@${author.handle})`;
   const said = `${who} called ${sideLabel(market, call.side)}${price ? ` at ${price}` : ""}${day ? ` on ${day}` : ""}.`;
 
@@ -80,8 +81,13 @@ export function statusLine(entry: CallFeedEntry): { label: string; href: string;
   return { label: `Settled · ${outcomeCopy(entry.result).label}`, href, linkText: "See the receipt" };
 }
 
-/** The hero's secondary link: a real receipt when there is one. */
-export function heroProofLink(state: ProofState): { href: string; label: string } {
+/**
+ * The hero's secondary link: the web app when one serves the calls product
+ * (NEXT_PUBLIC_WEB_APP_URL), else a real receipt when there is one, else the
+ * live-calls section.
+ */
+export function heroProofLink(state: ProofState, webAppUrl: string | null = null): { href: string; label: string } {
+  if (webAppUrl) return { href: webAppUrl, label: "open web app" };
   if (state.kind !== "call") return { href: "#live", label: "see live calls" };
   const href = `/c/${encodeURIComponent(state.featured.call.id)}`;
   return isSettled(state.featured) ? { href, label: "see a receipt" } : { href, label: "see a live call" };

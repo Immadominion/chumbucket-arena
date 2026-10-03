@@ -1,5 +1,5 @@
 /**
- * Social proof ("from people calling it"). Where the Figma page had invented
+ * Social proof ("See who’s calling it"). Where the Figma page had invented
  * testimonials, this shows a real public call from the calls feed: the
  * market, who called which side at what price, and how Panta settled it,
  * with the people behind recent calls. Rendered on the server and refreshed
@@ -63,7 +63,7 @@ export function SocialProof({ state }: { state: ProofState }) {
             on record
           </p>
           <h2 id="proof-title" className="cb-h2 cb-proof__title" data-el="proof.title">
-            from people calling it
+            See who’s calling it
           </h2>
         </header>
 

@@ -1,7 +1,8 @@
 /**
- * Benefits ("Why people use it"): two rows that swap sides. Row one follows
- * people (copy left, phone right, with a call card lifted off the screen);
- * row two is about who settles a call (phone left, copy right).
+ * Benefits ("why chumbucket" / "Receipts, not hype"): two rows that swap
+ * sides. Row one follows people (copy left, phone right, with a call card
+ * lifted off the screen); row two is about who settles a call (phone left,
+ * copy right).
  */
 
 import Image from "next/image";
@@ -19,10 +20,10 @@ export function Benefits() {
 
         <div className="cb-benefits__copy">
           <p className="cb-eyebrow" data-el="benefits.eyebrow">
-            advantages
+            why chumbucket
           </p>
           <h2 id="benefits-title" className="cb-h2" data-el="benefits.title">
-            Why people use it
+            Receipts, not hype
           </h2>
           <article className="cb-benefit" data-el="benefits.follow.item">
             <h3 className="cb-benefit__title">
@@ -69,7 +70,8 @@ export function Benefits() {
               Panta settles it
             </h3>
             <p className="cb-benefit__body">
-              Nobody at Chumbucket types in a result. Every call settles from the Panta market it was made on.
+              Every call locks its side, price and time. Then Panta settles the market. Nobody at Chumbucket types in a
+              result.
             </p>
           </article>
         </div>

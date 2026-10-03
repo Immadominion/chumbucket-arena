@@ -83,7 +83,7 @@ class. Motion can target either.
 | Visual | Hook |
 | --- | --- |
 | Logo + CHUMBUCKET wordmark + TM | `header.brand`, `.cb-brand__logo`, `.cb-brand__word`, `.cb-brand__tm` |
-| Nav links (Home is pink and bold on `/`) | `header.nav`, `header.nav.{home,features,benefits,faq,live}` |
+| Nav links: Home, How it works, Receipts, Live calls, FAQ (Home is pink and bold on `/`) | `header.nav`, `header.nav.{home,features,benefits,live,faq}` |
 | Black "Get the app" button | `header.cta` |
 | Menu button + panel (under 1024px; header is sticky there) | `header.menu` (`MobileMenu.tsx`, the only client JS on the page) |
 
@@ -91,10 +91,10 @@ class. Motion can target either.
 | Visual | Hook |
 | --- | --- |
 | Pink glow behind the headline | `hero.glow` |
-| Headline "Call it before / it happens." | `hero.title` (each line is a `.cb-line`) |
+| Headline "Don’t miss / the call." | `hero.title` (each line is a `.cb-line`) |
 | Grey lead | `hero.lead` |
 | Black "get the app →" button | `hero.cta`, arrow `.cb-hero__arrow` |
-| Round play badge + "see a receipt" (links to a real settled call) | `hero.proof-link`, `.cb-hero__play` |
+| Round play badge + "see a receipt" (a real settled call; "see a live call" / "see live calls" without one; "open web app" when `NEXT_PUBLIC_WEB_APP_URL` is set) | `hero.proof-link`, `.cb-hero__play` |
 | Folded ribbon illustration (one SVG) | `hero.ribbon`; parts `hero.ribbon.band` (black band), `.stop-1` / `.stop-2` (its two labelled stops), `.fold` (pink band + "Make a call"), `.tag` (pink tag, bar, dividers), `.sparkle`, `.tag-label`, `.glyph` (the big "a") |
 | Phone cluster | `hero.visual`; glow `hero.visual.glow`, rings `hero.visual.orbit`, phones `hero.phone-1` (front, Home), `-2` (Calls), `-3` (back, Friends), sparkles `hero.visual.sparkle-1..3` |
 | Sparkles left of the logo and under the button | `hero.sparkle-1`, `hero.sparkle-2` |
@@ -104,13 +104,13 @@ class. Motion can target either.
 | --- | --- |
 | Phone (Home) in its rings with the flipped glow | `features.visual`, `features.phone`, `features.orbit`, `features.glow-1` |
 | Right-edge glow, left sparkle | `features.glow-2`, `features.sparkle` |
-| "features" / "What you can do" | `features.eyebrow`, `features.title` |
+| "how it works" / "Your move" | `features.eyebrow`, `features.title` |
 | Three items (icon, title, body) | `features.item.{call,back-fade,receipt}` |
 
 ### Benefits (`Benefits.tsx`, `#benefits`)
 | Visual | Hook |
 | --- | --- |
-| "advantages" / "Why people use it" | `benefits.eyebrow`, `benefits.title` |
+| "why chumbucket" / "Receipts, not hype" | `benefits.eyebrow`, `benefits.title` |
 | Row 1: bell badge + "Follow people who call it" | `benefits.follow.item` |
 | Row 1: phone (Calls), rings, glow, lifted call card | `benefits.follow.visual`, `.phone`, `.orbit`, `.glow`, `.card` |
 | Row 2: phone (Calls), rings, rotated glow | `benefits.settle.visual`, `.phone`, `.orbit`, `.glow` |
@@ -120,7 +120,7 @@ class. Motion can target either.
 ### Social proof (`SocialProof.tsx`, `#live`)
 | Visual | Hook |
 | --- | --- |
-| "on record" / "from people calling it" | `proof.eyebrow`, `proof.title` |
+| "on record" / "See who’s calling it" | `proof.eyebrow`, `proof.title` |
 | Rings, glow, five circles, pink quote badge | `proof.art`, `proof.orbit`, `proof.glow`, `proof.circle.{centre,top-right,bottom-right,top-left,bottom-left}`, `proof.quote-badge` |
 | Market question (links to `/m/…`) | `proof.question` |
 | Who called which side, at what price, on what day, and Panta's result | `proof.text` |
@@ -137,7 +137,7 @@ right now." Nothing is invented.
 | Visual | Hook |
 | --- | --- |
 | "faq" / "Questions" | `faq.eyebrow`, `faq.title` |
-| Six cards, pink on the diagonal (alternating in one column) | `faq.item.{who-decides,cost,money,app,lose,start}` |
+| Eight cards, pink on the diagonal (alternating in one column) | `faq.item.{free,panta,settle,lose,wallet,web,where,start}` |
 | Sparkle | `faq.sparkle` |
 
 ### Call to action (`GetTheApp.tsx`, `#get`)
@@ -146,7 +146,7 @@ right now." Nothing is invented.
 | Black panel | `cta.panel` |
 | White rings, glow, white sparkles | `cta.orbit-1/-2`, `cta.glow`, `cta.sparkle-3/-4` |
 | Glow and sparkles outside the panel | `cta.glow-outside`, `cta.sparkle-1/-2` |
-| "Ready to make a call?" + text | `cta.title`, `cta.text` |
+| "Call it before it happens." (the app's Welcome title) + text | `cta.title`, `cta.text` |
 | White button "get the app" (when `NEXT_PUBLIC_ANDROID_INSTALL_URL` is set) or the white "Search Chumbucket in the Solana dApp Store" badge | `cta.button` |
 | Three phones rising out of the panel (Home, Profile, Calls) | `cta.phones`, `cta.phone-left`, `cta.phone-centre`, `cta.phone-right` |
 
@@ -185,8 +185,11 @@ calls are free; Back, Fade and Dare are free; trading is optional, real
 USDC on Panta (Solana mainnet), paid from the person's own wallet, and can
 lose money; Panta settles every market; a receipt exists once Panta has
 settled. Never: bet, odds, stake, pot, win money, earn, risk-free,
-guaranteed, airdrop, jackpot. `tests/webLanding.test.ts` checks the site
-components for those words.
+guaranteed, airdrop, jackpot, safe, chance, profit, "challenge a friend".
+`tests/webLanding.test.ts` checks the site components, the page and the
+root metadata for those words, and that nothing links `/signin` or `/arena`
+(still the retired football product). Positioning, proof points and voice:
+`docs/positioning.md`.
 
 ## Assets to replace
 

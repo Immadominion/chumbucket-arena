@@ -1,7 +1,8 @@
 /**
- * Call to action ("Ready to make a call?"): the black panel with its white
- * orbits, a glow, two sparkles and three phones rising from the bottom edge.
- * The section the header, hero and floating "get the app" links jump to.
+ * Call to action ("Call it before it happens."): the black panel with its
+ * white orbits, a glow, two sparkles and three phones rising from the bottom
+ * edge. The section the header, hero and floating "get the app" links jump
+ * to.
  */
 
 import Image from "next/image";
@@ -82,10 +83,12 @@ export function GetTheApp() {
 
           <div className="cb-cta__copy">
             <h2 id="cta-title" className="cb-cta__title" data-el="cta.title">
-              Ready to make a call?
+              {/* The app's Welcome title, on two lines at every width: as one
+                  line (768px) it runs under the panel's top-right sparkle. */}
+              <span className="cb-line">Call it before</span> <span className="cb-line">it happens.</span>
             </h2>
             <p className="cb-cta__text" data-el="cta.text">
-              Get the Android app, follow a few people and make your first call.
+              Get the Android app, follow a few people and make your first call. It’s&nbsp;free.
             </p>
             {INSTALL_URL ? (
               <a className="cb-btn cb-btn--light cb-cta__button" href={INSTALL_URL} rel="noopener" data-el="cta.button">

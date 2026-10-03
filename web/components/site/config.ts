@@ -13,6 +13,15 @@ export const INSTALL_URL = process.env.NEXT_PUBLIC_ANDROID_INSTALL_URL || null;
 /** The href every "get the app" button uses. */
 export const GET_APP_HREF = INSTALL_URL ?? "/#get";
 
+/**
+ * The signed-in web app, once it serves the calls product. Set
+ * NEXT_PUBLIC_WEB_APP_URL and the hero's second link becomes "open web app"
+ * and the FAQ says there is one. Unset (today) the link shows a real
+ * receipt: /signin and /arena in this project are still the retired
+ * football-and-escrow product, so the site does not send anyone there.
+ */
+export const WEB_APP_URL = process.env.NEXT_PUBLIC_WEB_APP_URL || null;
+
 export const X_HANDLE = "HeIsJoel0x";
 export const X_URL = `https://x.com/${X_HANDLE}`;
 export const PANTA_URL = "https://panta.market";
@@ -20,10 +29,10 @@ export const PANTA_URL = "https://panta.market";
 /** Primary navigation, in page order of the sections they jump to. */
 export const NAV_ITEMS = [
   { href: "/", label: "Home", id: "home" },
-  { href: "/#features", label: "Features", id: "features" },
-  { href: "/#benefits", label: "Benefits", id: "benefits" },
-  { href: "/#faq", label: "FAQs", id: "faq" },
+  { href: "/#features", label: "How it works", id: "features" },
+  { href: "/#benefits", label: "Receipts", id: "benefits" },
   { href: "/#live", label: "Live calls", id: "live" },
+  { href: "/#faq", label: "FAQ", id: "faq" },
 ] as const;
 
 /**

@@ -22,8 +22,9 @@ export function Hero({ proofLink }: { proofLink: { href: string; label: string }
 
         <div className="cb-hero__copy">
           <h1 id="hero-title" className="cb-hero__title" data-el="hero.title">
-            <span className="cb-line">Call it before</span> <span className="cb-line">it happens.</span>
+            <span className="cb-line">Don’t miss</span> <span className="cb-line">the call.</span>
           </h1>
+          {/* The app's Welcome line (onboarding_copy.dart), word for word. */}
           <p className="cb-hero__lead" data-el="hero.lead">
             See what people call on real prediction markets. Back them, fade them, or make your own call.
           </p>

@@ -17,9 +17,11 @@ const SHALLOW = "0.883 -0.469 0.469 0.883";
 const BASE_1 = 12.12;
 const BASE_2 = BASE_1 + 18.299;
 
+/* Widths at 11.76px: stop one's line ends 19px short of the divider, stop
+   two's 50px short of the band's clip. Measure before lengthening. */
 export const RIBBON_COPY = {
-  stopOne: { title: "What is it?", body: "Calls on real markets" },
-  stopTwo: { title: "How it works", body: "Panta settles it" },
+  stopOne: { title: "What is it?", body: "FOMO for prediction markets" },
+  stopTwo: { title: "How it works", body: "Follow, back or fade" },
   fold: "Make a call",
   tag: { title: "Get started", body: "get the app" },
 };

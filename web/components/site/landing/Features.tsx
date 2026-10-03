@@ -1,6 +1,6 @@
 /**
- * Features ("What you can do"): a phone in its orbit on the left, three
- * actions on the right.
+ * Features ("how it works" / "Your move"): a phone in its orbit on the
+ * left, three actions on the right.
  */
 
 import { DecorLayer, Glow, Orbit, Phone, Sparkle, at } from "../decor/Decor";
@@ -16,14 +16,14 @@ const FEATURES = [
   {
     id: "back-fade",
     Icon: CubeIcon,
-    title: "Back or fade",
-    body: "Side with someone’s call, take the other side, or dare a friend to call it.",
+    title: "Back, fade or dare",
+    body: "Back someone’s call, fade it, or dare a friend to go on record. All free.",
   },
   {
     id: "receipt",
     Icon: CubeOutlineIcon,
     title: "Get the receipt",
-    body: "When Panta settles the market, your call gets a receipt. Right or wrong.",
+    body: "When Panta settles, your call gets a receipt nobody can edit. Right or wrong.",
   },
 ];
 
@@ -44,10 +44,10 @@ export function Features() {
 
         <div className="cb-features__copy">
           <p className="cb-eyebrow" data-el="features.eyebrow">
-            features
+            how it works
           </p>
           <h2 id="features-title" className="cb-h2" data-el="features.title">
-            What you can do
+            Your move
           </h2>
           <ul className="cb-features__list">
             {FEATURES.map(({ id, Icon, title, body }) => (

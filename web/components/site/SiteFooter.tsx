@@ -14,8 +14,8 @@ const COLUMNS = [
     title: "links",
     items: [
       { href: "/", label: "Home" },
-      { href: "/#features", label: "Features" },
-      { href: "/#benefits", label: "Benefits" },
+      { href: "/#features", label: "How it works" },
+      { href: "/#benefits", label: "Receipts" },
       { href: X_URL, label: "twitter / x", external: true },
     ],
   },
@@ -101,8 +101,8 @@ export function SiteFooter() {
           <a href={PANTA_URL} target="_blank" rel="noopener">
             Panta
           </a>{" "}
-          (Solana mainnet), paid from your own wallet, and you can lose what you put in. Check that prediction markets are
-          legal where you live.
+          (Solana mainnet), paid from your own wallet, and you can lose what you put in. Other people’s calls and records
+          are not financial advice. Check that prediction markets are legal where you live.
         </p>
         <p className="cb-footer__copy" data-el="footer.copyright">
           Copyright {year} Chumbucket. All rights reserved.
