@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Providers from "@/components/Providers";
-import { SessionProvider } from "@/lib/session";
 
 export const metadata: Metadata = {
   // Absolute OG/Twitter URLs. Defaults to the live site so a deploy without
@@ -47,11 +45,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>
-        <Providers>
-          <SessionProvider>{children}</SessionProvider>
-        </Providers>
-      </body>
+      {/* Client providers (Privy, React Query, tRPC, session) are mounted by
+          the routes that use them: see components/AppProviders.tsx. */}
+      <body>{children}</body>
     </html>
   );
 }

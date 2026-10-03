@@ -8,8 +8,7 @@
  */
 
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import ChallengeLinkClient from "@/components/legacy/ChallengeLinkClient";
+import { notFound, redirect } from "next/navigation";
 import { CallReceipt } from "@/components/public/CallReceipt";
 import OpenInApp from "@/components/public/OpenInApp";
 import { PublicShell, Unavailable } from "@/components/public/PublicShell";
@@ -49,7 +48,8 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 
 export default async function CallPage({ params }: { params: Promise<Params> }) {
   const { challengeId } = await params;
-  if (isLegacyChallenge(challengeId)) return <ChallengeLinkClient challengeId={challengeId} />;
+  // next.config.ts rewrites chg_ links before they get here; this is the backstop.
+  if (isLegacyChallenge(challengeId)) redirect(`/legacy-challenge/${encodeURIComponent(challengeId)}`);
 
   const detail = await load(challengeId);
   if (detail === "missing") notFound();

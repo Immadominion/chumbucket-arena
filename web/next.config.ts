@@ -33,6 +33,15 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["@phosphor-icons/react", "@privy-io/react-auth"],
   },
+  // Legacy Arena challenge links (/c/chg_…) render from their own route, so the
+  // /c share page every new call link opens never ships the Arena client.
+  async rewrites() {
+    return {
+      beforeFiles: [{ source: "/c/:challengeId(chg_[^/]+)", destination: "/legacy-challenge/:challengeId" }],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
   turbopack: {
     resolveAlias: Object.fromEntries(OPTIONAL_DEPS.map((d) => [d, "./lib/empty-module.ts"])),
   },
