@@ -8,7 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { CallFeedEntry, Person } from "../web/lib/callsBff.ts";
+import { avatarSrc, type CallFeedEntry, type Leaderboard, type Person, type RecordCounts } from "../web/lib/callsBff.ts";
+import { callerRecord, callersLine, pickCallers } from "../web/lib/landingPeople.ts";
 import {
   callSentence,
   dayLabel,
@@ -81,8 +82,8 @@ describe("landing social proof", () => {
   test("a feed that cannot be read says so; an empty feed says so", () => {
     expect(proofState(null)).toEqual({ kind: "unavailable" });
     expect(proofState({ entries: [] })).toEqual({ kind: "empty" });
-    expect(heroProofLink({ kind: "empty" })).toEqual({ href: "#live", label: "see live calls" });
-    expect(heroProofLink({ kind: "unavailable" })).toEqual({ href: "#live", label: "see live calls" });
+    expect(heroProofLink({ kind: "empty" })).toEqual({ href: "#live", label: "see live calls", kind: "live" });
+    expect(heroProofLink({ kind: "unavailable" })).toEqual({ href: "#live", label: "see live calls", kind: "live" });
   });
 
   test("features the newest settled call (it has a receipt), else the newest call", () => {
@@ -90,15 +91,15 @@ describe("landing social proof", () => {
     const settled = entry("s1", { outcome: "INCORRECT" });
     expect(pickFeatured([pending, settled])?.call.id).toBe("s1");
     expect(pickFeatured([pending, entry("p2")])?.call.id).toBe("p1");
-    expect(heroProofLink(proofState({ entries: [pending, settled] }))).toEqual({ href: "/c/s1", label: "see a receipt" });
-    expect(heroProofLink(proofState({ entries: [pending] }))).toEqual({ href: "/c/p1", label: "see a live call" });
+    expect(heroProofLink(proofState({ entries: [pending, settled] }))).toEqual({ href: "/c/s1", label: "see a receipt", kind: "receipt" });
+    expect(heroProofLink(proofState({ entries: [pending] }))).toEqual({ href: "/c/p1", label: "see a live call", kind: "call" });
   });
 
   test("the hero's second link opens the web app only when the deploy names one", () => {
     const state = proofState({ entries: [entry("s1", { outcome: "CORRECT" })] });
-    expect(heroProofLink(state, null)).toEqual({ href: "/c/s1", label: "see a receipt" });
-    expect(heroProofLink(state, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app" });
-    expect(heroProofLink({ kind: "unavailable" }, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app" });
+    expect(heroProofLink(state, null)).toEqual({ href: "/c/s1", label: "see a receipt", kind: "receipt" });
+    expect(heroProofLink(state, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app", kind: "web" });
+    expect(heroProofLink({ kind: "unavailable" }, "https://app.example/")).toEqual({ href: "https://app.example/", label: "open web app", kind: "web" });
   });
 
   test("the people row is the real distinct authors, the featured one first, at most five", () => {
@@ -135,6 +136,65 @@ describe("landing social proof", () => {
       href: "/c/w",
       linkText: "See the receipt",
     });
+  });
+});
+
+function counts(decided: number, correct = 0, pending = 0): RecordCounts {
+  return { correct, incorrect: decided - correct, voided: 0, resolved: decided, decided, pending };
+}
+
+function ref(id: string, over: { avatarUrl?: string | null; avatarId?: number | null; displayName?: string } = {}) {
+  return { id, handle: id, displayName: over.displayName ?? `Person ${id}`, avatarUrl: over.avatarUrl ?? null, avatarId: over.avatarId ?? null };
+}
+
+describe("landing callers (the circles in “See who’s calling it”)", () => {
+  test("a person's picture: their own https photo, else their preset, else initials", () => {
+    expect(avatarSrc({ avatarUrl: "https://pbs.twimg.com/a.jpg", avatarId: 2 })).toBe("https://pbs.twimg.com/a.jpg");
+    expect(avatarSrc({ avatarUrl: "http://insecure/a.jpg", avatarId: 3 })).toBe("/img/profile/3.png");
+    expect(avatarSrc({ avatarUrl: null, avatarId: 1 })).toBe("/img/profile/1.png");
+    expect(avatarSrc({ avatarUrl: null, avatarId: 9 })).toBeNull();
+    expect(avatarSrc({ avatarUrl: null })).toBeNull();
+  });
+
+  test("ranked first, then building, then suggested and feed authors, each once, at most five", () => {
+    const leaderboard: Leaderboard = {
+      window: "30d",
+      minimumDecided: 10,
+      ranked: [{ rank: 1, person: ref("r1"), record: { counts: counts(12, 9) } }],
+      building: [
+        { rank: null, person: ref("b1", { avatarId: 2 }), record: { counts: counts(1) } },
+        { rank: null, person: ref("r1"), record: { counts: counts(12, 9) } },
+      ],
+    };
+    const suggested = {
+      people: [
+        { ...ref("s1"), record: { counts: counts(0, 0, 2) } },
+        // Suggested but has never made a call: not "calling it".
+        { ...ref("s0"), record: { counts: counts(0) } },
+      ],
+    };
+    const callers = pickCallers({ leaderboard, suggested, feed: { entries: [entry("e", { author: person("f1") })] } });
+    expect(callers.map((c) => c.id)).toEqual(["r1", "b1", "s1", "f1"]);
+    expect(callers[1]!.avatar).toBe("/img/profile/2.png");
+    expect(callerRecord(callers[0]!)).toBe("9 of 12 decided calls right");
+    expect(callerRecord(callers[1]!)).toBe("0 of 1 decided call right");
+    expect(callerRecord(callers[2]!)).toBe("No decided calls yet");
+    const many = { ...leaderboard, building: Array.from({ length: 9 }, (_, i) => ({ rank: null, person: ref(`p${i}`), record: { counts: counts(1) } })) };
+    expect(pickCallers({ leaderboard: many, suggested: null, feed: null })).toHaveLength(5);
+  });
+
+  test("with the BFF down there is nobody to show, and nothing is made up", () => {
+    expect(pickCallers({ leaderboard: null, suggested: null, feed: null })).toEqual([]);
+    expect(callersLine([])).toBeNull();
+  });
+
+  test("the line under the title is true for one, two or many people", () => {
+    const dev = pickCallers({ leaderboard: null, suggested: null, feed: { entries: [entry("x", { author: person("dev", { displayName: "Dominion" }) })] } });
+    expect(callersLine(dev)).toBe("Dominion (@dev) is calling\u00A0it. There’s room for you.");
+    const two = pickCallers({ leaderboard: null, suggested: null, feed: { entries: [entry("1", { author: person("a", { displayName: "Ada" }) }), entry("2", { author: person("b", { displayName: "b" }) })] } });
+    expect(callersLine(two)).toBe("Ada (@a) and @b are calling\u00A0it.");
+    const three = pickCallers({ leaderboard: null, suggested: null, feed: { entries: ["a", "b", "c"].map((id) => entry(id, { author: person(id) })) } });
+    expect(callersLine(three)).toBe("@a, @b and others are calling\u00A0it.");
   });
 });
 

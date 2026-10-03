@@ -6,11 +6,11 @@
 
 import Link from "next/link";
 import {
+  avatarSrc,
   entryLabel,
   isFreeCall,
   outcomeCopy,
   recordLabel,
-  safeAvatar,
   sideLabel,
   venueUrl,
   whenLabel,
@@ -31,7 +31,7 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
     <article className="pub-card pub-receipt" aria-labelledby={`q-${call.id}`}>
       <header className="pub-receipt-head">
         <Link href={`/u/${encodeURIComponent(author.handle)}`} className="pub-person">
-          <Avatar name={author.displayName} url={safeAvatar(author.avatarUrl)} size={44} />
+          <Avatar name={author.displayName} url={avatarSrc(author)} size={44} />
           <span className="pub-person-text">
             <span className="pub-person-name">{author.displayName}</span>
             <span className="pub-person-meta">
@@ -106,7 +106,7 @@ export function CallRow({ entry, showAuthor = true }: { entry: CallFeedEntry; sh
   return (
     <li className="pub-row">
       <Link href={`/c/${encodeURIComponent(call.id)}`} className="pub-row-link">
-        {showAuthor ? <Avatar name={author.displayName} url={safeAvatar(author.avatarUrl)} size={36} /> : null}
+        {showAuthor ? <Avatar name={author.displayName} url={avatarSrc(author)} size={36} /> : null}
         <span className="pub-row-body">
           <span className="pub-row-top">
             {showAuthor ? <span className="pub-row-name">{author.displayName}</span> : null}

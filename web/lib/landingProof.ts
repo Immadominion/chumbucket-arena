@@ -81,14 +81,22 @@ export function statusLine(entry: CallFeedEntry): { label: string; href: string;
   return { label: `Settled · ${outcomeCopy(entry.result).label}`, href, linkText: "See the receipt" };
 }
 
+/** What the hero's secondary link opens, which picks its icon. */
+export type HeroLinkKind = "web" | "receipt" | "call" | "live";
+
 /**
  * The hero's secondary link: the web app when one serves the calls product
  * (NEXT_PUBLIC_WEB_APP_URL), else a real receipt when there is one, else the
  * live-calls section.
  */
-export function heroProofLink(state: ProofState, webAppUrl: string | null = null): { href: string; label: string } {
-  if (webAppUrl) return { href: webAppUrl, label: "open web app" };
-  if (state.kind !== "call") return { href: "#live", label: "see live calls" };
+export function heroProofLink(
+  state: ProofState,
+  webAppUrl: string | null = null,
+): { href: string; label: string; kind: HeroLinkKind } {
+  if (webAppUrl) return { href: webAppUrl, label: "open web app", kind: "web" };
+  if (state.kind !== "call") return { href: "#live", label: "see live calls", kind: "live" };
   const href = `/c/${encodeURIComponent(state.featured.call.id)}`;
-  return isSettled(state.featured) ? { href, label: "see a receipt" } : { href, label: "see a live call" };
+  return isSettled(state.featured)
+    ? { href, label: "see a receipt", kind: "receipt" }
+    : { href, label: "see a live call", kind: "call" };
 }

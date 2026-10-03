@@ -5,6 +5,10 @@
  * so it scales as a single piece; every part has a data-el hook for motion.
  *
  * Decorative (aria-hidden): the same story is told in text further down.
+ *
+ * Motion (landing-motion.css, "Hero"): the whole ribbon swings in on the
+ * "a", then the two stop dots light up in order and the tag's sparkle
+ * turns.
  */
 
 import { SPARKLE_PATH } from "../icons";
@@ -60,11 +64,10 @@ export function HeroRibbon({ className, style }: { className?: string; style?: R
                 d="M0.151 7.981C0.162 3.57 3.74 0 8.151 0L267 0C271.418 0 275 3.582 275 8L275 62.991C275 67.413 271.413 70.996 266.991 70.991L8.01 70.684C3.588 70.679 0.009 67.087 0.019 62.665L0.151 7.981Z"
               />
               <path transform={`matrix(${STEEP} 272.305 280.388)`} d="M6.739 0.13L58.66 0L58.66 21.605L0 21.605L6.739 0.13Z" />
-              <path
-                data-el="hero.ribbon.sparkle"
-                transform="translate(335.256 252.242) scale(0.6535)"
-                d={SPARKLE_PATH}
-              />
+              {/* Wrapped so CSS can turn it about its own centre. */}
+              <g className="cb-ribbon__sparkle" data-el="hero.ribbon.sparkle">
+                <path transform="translate(335.256 252.242) scale(0.6535)" d={SPARKLE_PATH} />
+              </g>
               <rect x="392.766" y="237.211" width="1.307" height="71.234" />
               <rect x="318.265" y="237.211" width="1.307" height="71.234" />
             </g>

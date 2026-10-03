@@ -1,0 +1,284 @@
+/* ==========================================================================
+   Motion, site-wide: the easing and duration tokens, the reveal primitive,
+   and the interactions every public page shares (buttons, header and nav,
+   menu, floating button, sparkles, glows). Section choreography lives in
+   components/site/landing/landing-motion.css. docs/website-structure.md
+   ("Motion") names every animation and its hook.
+
+   Rules:
+   - Only transform-family properties (translate, scale, rotate) and opacity
+     move, so every animation runs on the compositor. Placed decor (.cb-at)
+     already uses `transform` for its Figma rotation; motion uses the
+     individual properties, which compose with it.
+   - Everything that moves sits inside prefers-reduced-motion:
+     no-preference. With reduce, the page is static and complete.
+   - Nothing is hidden unless MotionRoot is running (`data-motion="on"` on
+     the root), so a page without JavaScript shows everything.
+   ========================================================================== */
+
+.cb-site {
+  /* Easing: things arriving decelerate; pops overshoot a little. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-swing: cubic-bezier(0.37, 0, 0.63, 1);
+
+  /* Durations: feedback is fast; only entrances and loops take their time. */
+  --dur-press: 90ms; /* button press */
+  --dur-micro: 140ms; /* hover and focus colour */
+  --dur-short: 220ms; /* icon nudges, underline */
+  --dur-medium: 320ms; /* header, accordion, menu */
+  --dur-reveal: 700ms; /* scroll reveals */
+  --dur-entrance: 1000ms; /* hero entrance pieces, phones rising */
+
+  --stagger: 80ms; /* between siblings in a reveal (multiplied by --i) */
+  --rise: 20px; /* how far a revealed block travels */
+}
+
+/* ── keyframes ────────────────────────────────────────────────────────── */
+
+@keyframes cb-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes cb-rise {
+  from {
+    opacity: 0;
+    translate: 0 var(--rise, 20px);
+  }
+}
+@keyframes cb-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
+    rotate: -30deg;
+  }
+}
+@keyframes cb-float {
+  50% {
+    translate: 0 var(--float, -10px);
+  }
+}
+/* Glows breathe: a slow swell of their opacity. */
+@keyframes cb-breathe {
+  50% {
+    opacity: 0.68;
+  }
+}
+/* Sparkles twinkle: shrink, turn and dim, then back. */
+@keyframes cb-twinkle {
+  0%,
+  100% {
+    scale: 1;
+    rotate: 0deg;
+    opacity: 1;
+  }
+  45% {
+    scale: 0.72;
+    rotate: 24deg;
+    opacity: 0.55;
+  }
+}
+@keyframes cb-sparkle-in {
+  from {
+    opacity: 0;
+    scale: 0;
+    rotate: -120deg;
+  }
+}
+
+/* ── reveals (MotionRoot sets data-motion, data-inview) ───────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-site[data-motion="on"] [data-reveal]:not([data-reveal="stage"]) {
+    transition:
+      opacity var(--dur-reveal) var(--ease-out),
+      translate var(--dur-reveal) var(--ease-out);
+    transition-delay: calc(var(--i, 0) * var(--stagger));
+  }
+  .cb-site[data-motion="on"] [data-reveal]:not([data-reveal="stage"]):not([data-inview]) {
+    opacity: 0;
+    translate: 0 var(--rise);
+  }
+  [data-reveal="panel"] {
+    --rise: 56px;
+  }
+
+  /* Loops (float, twinkle, breathe, nudge) pause while their section is
+     off screen. */
+  .cb-site[data-motion="on"] [data-section]:not([data-playing]) *,
+  .cb-site[data-motion="on"] [data-section]:not([data-playing]) *::before,
+  .cb-site[data-motion="on"] [data-section]:not([data-playing]) *::after {
+    animation-play-state: paused !important;
+  }
+}
+
+/* ── decor loops: glows breathe, sparkles twinkle ─────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-glow {
+    animation: cb-breathe 9s var(--ease-in-out) infinite;
+  }
+  .cb-sparkle__pop {
+    display: block;
+  }
+  .cb-sparkle svg {
+    transform-origin: 50% 50%;
+    animation: cb-twinkle 4.8s var(--ease-in-out) var(--tw, 0s) infinite;
+  }
+}
+
+/* ── buttons: press, hover ────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-btn {
+    transition:
+      background-color var(--dur-micro) ease-out,
+      color var(--dur-micro) ease-out,
+      scale var(--dur-press) var(--ease-out);
+  }
+  .cb-btn:active {
+    scale: 0.97;
+  }
+}
+
+/* ── header: compact bar, nav underline, logo ─────────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-header::before {
+    transition: opacity var(--dur-medium) var(--ease-out);
+  }
+  .cb-header__row {
+    transition: translate var(--dur-medium) var(--ease-out);
+  }
+  .cb-brand,
+  .cb-header__cta {
+    transition:
+      scale var(--dur-medium) var(--ease-out),
+      background-color var(--dur-micro) ease-out;
+  }
+  .cb-header__cta:active {
+    scale: 0.94;
+  }
+  .cb-header[data-scrolled] .cb-header__cta:active {
+    scale: 0.84;
+  }
+  /* The bucket tips, as if to pour, while the logo is hovered. */
+  .cb-brand__logo {
+    transform-origin: 50% 80%;
+    transition: rotate var(--dur-medium) var(--ease-spring);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .cb-brand:hover .cb-brand__logo {
+    rotate: -10deg;
+  }
+}
+
+/* Nav: an underline slides in from the left and leaves to the right. */
+.cb-nav__link {
+  position: relative;
+}
+.cb-nav__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(-5 * var(--u));
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  scale: 0 1;
+  transform-origin: 100% 50%;
+}
+.cb-nav__link:hover::after,
+.cb-nav__link:focus-visible::after {
+  scale: 1 1;
+  transform-origin: 0 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-nav__link::after {
+    transition: scale var(--dur-short) var(--ease-out);
+  }
+}
+
+/* ── small-screen menu: the panel drops in, the icon becomes a cross ──── */
+
+.cb-menu__line {
+  transform-origin: 12px 12px;
+}
+/* Each outer line moves to the centre, then turns (read right to left). */
+.cb-menu[data-open] .cb-menu__line--top {
+  transform: rotate(45deg) translateY(5px);
+}
+.cb-menu[data-open] .cb-menu__line--mid {
+  opacity: 0;
+  transform: scaleX(0);
+}
+.cb-menu[data-open] .cb-menu__line--bottom {
+  transform: rotate(-45deg) translateY(-5px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-menu__line {
+    transition:
+      transform var(--dur-medium) var(--ease-out),
+      opacity var(--dur-short) var(--ease-out);
+  }
+  .cb-menu__panel {
+    transition:
+      opacity var(--dur-short) var(--ease-out),
+      translate var(--dur-medium) var(--ease-out),
+      display var(--dur-medium) allow-discrete;
+  }
+  .cb-menu__panel[hidden] {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+  @starting-style {
+    .cb-menu__panel:not([hidden]) {
+      opacity: 0;
+      translate: 0 -8px;
+    }
+  }
+}
+
+/* ── floating "Get the Android app" ───────────────────────────────────── */
+
+@keyframes cb-fab-in {
+  from {
+    opacity: 0;
+    translate: 0 28px;
+    scale: 0.9;
+  }
+}
+.cb-site[data-fab="away"] .cb-fab {
+  opacity: 0;
+  translate: 0 20px;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Backwards fill only: once in, the button's own resting values take
+     over, so "away" (above) can still move it. */
+  .cb-fab {
+    animation: cb-fab-in 700ms var(--ease-spring) 1.5s backwards;
+    transition:
+      opacity var(--dur-medium) var(--ease-out),
+      translate var(--dur-medium) var(--ease-out),
+      scale var(--dur-press) var(--ease-out),
+      transform var(--dur-micro) ease-out,
+      box-shadow var(--dur-micro) ease-out;
+  }
+  .cb-fab:active {
+    scale: 0.96;
+  }
+  .cb-fab svg {
+    transition: rotate var(--dur-medium) var(--ease-spring);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .cb-fab:hover svg {
+    rotate: -12deg;
+  }
+}

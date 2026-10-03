@@ -74,9 +74,10 @@ export function SparkleIcon({ className, size = 64 }: IconProps & { size?: numbe
 /** The arrow on the hero's dark button. */
 export function ArrowIcon({ className }: IconProps) {
   return (
-    <svg className={className} width="28" height="14" viewBox="0 -7 28 14" fill="none" aria-hidden="true" focusable="false">
-      <path d="M0 0.75H20V-0.75H0Z" fill="currentColor" />
-      <path d="M18 -5L26 0L18 5Z" fill="currentColor" />
+    <svg className={className} width="28" height="14" viewBox="0 -7 28 14" fill="none" overflow="visible" aria-hidden="true" focusable="false">
+      {/* Shaft and head are separate so the arrow can stretch (motion.css). */}
+      <path className="cb-arrow__shaft" d="M0 0.75H20V-0.75H0Z" fill="currentColor" />
+      <path className="cb-arrow__head" d="M18 -5L26 0L18 5Z" fill="currentColor" />
     </svg>
   );
 }
@@ -92,6 +93,19 @@ export function PlayIcon({ className }: IconProps) {
         fill="currentColor"
         stroke="currentColor"
       />
+    </svg>
+  );
+}
+
+/** A window with an arrow leaving it: the hero's "open web app" badge. */
+export function WebIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" overflow="visible" aria-hidden="true" focusable="false">
+      <path className="cb-web__window" d="M6 1.5H2.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8" />
+      <g className="cb-web__arrow">
+        <path d="M8.5 1.5h4v4" />
+        <path d="M12.5 1.5L6.5 7.5" />
+      </g>
     </svg>
   );
 }
@@ -146,11 +160,16 @@ export function ExternalIcon({ className }: IconProps) {
   );
 }
 
-/** Three-line menu glyph that turns into a cross when `open`. */
-export function MenuIcon({ className, open }: IconProps & { open: boolean }) {
+/**
+ * Three-line menu glyph. The lines fold into a cross while the menu is open
+ * (`.cb-menu[data-open]` in motion.css), so the change animates.
+ */
+export function MenuIcon({ className }: IconProps) {
   return (
     <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
-      {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+      <path className="cb-menu__line cb-menu__line--top" d="M4 7h16" />
+      <path className="cb-menu__line cb-menu__line--mid" d="M4 12h16" />
+      <path className="cb-menu__line cb-menu__line--bottom" d="M4 17h16" />
     </svg>
   );
 }

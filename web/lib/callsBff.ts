@@ -49,8 +49,48 @@ export interface Person {
   handle: string;
   displayName: string;
   avatarUrl: string | null;
+  /** The app's preset picture (1..5) when the person picked one instead of a photo. */
+  avatarId?: number | null;
   settledCalls: number;
   correctCalls: number;
+}
+
+/** A person as the people.* queries return them (no call counts). */
+export interface PersonRef {
+  id: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+  avatarId?: number | null;
+}
+
+/** Counts behind a record: only calls the venue decided are right or wrong. */
+export interface RecordCounts {
+  correct: number;
+  incorrect: number;
+  voided: number;
+  resolved: number;
+  decided: number;
+  pending: number;
+}
+
+export interface LeaderboardRow {
+  rank: number | null;
+  person: PersonRef;
+  record: { counts: RecordCounts };
+}
+
+/** people.leaderboard: `ranked` have enough decided calls for a percentage, `building` not yet. */
+export interface Leaderboard {
+  window: string;
+  ranked: LeaderboardRow[];
+  building: LeaderboardRow[];
+  minimumDecided: number;
+}
+
+/** people.suggested (signed out): people worth following, with their records. */
+export interface Suggested {
+  people: Array<PersonRef & { record?: { counts: RecordCounts } | null }>;
 }
 
 export interface Call {
@@ -145,6 +185,9 @@ export const getMarket = (marketId: string) => query<MarketDetail>("markets.deta
 export const getFeed = (limit = 6) =>
   query<{ entries: CallFeedEntry[] }>("calls.feed", { mode: "global", limit }, 60);
 export const getOpenMarkets = () => query<Market[]>("markets.open", {}, 300);
+/** Records move only when Panta settles a market, so five minutes is fresh enough. */
+export const getLeaderboard = () => query<Leaderboard>("people.leaderboard", {}, 300);
+export const getSuggested = () => query<Suggested>("people.suggested", {}, 300);
 
 /** Safe-to-call wrapper for optional page sections: null on any failure. */
 export async function maybe<T>(p: Promise<T>): Promise<T | null> {
@@ -253,6 +296,21 @@ export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const letters = parts.length > 1 ? `${parts[0]![0]}${parts[1]![0]}` : (parts[0] ?? "?").slice(0, 2);
   return letters.toUpperCase();
+}
+
+/** The app's preset pictures, mirrored from the mobile repo into public/img/profile. */
+const PRESET_AVATARS = 5;
+
+/**
+ * What to show for a person, as the app decides it (avatar_catalog.dart's
+ * avatarImageFor): their own https picture (X or Google, when they signed in
+ * with one), else the preset picture they chose, else null for initials.
+ */
+export function avatarSrc(person: { avatarUrl: string | null; avatarId?: number | null }): string | null {
+  const own = safeAvatar(person.avatarUrl);
+  if (own) return own;
+  const id = person.avatarId;
+  return typeof id === "number" && Number.isInteger(id) && id >= 1 && id <= PRESET_AVATARS ? `/img/profile/${id}.png` : null;
 }
 
 /** Only https avatars are rendered; anything else falls back to initials. */

@@ -4,10 +4,14 @@
  * on phones). Each answer is checked against the Terms (/terms) and the app.
  * Keep each to two lines at 1440, its first line nearly full (the cards are
  * justified), so every row stays the same height and the spacing even.
+ *
+ * The cards are an accordion (FaqList, the one client piece): open on
+ * desktop, folded on smaller screens until tapped.
  */
 
 import { WEB_APP_URL } from "../config";
 import { DecorLayer, Sparkle } from "../decor/Decor";
+import { FaqList } from "./FaqList";
 
 export const FAQS = [
   {
@@ -67,21 +71,20 @@ export function Faq() {
           <Sparkle x={546} y={84} size={64} el="faq.sparkle" />
         </DecorLayer>
 
-        <p className="cb-eyebrow" data-el="faq.eyebrow">
-          faq
-        </p>
-        <h2 id="faq-title" className="cb-h2" data-el="faq.title">
-          Questions
-        </h2>
-
-        <div className="cb-faq__grid">
-          {FAQS.map((item) => (
-            <article key={item.id} className="cb-faq__item" data-el={`faq.item.${item.id}`}>
-              <h3 className="cb-faq__q">{item.q}</h3>
-              <p className="cb-faq__a">{noWidow(item.a)}</p>
-            </article>
-          ))}
+        <div className="cb-faq__head" data-reveal="">
+          <p className="cb-eyebrow" data-el="faq.eyebrow">
+            faq
+          </p>
+          <h2 id="faq-title" className="cb-h2" data-el="faq.title">
+            Questions
+          </h2>
         </div>
+
+        {/* Without JavaScript every answer stays open. */}
+        <noscript>
+          <style>{`.cb-faq__panel{grid-template-rows:1fr!important}.cb-faq__panel-inner{opacity:1!important}.cb-faq__icon{display:none!important}`}</style>
+        </noscript>
+        <FaqList items={FAQS.map((item) => ({ id: item.id, q: item.q, a: noWidow(item.a) }))} />
       </div>
     </section>
   );

@@ -1,0 +1,611 @@
+/* ==========================================================================
+   Landing page choreography, section by section. Tokens and keyframes
+   shared with other pages: components/site/motion/motion.css. Each block
+   names the hooks it moves; docs/website-structure.md ("Motion") has the
+   full list with timings.
+
+   Two kinds of motion:
+   - Hero: CSS only, on first paint, so it never waits for JavaScript.
+   - Everything below the fold: scroll reveals. MotionRoot marks a block
+     data-inview="in" as it scrolls in (or "static" when it was already on
+     screen, which shows it without animating). Entrances use backwards
+     fill, so once they finish the element's resting values apply again and
+     a loop (float) can follow on the same property.
+   ========================================================================== */
+
+/* ── keyframes ────────────────────────────────────────────────────────── */
+
+/* A headline line rises out of its own line box. */
+@keyframes cb-line-up {
+  from {
+    translate: 0 110%;
+    rotate: 2.5deg;
+  }
+}
+/* Phones rise from lower down. Opaque early, so overlapping phones never
+   show through each other while they travel. */
+@keyframes cb-rise-far {
+  from {
+    opacity: 0;
+    translate: 0 72px;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+/* The ribbon swings in on the "a" it hangs from, settling like a tag. */
+@keyframes cb-swing {
+  0% {
+    opacity: 0;
+    rotate: 14deg;
+  }
+  14% {
+    opacity: 1;
+  }
+  42% {
+    rotate: -4.5deg;
+  }
+  64% {
+    rotate: 2deg;
+  }
+  82% {
+    rotate: -0.7deg;
+  }
+  100% {
+    rotate: 0deg;
+  }
+}
+/* A ribbon stop lights up: its dot swells and settles. */
+@keyframes cb-dot {
+  0% {
+    scale: 0;
+  }
+  55% {
+    scale: 1.35;
+  }
+  100% {
+    scale: 1;
+  }
+}
+/* The forward arrow: a nudge, a smaller echo, then a long rest. */
+@keyframes cb-nudge {
+  0%,
+  62%,
+  100% {
+    translate: 0 0;
+  }
+  72% {
+    translate: 5px 0;
+  }
+  82% {
+    translate: 0 0;
+  }
+  89% {
+    translate: 2px 0;
+  }
+}
+/* The play badge's ring pings outward. */
+@keyframes cb-ping {
+  0% {
+    scale: 1;
+    opacity: 0.6;
+  }
+  70%,
+  100% {
+    scale: 1.8;
+    opacity: 0;
+  }
+}
+/* The web icon's arrow leaves its window, and comes back. */
+@keyframes cb-web-out {
+  0%,
+  60%,
+  100% {
+    translate: 0 0;
+  }
+  72% {
+    translate: 2px -2px;
+  }
+  86% {
+    translate: 0 0;
+  }
+}
+/* Icons spring in. */
+@keyframes cb-icon-pop {
+  from {
+    opacity: 0;
+    scale: 0.3;
+    rotate: -40deg;
+  }
+}
+/* The bell rings. */
+@keyframes cb-ring {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  15% {
+    rotate: 16deg;
+  }
+  30% {
+    rotate: -13deg;
+  }
+  45% {
+    rotate: 9deg;
+  }
+  60% {
+    rotate: -5deg;
+  }
+  75% {
+    rotate: 2deg;
+  }
+}
+@keyframes cb-ring-again {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  20% {
+    rotate: 14deg;
+  }
+  45% {
+    rotate: -10deg;
+  }
+  70% {
+    rotate: 4deg;
+  }
+}
+/* The star turns a quarter, which for a four-point star lands where it began. */
+@keyframes cb-star-turn {
+  from {
+    rotate: -90deg;
+    scale: 0.4;
+    opacity: 0;
+  }
+}
+/* The lifted call card comes off the phone. */
+@keyframes cb-lift {
+  from {
+    opacity: 0;
+    translate: 0 22px;
+    scale: 0.92;
+  }
+}
+/* A circle of people pops in. */
+@keyframes cb-seat {
+  from {
+    opacity: 0;
+    scale: 0.55;
+  }
+}
+
+/* ── Hero (CSS only, on load) ─────────────────────────────────────────── */
+/* hero.title > .cb-line > .cb-line__in · hero.lead · hero.cta ·
+   hero.proof-link · hero.glow · hero.phone-1..3 · hero.visual.glow ·
+   hero.visual.orbit · hero.ribbon (+ .stop-1/.stop-2 dots, .sparkle) ·
+   hero.sparkle-* / hero.visual.sparkle-* */
+
+/* Room above and below each headline line so the clip never cuts a glyph. */
+.cb-hero__title .cb-line {
+  overflow: clip;
+  padding-block: 0.08em;
+  margin-block: -0.08em;
+}
+.cb-line__in {
+  display: inline-block;
+  transform-origin: 0 100%;
+}
+
+/* Depth layers (hero.visual): each moves with the pointer and the scroll by
+   its own depth --d. The values come from MotionRoot; 0 without it. */
+.cb-depth {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-hero__title .cb-line:nth-child(1) .cb-line__in {
+    animation: cb-line-up 1000ms var(--ease-out) 100ms backwards;
+  }
+  .cb-hero__title .cb-line:nth-child(2) .cb-line__in {
+    animation: cb-line-up 1000ms var(--ease-out) 210ms backwards;
+  }
+  .cb-hero__lead {
+    animation: cb-rise 800ms var(--ease-out) 420ms backwards;
+  }
+  .cb-hero__primary {
+    animation: cb-rise 700ms var(--ease-out) 540ms backwards;
+  }
+  .cb-hero__secondary {
+    animation: cb-rise 700ms var(--ease-out) 630ms backwards;
+  }
+  [data-el="hero.glow"] {
+    animation:
+      cb-fade 1600ms var(--ease-out) backwards,
+      cb-breathe 9s var(--ease-in-out) 1600ms infinite;
+  }
+
+  /* Phones rise back to front, then float, each on its own period. */
+  .cb-hero .cb-phone {
+    animation:
+      cb-rise-far var(--dur-entrance) var(--ease-out) var(--in) backwards,
+      cb-float var(--period) var(--ease-in-out) calc(var(--in) + var(--dur-entrance)) infinite;
+  }
+  [data-el="hero.phone-3"] {
+    --in: 240ms;
+    --period: 8s;
+    --float: -8px;
+  }
+  [data-el="hero.phone-2"] {
+    --in: 340ms;
+    --period: 7s;
+    --float: -9px;
+  }
+  [data-el="hero.phone-1"] {
+    --in: 440ms;
+    --period: 6.2s;
+    --float: -11px;
+  }
+  [data-el="hero.visual.glow"] {
+    animation:
+      cb-fade 1800ms var(--ease-out) 200ms backwards,
+      cb-breathe 9s var(--ease-in-out) 2s infinite;
+  }
+  [data-el="hero.visual.orbit"] {
+    animation: cb-fade 1400ms var(--ease-out) 500ms backwards;
+  }
+  .cb-hero .cb-sparkle__pop {
+    animation: cb-sparkle-in 800ms var(--ease-spring) var(--pop, 1000ms) backwards;
+  }
+  [data-el="hero.sparkle-1"] {
+    --pop: 760ms;
+  }
+  [data-el="hero.sparkle-2"] {
+    --pop: 1100ms;
+  }
+  [data-el="hero.visual.sparkle-1"] {
+    --pop: 1250ms;
+  }
+  [data-el="hero.visual.sparkle-2"] {
+    --pop: 900ms;
+  }
+  [data-el="hero.visual.sparkle-3"] {
+    --pop: 1400ms;
+  }
+
+  .cb-depth {
+    translate:
+      calc(var(--px, 0) * var(--d) * 18px)
+      calc(var(--py, 0) * var(--d) * 12px + var(--sy, 0) * var(--d) * -90px);
+  }
+  .cb-site[data-motion="on"] .cb-depth {
+    will-change: translate;
+  }
+
+  /* The ribbon swings in from the "a" (bottom left), then its stops light
+     up in reading order and the tag's sparkle turns. */
+  .cb-site .cb-hero__ribbon {
+    transform-origin: 6% 87%;
+    animation: cb-swing 1500ms var(--ease-swing) 620ms backwards;
+  }
+  .cb-ribbon__dot {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: cb-dot 620ms var(--ease-spring) 1500ms backwards;
+  }
+  [data-el="hero.ribbon.stop-2"] .cb-ribbon__dot {
+    animation-delay: 1720ms;
+  }
+  .cb-ribbon__sparkle {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: cb-sparkle-in 900ms var(--ease-spring) 1950ms backwards;
+  }
+}
+
+/* The primary button's arrow: nudges every few seconds, and stretches
+   toward where it points on hover or focus. */
+.cb-arrow__shaft {
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-hero__arrow {
+    animation: cb-nudge 3.8s var(--ease-in-out) 2.4s infinite;
+  }
+  .cb-arrow__shaft {
+    transition: scale var(--dur-short) var(--ease-out);
+  }
+  .cb-arrow__head {
+    transition: translate var(--dur-short) var(--ease-out);
+  }
+  .cb-btn:is(:hover, :focus-visible) .cb-hero__arrow {
+    animation-play-state: paused;
+  }
+  .cb-btn:is(:hover, :focus-visible) .cb-arrow__shaft {
+    scale: 1.2 1;
+  }
+  .cb-btn:is(:hover, :focus-visible) .cb-arrow__head {
+    translate: 4px 0;
+  }
+}
+
+/* The secondary link's round badge (hero.proof-icon): a ring pings out of
+   it every few seconds; on hover or focus it fills pink and its icon steps
+   forward (the play triangle right, the web arrow out of its window). */
+.cb-hero__play {
+  position: relative;
+}
+.cb-hero__play::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+.cb-hero__secondary:is(:hover, :focus-visible) .cb-hero__play {
+  border-color: var(--cb-pink);
+  background: var(--cb-pink);
+  color: var(--cb-white);
+}
+.cb-hero__play svg {
+  overflow: visible;
+}
+.cb-hero__secondary[data-kind="web"] .cb-hero__play {
+  padding-left: 0;
+}
+.cb-hero__secondary[data-kind="web"] .cb-hero__play svg {
+  width: calc(13 * var(--u));
+  height: calc(13 * var(--u));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-hero__play {
+    transition:
+      background-color var(--dur-micro) ease-out,
+      border-color var(--dur-micro) ease-out,
+      color var(--dur-micro) ease-out;
+  }
+  .cb-hero__play::after {
+    animation: cb-ping 2.8s var(--ease-out) 2.2s infinite;
+  }
+  .cb-hero__play svg,
+  .cb-web__arrow {
+    transition: translate var(--dur-short) var(--ease-spring);
+  }
+  .cb-web__arrow {
+    animation: cb-web-out 3.4s var(--ease-in-out) 2.6s infinite;
+  }
+  .cb-hero__secondary:is(:hover, :focus-visible) .cb-hero__play::after {
+    animation-play-state: paused;
+  }
+  .cb-hero__secondary:not([data-kind="web"]):is(:hover, :focus-visible) .cb-hero__play svg {
+    translate: 1.5px 0;
+  }
+  .cb-hero__secondary:is(:hover, :focus-visible) .cb-web__arrow {
+    animation: none;
+    translate: 2px -2px;
+  }
+}
+@media (max-width: 1023.98px) {
+  .cb-hero__secondary[data-kind="web"] .cb-hero__play svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+/* ── Features ─────────────────────────────────────────────────────────── */
+/* features.visual (stage: phone rises, rings and glow fade in) ·
+   features.eyebrow, .title, .item.* (staggered rise) · icons spring in */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Shared by every phone stage (features, benefits): before it scrolls
+     in, its pieces wait; as it does, they arrive in order. */
+  .cb-site[data-motion="on"] [data-reveal="stage"]:not([data-inview]) :is(.cb-phone, .cb-orbit, .cb-glow, .cb-benefits__card) {
+    opacity: 0;
+    animation: none;
+  }
+  .cb-site[data-motion="on"] [data-reveal="stage"][data-inview="in"] .cb-phone {
+    animation: cb-rise-far var(--dur-entrance) var(--ease-out) 80ms backwards;
+  }
+  .cb-site[data-motion="on"] [data-reveal="stage"][data-inview="in"] .cb-orbit {
+    animation: cb-fade 1400ms var(--ease-out) 250ms backwards;
+  }
+  .cb-site[data-motion="on"] [data-reveal="stage"][data-inview="in"] .cb-glow {
+    animation:
+      cb-fade 1600ms var(--ease-out) 350ms backwards,
+      cb-breathe 9s var(--ease-in-out) 1950ms infinite;
+  }
+
+  .cb-site[data-motion="on"] .cb-feature:not([data-inview]) .cb-feature__icon {
+    opacity: 0;
+  }
+  .cb-site[data-motion="on"] .cb-feature[data-inview="in"] .cb-feature__icon {
+    animation: cb-icon-pop 700ms var(--ease-spring) calc(var(--i, 0) * var(--stagger) + 220ms) backwards;
+  }
+}
+
+/* ── Benefits ─────────────────────────────────────────────────────────── */
+/* benefits.*.visual (stage, as Features) · benefits.follow.card lifts off
+   the phone (and a little further on hover) · badges pop, the bell rings
+   (again on hover), the star turns */
+
+.cb-site .cb-benefits__card {
+  transform-origin: 50% 50%;
+  box-shadow: 0 18px 36px -14px rgb(38 22 27 / 0.35);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cb-site[data-motion="on"] [data-reveal="stage"][data-inview="in"] .cb-benefits__card {
+    animation: cb-lift 900ms var(--ease-spring) 650ms backwards;
+  }
+  .cb-site .cb-benefits__card {
+    transition: translate var(--dur-medium) var(--ease-out);
+  }
+
+  .cb-benefit__badge {
+    transition: scale var(--dur-short) var(--ease-spring);
+  }
+  .cb-site[data-motion="on"] .cb-benefit:not([data-inview]) .cb-benefit__badge {
+    opacity: 0;
+  }
+  .cb-site[data-motion="on"] .cb-benefit[data-inview="in"] .cb-benefit__badge {
+    animation: cb-icon-pop 700ms var(--ease-spring) calc(var(--i, 0) * var(--stagger) + 200ms) backwards;
+  }
+  [data-el="benefits.follow.item"] .cb-benefit__icon {
+    transform-origin: 50% 12%;
+  }
+  .cb-site[data-motion="on"] [data-el="benefits.follow.item"][data-inview="in"] .cb-benefit__icon {
+    animation: cb-ring 1000ms var(--ease-in-out) 900ms backwards;
+  }
+  .cb-site[data-motion="on"] [data-el="benefits.settle.item"][data-inview="in"] .cb-benefit__icon {
+    animation: cb-star-turn 900ms var(--ease-spring) 300ms backwards;
+  }
+  .cb-benefit__icon {
+    transition: rotate var(--dur-medium) var(--ease-spring);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .cb-benefits__row--follow .cb-stage:hover .cb-benefits__card {
+    translate: 0 -8px;
+  }
+  .cb-benefit:hover .cb-benefit__badge {
+    scale: 1.08;
+  }
+  .cb-site [data-el="benefits.follow.item"]:hover .cb-benefit__icon {
+    animation: cb-ring-again 700ms var(--ease-in-out);
+  }
+  .cb-site [data-el="benefits.settle.item"]:hover .cb-benefit__icon {
+    rotate: 45deg;
+  }
+}
+
+/* ── Social proof ─────────────────────────────────────────────────────── */
+/* proof.art (stage): rings and glow fade in, proof.circle.* pop in one by
+   one (the people first), proof.quote-badge last · a person's circle grows
+   a little and shows their @handle on hover or focus · proof.call (the
+   live call card) leans toward the pointer and glows */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-site[data-motion="on"] .cb-proof__art:not([data-inview]) :is(.cb-proof__seat, .cb-proof__quote, .cb-orbit, .cb-glow, .cb-proof__tag) {
+    opacity: 0;
+    animation: none;
+  }
+  .cb-site[data-motion="on"] .cb-proof__art[data-inview="in"] .cb-proof__seat {
+    animation: cb-seat 760ms var(--ease-spring) calc(var(--i, 0) * 110ms + 150ms) backwards;
+  }
+  .cb-site[data-motion="on"] .cb-proof__art[data-inview="in"] .cb-proof__quote {
+    animation: cb-pop 700ms var(--ease-spring) 780ms backwards;
+  }
+  .cb-site[data-motion="on"] .cb-proof__art[data-inview="in"] .cb-proof__seat--lead .cb-proof__tag {
+    animation: cb-rise 600ms var(--ease-out) 700ms backwards;
+  }
+  .cb-site[data-motion="on"] .cb-proof__art[data-inview="in"] .cb-orbit {
+    animation: cb-fade 1400ms var(--ease-out) backwards;
+  }
+  .cb-site[data-motion="on"] .cb-proof__art[data-inview="in"] .cb-glow {
+    animation:
+      cb-fade 1600ms var(--ease-out) 200ms backwards,
+      cb-breathe 9s var(--ease-in-out) 1800ms infinite;
+  }
+
+  .cb-proof__face {
+    transition: scale var(--dur-short) var(--ease-spring);
+  }
+  .cb-proof__tag {
+    transition:
+      opacity var(--dur-short) var(--ease-out),
+      translate var(--dur-short) var(--ease-out);
+  }
+
+  /* The card: tilt from MotionRoot (--tilt-x/-y), eased so it follows. */
+  .cb-proof__call {
+    transform: perspective(1100px) rotateX(var(--tilt-y, 0deg)) rotateY(var(--tilt-x, 0deg));
+    transition:
+      opacity var(--dur-reveal) var(--ease-out),
+      translate var(--dur-reveal) var(--ease-out),
+      transform 600ms var(--ease-out);
+  }
+  .cb-proof__call::after {
+    transition: opacity var(--dur-medium) var(--ease-out);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .cb-proof__seat--person:hover .cb-proof__face {
+    scale: 1.05;
+  }
+  .cb-proof__call:hover::after {
+    opacity: 1;
+  }
+}
+
+/* ── FAQ ──────────────────────────────────────────────────────────────── */
+/* faq.item.* rise in pairs · the answer panel opens and closes by height
+   (grid rows 0fr to 1fr: the one animation here that is not
+   transform/opacity, kept to one small card at a time) · the plus turns
+   into a minus */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-faq__panel {
+    transition: grid-template-rows var(--dur-medium) var(--ease-out);
+  }
+  .cb-faq__panel-inner {
+    transition: opacity var(--dur-medium) var(--ease-out);
+  }
+  .cb-faq__icon,
+  .cb-faq__icon::before,
+  .cb-faq__icon::after {
+    transition: rotate var(--dur-medium) var(--ease-out);
+  }
+}
+
+/* ── Call to action ───────────────────────────────────────────────────── */
+/* cta.panel rises in (data-reveal="panel") · cta.title, .text, .button
+   follow · cta.phone-left/-centre/-right rise out of the bottom edge one
+   by one, then float · white sparkles twinkle (motion.css) */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cb-site[data-motion="on"] .cb-cta__panel:not([data-inview]) :is(.cb-cta__copy > *, .cb-panel-phone) {
+    opacity: 0;
+  }
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview="in"] .cb-cta__copy > * {
+    animation: cb-rise 700ms var(--ease-out) backwards;
+  }
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview="in"] .cb-cta__copy > :nth-child(1) {
+    animation-delay: 280ms;
+  }
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview="in"] .cb-cta__copy > :nth-child(2) {
+    animation-delay: 370ms;
+  }
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview="in"] .cb-cta__copy > :nth-child(3) {
+    animation-delay: 460ms;
+  }
+
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview] .cb-panel-phone {
+    animation: cb-float var(--period) var(--ease-in-out) var(--float-in, 0s) infinite;
+  }
+  .cb-site[data-motion="on"] .cb-cta__panel[data-inview="in"] .cb-panel-phone {
+    animation:
+      cb-rise-far 1100ms var(--ease-out) var(--in) backwards,
+      cb-float var(--period) var(--ease-in-out) calc(var(--in) + 1100ms) infinite;
+  }
+  [data-el="cta.phone-left"] {
+    --in: 520ms;
+    --period: 7.4s;
+    --float: -7px;
+    --float-in: -2s;
+  }
+  [data-el="cta.phone-centre"] {
+    --in: 640ms;
+    --period: 6.6s;
+    --float: -9px;
+    --float-in: -4s;
+  }
+  [data-el="cta.phone-right"] {
+    --in: 760ms;
+    --period: 8.2s;
+    --float: -7px;
+    --float-in: -1s;
+  }
+}

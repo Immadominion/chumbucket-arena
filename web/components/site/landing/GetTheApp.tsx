@@ -3,6 +3,10 @@
  * white orbits, a glow, two sparkles and three phones rising from the bottom
  * edge. The section the header, hero and floating "get the app" links jump
  * to.
+ *
+ * Motion (landing-motion.css, "Call to action"): the panel rises in, its
+ * copy follows, the phones rise out of the bottom edge one after another
+ * and then float; the white sparkles twinkle.
  */
 
 import Image from "next/image";
@@ -72,7 +76,7 @@ export function GetTheApp() {
           <Sparkle x={-151.059} y={137} size={48} r={45} el="cta.sparkle-2" />
         </DecorLayer>
 
-        <div className="cb-cta__panel" data-el="cta.panel">
+        <div className="cb-cta__panel" data-el="cta.panel" data-reveal="panel">
           <div className="cb-cta__decor" aria-hidden="true">
             <Orbit shape="feature" className="cb-orbit--light" style={at(-328, 192)} el="cta.orbit-1" />
             <Orbit shape="feature" className="cb-orbit--light" style={at(730, -248)} el="cta.orbit-2" />

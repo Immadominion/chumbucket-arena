@@ -8,7 +8,7 @@ import { notFound } from "next/navigation";
 import { CallRow } from "@/components/public/CallReceipt";
 import OpenInApp from "@/components/public/OpenInApp";
 import { Avatar, PublicShell, Unavailable } from "@/components/public/PublicShell";
-import { NotFound, getPerson, recordLabel, safeAvatar, type PersonDetail } from "@/lib/callsBff";
+import { NotFound, avatarSrc, getPerson, recordLabel, type PersonDetail } from "@/lib/callsBff";
 
 type Params = { handle: string };
 
@@ -48,7 +48,7 @@ export default async function PersonPage({ params }: { params: Promise<Params> }
       ) : (
         <section className="pub-wrap pub-narrow pub-stack">
           <div className="pub-card pub-profile">
-            <Avatar name={detail.person.displayName} url={safeAvatar(detail.person.avatarUrl)} size={72} />
+            <Avatar name={detail.person.displayName} url={avatarSrc(detail.person)} size={72} />
             <div className="pub-profile-text">
               <h1 className="pub-h1">{detail.person.displayName}</h1>
               <p className="pub-muted">@{detail.person.handle}</p>

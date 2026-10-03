@@ -282,12 +282,33 @@ export function Orbit({
 
 /* ── sparkles ───────────────────────────────────────────────────────────── */
 
-/** A sparkle placed at (x, y), `size` 64 or 48, rotated `r` degrees about its corner. */
+/**
+ * A sparkle placed at (x, y), `size` 64 or 48, rotated `r` degrees about its
+ * corner. `--tw` offsets its twinkle (motion.css) by an amount derived from
+ * its place, so neighbouring sparkles never pulse in step.
+ */
 export function Sparkle({ x, y, size = 64, r, className, el }: { x: number; y: number; size?: number; r?: number; className?: string; el?: string }) {
+  const style = { ...at(x, y, { w: size, r }), "--tw": `${-Math.round(Math.abs(x * 7 + y * 13) % 4200)}ms` } as CSSProperties;
   return (
-    <span className={cx("cb-sparkle cb-at", className)} data-el={el} style={at(x, y, { w: size, r })} aria-hidden="true">
-      <SparkleIcon />
+    <span className={cx("cb-sparkle cb-at", className)} data-el={el} style={style} aria-hidden="true">
+      {/* The inner span pops in; the icon inside it twinkles. */}
+      <span className="cb-sparkle__pop">
+        <SparkleIcon />
+      </span>
     </span>
+  );
+}
+
+/**
+ * A parallax layer: fills its placed parent, so the decor inside keeps its
+ * coordinates, and moves by `depth` (0..1) with the pointer and the scroll
+ * (`--px`, `--py`, `--sy`, set on the hero by MotionRoot).
+ */
+export function Depth({ depth, children }: { depth: number; children: ReactNode }) {
+  return (
+    <div className="cb-depth" style={{ ["--d" as string]: depth } as CSSProperties} aria-hidden="true">
+      {children}
+    </div>
   );
 }
 

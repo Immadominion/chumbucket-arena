@@ -37,7 +37,7 @@ export default function MobileMenu({ items, getApp }: { items: Item[]; getApp: {
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
       >
-        <MenuIcon open={open} />
+        <MenuIcon />
         <span className="cb-visually-hidden">{open ? "Close menu" : "Menu"}</span>
       </button>
       <nav id={panelId} className="cb-menu__panel" aria-label="Menu" hidden={!open}>

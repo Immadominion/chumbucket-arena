@@ -3,6 +3,10 @@
  * sides. Row one follows people (copy left, phone right, with a call card
  * lifted off the screen); row two is about who settles a call (phone left,
  * copy right).
+ *
+ * Motion (landing-motion.css, "Benefits"): each phone rises into its rings,
+ * the call card lifts off the first phone, the badges pop and their icons
+ * move (the bell rings, the star turns).
  */
 
 import Image from "next/image";
@@ -19,13 +23,13 @@ export function Benefits() {
         </DecorLayer>
 
         <div className="cb-benefits__copy">
-          <p className="cb-eyebrow" data-el="benefits.eyebrow">
+          <p className="cb-eyebrow" data-el="benefits.eyebrow" data-reveal="">
             why chumbucket
           </p>
-          <h2 id="benefits-title" className="cb-h2" data-el="benefits.title">
+          <h2 id="benefits-title" className="cb-h2" data-el="benefits.title" data-reveal="" style={{ ["--i" as string]: 1 }}>
             Receipts, not hype
           </h2>
-          <article className="cb-benefit" data-el="benefits.follow.item">
+          <article className="cb-benefit" data-el="benefits.follow.item" data-reveal="" style={{ ["--i" as string]: 2 }}>
             <h3 className="cb-benefit__title">
               <span className="cb-benefit__badge" aria-hidden="true">
                 <BellIcon className="cb-benefit__icon cb-benefit__icon--light" />
@@ -38,7 +42,7 @@ export function Benefits() {
           </article>
         </div>
 
-        <div className="cb-benefits__visual cb-stage" data-el="benefits.follow.visual" aria-hidden="true">
+        <div className="cb-benefits__visual cb-stage" data-el="benefits.follow.visual" data-reveal="stage" aria-hidden="true">
           <Glow shape="pair" style={at(-56, 204.221)} el="benefits.follow.glow" />
           <Orbit shape="feature" style={at(-235, -107)} el="benefits.follow.orbit" />
           <Phone screen="calls" width={249.593} el="benefits.follow.phone" />
@@ -55,14 +59,14 @@ export function Benefits() {
           <Sparkle x={903} y={639.733} size={64} el="benefits.settle.sparkle-2" />
         </DecorLayer>
 
-        <div className="cb-benefits__visual cb-stage" data-el="benefits.settle.visual" aria-hidden="true">
+        <div className="cb-benefits__visual cb-stage" data-el="benefits.settle.visual" data-reveal="stage" aria-hidden="true">
           <Glow shape="pairLarge" style={at(-31, 266.578, { t: "matrix(0.767, 0.641, 0.641, -0.767, 0, 0)" })} el="benefits.settle.glow" />
           <Orbit shape="feature" style={at(-235, -108)} el="benefits.settle.orbit" />
           <Phone screen="calls" el="benefits.settle.phone" />
         </div>
 
         <div className="cb-benefits__copy">
-          <article className="cb-benefit" data-el="benefits.settle.item">
+          <article className="cb-benefit" data-el="benefits.settle.item" data-reveal="">
             <h3 className="cb-benefit__title">
               <span className="cb-benefit__badge" aria-hidden="true">
                 <StarIcon className="cb-benefit__icon" />

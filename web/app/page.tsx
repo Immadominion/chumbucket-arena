@@ -8,8 +8,9 @@
  * visual element to its component and animation hook.
  *
  * Server-rendered and revalidated every minute: the social-proof section
- * shows a real public call from the calls feed, or says plainly that there
- * is none (or that the feed is down). Nothing on the page is invented.
+ * shows the real top callers (people.leaderboard, cached five minutes) and
+ * a real public call from the calls feed, or says plainly that there is
+ * none (or that the feed is down). Nothing on the page is invented.
  */
 
 import type { Metadata } from "next";
@@ -23,7 +24,9 @@ import { GetTheApp } from "@/components/site/landing/GetTheApp";
 import { Hero } from "@/components/site/landing/Hero";
 import { SocialProof } from "@/components/site/landing/SocialProof";
 import "@/components/site/landing/landing.css";
-import { getFeed, maybe } from "@/lib/callsBff";
+import "@/components/site/landing/landing-motion.css";
+import { getFeed, getLeaderboard, getSuggested, maybe } from "@/lib/callsBff";
+import { pickCallers } from "@/lib/landingPeople";
 import { heroProofLink, proofState } from "@/lib/landingProof";
 
 export const revalidate = 60;
@@ -41,13 +44,17 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const state = proofState(await maybe(getFeed(12)));
+  // Three public reads in parallel; any of them failing leaves its part of
+  // the page in its honest empty state rather than failing the page.
+  const [feed, leaderboard, suggested] = await Promise.all([maybe(getFeed(12)), maybe(getLeaderboard()), maybe(getSuggested())]);
+  const state = proofState(feed);
+  const callers = pickCallers({ leaderboard, suggested, feed });
   return (
     <SiteShell current="home" className="cb-landing">
       <Hero proofLink={heroProofLink(state, WEB_APP_URL)} />
       <Features />
       <Benefits />
-      <SocialProof state={state} />
+      <SocialProof state={state} callers={callers} />
       <Faq />
       <GetTheApp />
     </SiteShell>
