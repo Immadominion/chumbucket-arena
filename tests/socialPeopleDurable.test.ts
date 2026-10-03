@@ -214,6 +214,48 @@ describe("profile columns", () => {
     // Nothing was written, so nothing was quarantined.
     expect(store.queue.failures).toHaveLength(0);
   });
+
+  // The Friends tab opens a friend by their canonical id. A wallet friend (or
+  // any account) created after this replica booted is not in the mirror yet;
+  // the profile view reads that one row through instead of saying the person
+  // does not exist. Only an id is read through, and nothing is written.
+  test("people.get by canonical id reads through a directory miss, never a handle", async () => {
+    const { fake } = world({ migrated: true });
+    const reads: string[] = [];
+    const fetchImpl = (async (input: Request | string | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/rest/v1/users")) reads.push(decodeURIComponent(url));
+      return fake.fetchImpl(input, init);
+    }) as typeof fetch;
+    const store = new SupabaseCallsStore({ config: fake.config, fetchImpl });
+    await store.hydrate();
+
+    const app = await testApp();
+    setCallsRuntime(app.config, buildCallsRuntime(undefined, { store, markets: emptyMarketReader }));
+    const anon = callsRouter.createCaller({ app });
+
+    // Carol's row (a friend added by wallet, say) lands after boot.
+    seedUser(fake, UUIDS.carol, { handle: "carol", fullName: "Carol C." });
+    expect(store.getPerson(UUIDS.carol)).toBeUndefined();
+
+    const carol = await anon.people.get({ personRef: UUIDS.carol });
+    expect(carol.person.id).toBe(UUIDS.carol);
+    expect(carol.person.displayName).toBe("Carol C.");
+    expect(carol.calls).toHaveLength(0);
+    expect(reads.some((r) => r.includes(`id=eq.${UUIDS.carol}`))).toBe(true);
+
+    // A handle the mirror does not know is not looked up.
+    reads.length = 0;
+    seedUser(fake, "44444444-4444-4444-8444-444444444445", { handle: "dave" });
+    await expect(anon.people.get({ personRef: "dave" })).rejects.toThrow("We couldn't find that person.");
+    expect(reads).toHaveLength(0);
+
+    // An id with no row is still not found, and nothing was queued.
+    await expect(
+      anon.people.get({ personRef: "55555555-5555-4555-8555-555555555556" }),
+    ).rejects.toThrow("We couldn't find that person.");
+    expect(store.queue.failures).toHaveLength(0);
+  });
 });
 
 describe("the migration says what the store enforces", () => {

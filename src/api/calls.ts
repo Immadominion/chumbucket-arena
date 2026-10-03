@@ -197,12 +197,22 @@ async function requireViewer(rt: CallsRuntime, ctx: ViewerContext): Promise<stri
  *  mirror's copy. */
 export const PROFILE_REFRESH_TIMEOUT_MS = 1_500;
 
+/** A `public.users.id`: the only reference a directory miss is read through for. */
+const CANONICAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * A person edits their name, bio and picture straight in `public.users` (the
  * profile screen's `update_user_profile` RPC), and the mirror reads that table
  * only at boot and on a directory miss. Without this, a bio written after
  * someone's first visit would not reach their public page until the next
  * deploy. So a profile view re-reads that ONE row first.
+ *
+ * A canonical id the mirror has never seen (an account, or a wallet friend,
+ * created after boot on this replica or another) is that directory miss: the
+ * same one-row read brings it in, so the Friends tab can open a friend added an
+ * hour ago. A handle miss is not read through; only an id is. The read never
+ * creates or merges an identity (`refreshPerson`), and an id with no row stays
+ * "We couldn't find that person."
  *
  * Best effort and bounded: a failed or slow read serves the mirror's copy,
  * exactly as before, and is never the reason a profile does not load.
@@ -211,15 +221,16 @@ async function refreshProfileRow(rt: CallsRuntime, personRef: string): Promise<v
   const durable = rt.durable;
   if (!durable) return;
   const known = durable.getPerson(personRef) ?? durable.getPersonByHandle(personRef);
-  if (!known) return;
+  const id = known?.id ?? (CANONICAL_ID.test(personRef) ? personRef : null);
+  if (id === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Settles either way, so a read that loses the race can never surface later
   // as an unhandled rejection.
-  const refreshed = durable.refreshPerson(known.id).then(
+  const refreshed = durable.refreshPerson(id).then(
     () => undefined,
     (err: unknown) => {
       console.warn(
-        `[persist] profile refresh for ${known.id} failed; serving the mirror's copy: ${err instanceof Error ? err.message : String(err)}`,
+        `[persist] profile refresh for ${id} failed; serving the mirror's copy: ${err instanceof Error ? err.message : String(err)}`,
       );
     },
   );
