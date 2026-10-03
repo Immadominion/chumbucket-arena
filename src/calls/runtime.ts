@@ -36,6 +36,7 @@ import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runt
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
 import { CallsService, type CallsIdKind } from "./CallsService.ts";
 import { pantaFundingIndexFor } from "../prediction/PantaFunding.ts";
+import { noFriendsReader, SupabaseFriendsReader, type FriendsReader } from "./friends.ts";
 import { resolveCallsConfig, type CallsConfig } from "./config.ts";
 import { emptyMarketReader, predictionStoreReader, type VenueMarketReader } from "./markets.ts";
 import { CallReceiptsProjection } from "./receipts.ts";
@@ -56,6 +57,8 @@ export interface CallsRuntime {
   sync: ResolutionSync;
   receipts: CallReceiptsProjection;
   viewer: ViewerResolver;
+  /** The viewer's friends from the old app (read-only), for people.suggested. */
+  friends?: FriendsReader;
   /** Whether calls are written to Postgres, and — always — why. */
   persistence: PersistenceDecision;
   /** The durable store when one was built; null when this runtime is in memory. */
@@ -81,6 +84,7 @@ export interface BuildCallsRuntimeOverrides {
   allowPantaCalls?: boolean;
   clock?: Clock;
   viewer?: ViewerResolver;
+  friends?: FriendsReader;
   newId?: (kind: CallsIdKind) => string;
   /** Packet B's runtime, when it should not come from the module memo. */
   prediction?: PredictionRuntime;
@@ -214,6 +218,17 @@ export function buildCallsRuntime(
       : (prediction?.ready ?? Promise.resolve());
   void ready.catch(() => undefined);
 
+  // Friends live in the legacy social table; only a configured service-role
+  // client can read them, and only for the session's own id.
+  const friends: FriendsReader =
+    overrides.friends ??
+    (social && !overrides.store
+      ? new SupabaseFriendsReader(
+          { supabaseUrl: social.supabaseUrl, serviceRoleKey: social.serviceRoleKey },
+          overrides.fetchImpl,
+        )
+      : noFriendsReader);
+
   let detach: (() => void) | null = null;
   return {
     config,
@@ -223,6 +238,7 @@ export function buildCallsRuntime(
     sync,
     receipts,
     viewer,
+    friends,
     persistence,
     durable,
     prediction,

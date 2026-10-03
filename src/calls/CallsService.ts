@@ -54,6 +54,7 @@ import {
   type RespondToCallInput,
   type Side,
   type ThesisUpdate,
+  type SuggestedPeople,
   type TopCallsPage,
   type VenueMarket,
 } from "./types.ts";
@@ -331,6 +332,20 @@ export class CallsService {
   /** people.following — the session's own follow list, and nobody else's. */
   followingOf(viewerUserId: string): PersonCard[] {
     return this.people.following(viewerUserId);
+  }
+
+  /** people.suggested — who to follow during onboarding. See
+   *  `PeopleDirectory.suggested`. */
+  suggestedPeople(
+    args: { limit?: number; friendIds?: readonly string[] },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): SuggestedPeople {
+    return this.people.suggested(
+      { limit: clamp(args.limit ?? 10, 1, 20), friendIds: args.friendIds ?? [] },
+      viewerUserId,
+      opts,
+    );
   }
 
   /** calls.top — open calls worth answering, crowd direction gated. */

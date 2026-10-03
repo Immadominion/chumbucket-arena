@@ -7,6 +7,7 @@
  *   account.addWalletFriend    add a friend by wallet, server-side
  *   account.registerPushToken  this device's FCM token, for this person
  *   account.unregisterPushToken
+ *   account.pushStatus         whether this server sends pushes at all (public)
  *
  * Wallet AND Google/X sessions work the same way: each is a Supabase session,
  * resolved to one canonical `public.users.id` exactly as calls.* resolves it.
@@ -19,7 +20,7 @@
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { accountRuntimeFor } from "../account/runtime.ts";
+import { accountRuntimeFor, pushDelivers } from "../account/runtime.ts";
 import { isAvatarId, type OwnProfile } from "../account/store.ts";
 import { isUsableSolanaAddress } from "../auth/SolanaKey.ts";
 import { isSolanaAddress } from "../auth/WalletLinkService.ts";
@@ -260,6 +261,17 @@ export const accountRouter = router({
       }
       return { unregistered: true };
     }),
+
+  /**
+   * Whether pushes are delivered by this server at all — tokens kept per
+   * person, a configured FCM sender and the notification scheduler running.
+   * Public and about the server, never about a person: the app reads it
+   * before it asks for notification permission, so it never asks for
+   * something nobody sends.
+   */
+  pushStatus: publicProcedure.input(z.object({}).strict().default({})).query(({ ctx }) => ({
+    pushEnabled: pushDelivers(accountRuntimeFor(ctx.app.config)),
+  })),
 });
 
 export type AccountRouter = typeof accountRouter;

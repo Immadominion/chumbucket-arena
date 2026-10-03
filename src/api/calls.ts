@@ -12,7 +12,7 @@
  * no existing path or shape changes; see src/calls/people.ts):
  *
  *   people.leaderboard · people.search · people.following
- *   calls.top · calls.addUpdate
+ *   calls.top · calls.addUpdate · people.suggested
  *
  * Deliberate properties:
  *  - it is ONE new file and touches no integration-owned file. Nesting it is
@@ -51,6 +51,7 @@ import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-impo
 import { z } from "zod";
 import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
 import { isCallsError, type CallsErrorCode } from "../calls/errors.ts";
+import { noFriendsReader } from "../calls/friends.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
 import { guard, router } from "./trpc.ts";
@@ -518,6 +519,32 @@ const peopleNamespace = router({
         const viewer = await viewerOf(rt, ctx);
         const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
         return rt.service.searchPeople({ query: input.query, limit: input.limit }, viewer, { excludeAuthors });
+      });
+    }),
+
+  /**
+   * Who to follow during onboarding (onboarding spec §13.3). Public: people
+   * with at least one public free call, ordered by the public record and
+   * never by money. The session (never an input) leaves out the viewer and
+   * anyone already followed, and adds the viewer's own friends from the old
+   * app. No wallet, stake or P&L anywhere in the answer.
+   */
+  suggested: publicProcedure
+    .input(
+      z
+        .object({ limit: z.number().int().min(1).max(20).default(10) })
+        .strict()
+        .default({ limit: 10 }),
+    )
+    .query(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        await rt.ready;
+        const viewer = await viewerOf(rt, ctx);
+        const friendIds = viewer ? await (rt.friends ?? noFriendsReader).friendsOf(viewer) : [];
+        // Blocked and muted people, and people who blocked the viewer (src/trust).
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.suggestedPeople({ limit: input.limit, friendIds }, viewer, { excludeAuthors });
       });
     }),
 
