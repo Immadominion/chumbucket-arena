@@ -30,7 +30,9 @@ async function run<T>(ctx: Context, action: (userId: string, who: Person) => Pro
     if (isVenueError(error)) {
       const code = error.code === "FUNDED_POSITIONS_DISABLED" ? "FORBIDDEN" : error.code === "IDEMPOTENCY_CONFLICT" ? "CONFLICT"
         : error.code === "VENUE_NOT_FOUND" ? "NOT_FOUND" : error.code === "VENUE_RATE_LIMITED" ? "TOO_MANY_REQUESTS"
-        : error.code === "VENUE_BAD_REQUEST" ? "BAD_REQUEST" : "BAD_GATEWAY";
+        : error.code === "VENUE_BAD_REQUEST" ? "BAD_REQUEST"
+        // Its own code, so an app can lead with "link this wallet" without reading copy.
+        : error.code === "WALLET_NOT_LINKED" ? "UNPROCESSABLE_CONTENT" : "BAD_GATEWAY";
       // Deliberately no cause: approved transaction bytes are private ledger data.
       throw new TRPCError({ code, message: error.message });
     }

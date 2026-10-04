@@ -11,6 +11,8 @@ import { VenueError } from "./errors.ts";
 export interface PantaPrepareInput { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number; }
 /** What the verified session itself proves: the address of a Sign-in-with-Solana session (Supabase Auth checked its signature). */
 export interface PantaPrepareSession { signInWallet?: string | null; }
+/** Short on purpose: the apps lead with a link icon and open the account's wallets. */
+export const WALLET_NOT_LINKED_COPY = "Link this wallet to your account first";
 const refuse = (message: string): never => { throw new VenueError("VENUE_BAD_REQUEST", message, { venue: "panta" }); };
 export class PantaTradingService {
   constructor(private readonly deps: {
@@ -44,7 +46,7 @@ export class PantaTradingService {
     let owns: boolean;
     try { owns = await this.deps.wallets.owns(userId, wallet); }
     catch { throw new VenueError("VENUE_UNAVAILABLE", "We couldn't confirm this wallet is yours. Try again in a moment", { venue: "panta" }); }
-    if (!owns) refuse("This wallet isn't linked to your account. Link it in Settings, then try again");
+    if (!owns) throw new VenueError("WALLET_NOT_LINKED", WALLET_NOT_LINKED_COPY, { venue: "panta" });
   }
   async prepare(userId: string, input: PantaPrepareInput, session: PantaPrepareSession = {}): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
     if (!/^[1-9][0-9]{0,15}$/.test(input.amountBaseUnits) || BigInt(input.amountBaseUnits) > BigInt(this.deps.maxAmountBaseUnits)) return refuse("Enter a positive USDC amount within the server trade limit");

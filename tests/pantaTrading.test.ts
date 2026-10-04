@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { PantaExecution } from "../src/prediction/PantaExecution.ts";
-import { PantaTradingService, type PantaPrepareInput } from "../src/prediction/PantaTradingService.ts";
+import { PantaTradingService, WALLET_NOT_LINKED_COPY, type PantaPrepareInput } from "../src/prediction/PantaTradingService.ts";
 import type { PantaCallIntent, PantaTradeSession, PantaTradingStore } from "../src/prediction/PantaTradingStore.ts";
 import { PantaVenue } from "../src/prediction/PantaVenue.ts";
 import { PantaChain, validateSignedPantaTransaction, confirmsUsdcDeposit, MAINNET_USDC_MINT } from "../src/prediction/PantaChain.ts";
@@ -115,10 +115,10 @@ test("one durable reservation yields an exact reusable unsigned review, never fu
 });
 test("a buy is only quoted for one of the account's own proven wallets, refused before any reservation or provider read",async()=>{
   const h=rig();const stranger=Keypair.fromSeed(new Uint8Array(32).fill(21)).publicKey.toBase58();
-  await expect(h.service.prepare(user,{...h.input,wallet:stranger,idempotencyKey:"stranger-wallet-key"})).rejects.toThrow("isn't linked to your account");
+  await expect(h.service.prepare(user,{...h.input,wallet:stranger,idempotencyKey:"stranger-wallet-key"})).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
   expect(h.operations).toEqual([]);expect(h.ledger.writes).toBe(0);expect(h.linkReads).toEqual([stranger]);
   // Another person's linked wallet is not this person's.
-  await expect(h.service.prepare(other,h.input)).rejects.toThrow("isn't linked to your account");
+  await expect(h.service.prepare(other,h.input)).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
   expect(h.operations).toEqual([]);expect(h.ledger.writes).toBe(0);
   const first=await h.service.prepare(user,h.input);expect(first.order.fundingState).toBe("QUOTED");
 });
@@ -127,12 +127,12 @@ test("the wallet a Sign-in-with-Solana session proves may sign; any other sessio
   const prepared=await h.service.prepare(user,h.input,{signInWallet:wallet});
   expect(prepared.order.owner).toBe(wallet);expect(h.linkReads).toEqual([]);
   const stranger=Keypair.fromSeed(new Uint8Array(32).fill(22)).publicKey.toBase58();
-  await expect(h.service.prepare(user,{...h.input,idempotencyKey:"other-session-key"},{signInWallet:stranger})).rejects.toThrow("isn't linked to your account");
+  await expect(h.service.prepare(user,{...h.input,idempotencyKey:"other-session-key"},{signInWallet:stranger})).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
 });
 test("a revoked link stops even an exact replay, and unreadable links fail closed",async()=>{
   const h=rig();const first=await h.service.prepare(user,h.input);expect(first.order.fundingState).toBe("QUOTED");
   h.linked.delete(wallet);
-  await expect(h.service.prepare(user,h.input)).rejects.toThrow("isn't linked to your account");
+  await expect(h.service.prepare(user,h.input)).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
   h.linked.add(wallet);h.linksDown();
   await expect(h.service.prepare(user,h.input)).rejects.toMatchObject({code:"VENUE_UNAVAILABLE"});
   expect(h.operations).toEqual(["/primaryorderquote/","/primaryorderbuild/"]);
@@ -269,7 +269,7 @@ test("the router hands prepare only the issuer-verified sign-in wallet, so an un
   const trust=buildTrustRuntime(cfg,{store:new InMemoryTrustStore(),authAdmin:new RecordingAuthUserAdmin()});setTrustRuntime(cfg,trust);
   await trust.service.acceptFundedTrading(user,trust.config.termsVersion);
   const google=pantaTradingRouter.createCaller({app,supabaseAccessToken:"google-session"});
-  await expect(google.prepare(h.input)).rejects.toMatchObject({code:"BAD_REQUEST",message:expect.stringContaining("isn't linked")});
+  await expect(google.prepare(h.input)).rejects.toMatchObject({code:"UNPROCESSABLE_CONTENT",message:WALLET_NOT_LINKED_COPY});
   expect(h.operations).toEqual([]);
   const signedIn=pantaTradingRouter.createCaller({app,supabaseAccessToken:"wallet-session"});
   expect((await signedIn.prepare(h.input)).order.owner).toBe(wallet);
