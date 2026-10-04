@@ -12,9 +12,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { avatarSrc } from "@/lib/callsBff";
 import { callMark, initials, outcomeLabel } from "@/lib/webapp/format";
+import { fundedStamp, pendingMark, sideName } from "@/lib/webapp/money";
 import { appPath, canGoBack, nextTrail } from "@/lib/webapp/paths";
-import type { CallFeedEntry, CallOutcome, Side } from "@/lib/webapp/types";
+import type { CallFeedEntry, CallOutcome, Market, Side } from "@/lib/webapp/types";
 import { Icon } from "./Icon";
+import { BalancePill } from "./money/BalancePill";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -70,7 +72,7 @@ export function FreeChip() {
   );
 }
 
-/** Money in, solid pink: "$5" once an amount is known, else "Funded". Only for a confirmed fill. */
+/** Money in, solid pink: "$5 on YES" once the amount is known, else "Funded". Only for a confirmed fill. */
 export function FundedChip({ amount }: { amount?: string | null }) {
   return (
     <span className="wa-chip wa-chip--funded" title="Funded on Panta">
@@ -95,10 +97,31 @@ export function PantaMark() {
   );
 }
 
-/** Free, funded, or nothing for a state in between (see callMark). */
-export function CallMarkChip({ entry }: { entry: Pick<CallFeedEntry, "call" | "funding"> }) {
+/**
+ * The owner's own call with money that isn't funded: grey, with its hourglass,
+ * never pink. Nobody else ever sees the call at all.
+ */
+export function PendingChip({ amount, expired }: { amount: string; expired: boolean }) {
+  return (
+    <span className="wa-chip wa-chip--pending" title={expired ? "Didn’t go through" : "Going through"}>
+      <Icon name={expired ? "cancel" : "sand-watch"} size={14} />
+      <span className="wa-sr">{expired ? "Didn’t go through: " : "Going through: "}</span>
+      {amount}
+    </span>
+  );
+}
+
+/**
+ * Free, funded ("$5 on YES" for a confirmed fill), the owner's pending mark,
+ * or nothing for a state in between (see callMark). Never funded before the
+ * BFF reports the fill.
+ */
+export function CallMarkChip({ entry }: { entry: Pick<CallFeedEntry, "call" | "funding" | "money"> & { market?: Pick<Market, "outcomes"> } }) {
+  const pending = pendingMark(entry);
+  if (pending) return <PendingChip amount={pending.amount} expired={pending.expired} />;
   const mark = callMark(entry);
-  return mark === "free" ? <FreeChip /> : mark === "funded" ? <FundedChip /> : null;
+  if (mark === "funded") return <FundedChip amount={fundedStamp(entry, (side) => sideName(entry.market, side))} />;
+  return mark === "free" ? <FreeChip /> : null;
 }
 
 export type ArtName = "empty_calls" | "error" | "inbox" | "offline" | "people" | "record" | "search" | "success";
@@ -222,12 +245,15 @@ export function Sheet({
   const [dy, setDy] = useState(0);
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  // The latest close handler, so a parent's re-render never re-runs the open effect (and never moves focus).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const before = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busyRef.current) onClose();
+      if (e.key === "Escape" && !busyRef.current) closeRef.current();
       if (e.key === "Tab" && panel.current) {
         const f = panel.current.querySelectorAll<HTMLElement>(
           'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
@@ -260,7 +286,7 @@ export function Sheet({
       document.body.style.overflow = overflow;
       before?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -342,7 +368,10 @@ export function TopBar({
     <header className="wa-topbar">
       {back ? <BackButton /> : null}
       {title ? <h1>{title}</h1> : <span style={{ flex: 1 }} />}
-      {children ? <div className="wa-topbar-actions">{children}</div> : null}
+      <div className="wa-topbar-actions">
+        <BalancePill />
+        {children}
+      </div>
     </header>
   );
 }

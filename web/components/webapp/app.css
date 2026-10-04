@@ -2241,3 +2241,457 @@
   color: var(--wa-faint);
   font-size: 14px;
 }
+
+/* ── calls with money ──────────────────────────────────────── */
+/* The amount row: Free is a ghost with its gift; money chips are pink. */
+.wa-amounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wa-lockbar .wa-amounts {
+  margin: 2px 2px 10px;
+}
+.wa-sheet-body .wa-amounts {
+  margin-top: 14px;
+}
+.wa-amt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 44px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--wa-pink-wash);
+  color: var(--wa-pink-ink);
+  font-family: var(--wa-display);
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.wa-amt[aria-checked="true"] {
+  background: var(--wa-coral);
+  color: var(--wa-ink);
+}
+.wa-amt--free {
+  background: transparent;
+  color: var(--wa-muted);
+  box-shadow: inset 0 0 0 1.5px var(--wa-line-strong);
+}
+.wa-amt--free[aria-checked="true"] {
+  background: var(--wa-ink);
+  color: #fff;
+  box-shadow: none;
+}
+.wa-amt--more,
+.wa-amt--plain {
+  padding: 0;
+  width: 40px;
+  background: #f3f4f6;
+  color: var(--wa-ink);
+}
+.wa-amt--plain {
+  background: transparent;
+}
+.wa-amt--set {
+  padding: 0;
+  width: 40px;
+  background: var(--wa-coral);
+  color: var(--wa-ink);
+}
+.wa-amt:disabled {
+  opacity: 0.5;
+}
+.wa-amount-input {
+  flex: 1;
+  min-width: 120px;
+}
+.wa-amount-input .wa-input {
+  min-height: 40px;
+  padding-left: 30px;
+  padding-right: 12px;
+  border-radius: 999px;
+}
+.wa-amount-input .wa-input-prefix {
+  left: 14px;
+}
+.wa-amount-hint {
+  width: 100%;
+  padding-left: 6px;
+  font-size: 12.5px;
+  color: #b42318;
+}
+/* The pink money button sits where the ink one does, and shrinks the same way. */
+.wa-lockbar-row .wa-btn--primary {
+  flex: 1;
+  min-width: 0;
+}
+.wa-btn--primary {
+  min-width: 0;
+}
+@media (max-width: 359px) {
+  .wa-lockbar-row .wa-btn--primary {
+    padding: 0 12px;
+    gap: 6px;
+  }
+}
+
+/* The balance pill: the only money chrome. */
+.wa-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 13px 0 11px;
+  border-radius: 999px;
+  background: var(--wa-surface);
+  box-shadow: var(--wa-shadow);
+  color: var(--wa-ink);
+  font-family: var(--wa-display);
+  font-weight: 800;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wa-balance .wa-icon {
+  color: var(--wa-pink-ink);
+}
+
+/* A call with money that isn't funded: the owner's grey mark, never pink. */
+.wa-chip--pending {
+  background: transparent;
+  border: 1px dashed var(--wa-line-strong);
+  color: var(--wa-muted);
+  font-weight: 600;
+}
+/* Test money says so, every time. */
+.wa-chip--test {
+  background: #fff4d6;
+  color: #8a5a00;
+  font-weight: 700;
+}
+.wa-btn .wa-chip--test {
+  height: 22px;
+  flex: none;
+}
+
+/* The compact review: pay, get if right, fee. */
+.wa-review {
+  display: grid;
+  gap: 12px;
+}
+.wa-review-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--wa-muted);
+  font-size: 13px;
+}
+.wa-review-row > span:not(.wa-review-gap) {
+  flex: 1;
+}
+.wa-review-row--strong {
+  color: var(--wa-ink);
+  font-size: 16px;
+}
+.wa-review-row--strong b {
+  font-family: var(--wa-display);
+  font-weight: 800;
+}
+.wa-review-gap {
+  width: 20px;
+}
+.wa-review-mark {
+  justify-self: end;
+}
+.wa-mono,
+.wa-input--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wa-input--mono {
+  font-size: 14px;
+}
+
+.wa-choices {
+  display: grid;
+  gap: 8px;
+}
+.wa-choices-row {
+  display: flex;
+  gap: 8px;
+}
+.wa-choices-row .wa-btn {
+  flex: 1;
+}
+.wa-state .wa-state-sub {
+  font-family: var(--wa-body);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--wa-muted);
+}
+.wa-pulse {
+  display: inline-grid;
+  color: var(--wa-pink-ink);
+  animation: wa-pulse 1.6s ease-in-out infinite;
+}
+@keyframes wa-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wa-pulse,
+  .wa-watch-dot {
+    animation: none;
+  }
+}
+
+/* The deposit sheet. */
+.wa-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+}
+.wa-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 104px;
+  padding: 12px 8px;
+  border-radius: 18px;
+  background: var(--wa-surface);
+  box-shadow: inset 0 0 0 1.5px var(--wa-line-strong);
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  transition: box-shadow 140ms ease, transform 90ms ease;
+}
+.wa-tile:hover {
+  box-shadow: inset 0 0 0 1.5px var(--wa-pink-ink);
+}
+.wa-tile:active {
+  transform: scale(0.98);
+}
+.wa-tile img {
+  border-radius: 8px;
+}
+.wa-tile .wa-chip--test {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  height: 20px;
+  padding: 0 7px;
+}
+.wa-backrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  color: var(--wa-muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+.wa-form {
+  display: grid;
+  gap: 12px;
+}
+.wa-form .wa-chip {
+  justify-self: start;
+}
+.wa-send {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.wa-send .wa-backrow {
+  align-self: flex-start;
+}
+.wa-qr {
+  padding: 14px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--wa-shadow);
+  line-height: 0;
+}
+.wa-addr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.wa-addr code {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f3f4f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+.wa-watch-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wa-coral);
+  animation: wa-pulse 1.6s ease-in-out infinite;
+}
+
+/* The wallet sheet. */
+.wa-walletacts {
+  display: flex;
+  gap: 8px;
+}
+.wa-walletacts .wa-btn {
+  flex: 1;
+}
+.wa-cashout-amount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wa-cashout-amount .wa-input-wrap {
+  flex: 1;
+}
+.wa-cashout-amount .wa-input-wrap .wa-input {
+  padding-right: 16px;
+}
+.wa-activity {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+.wa-activity-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-areas: "ico title amt" "ico time amt";
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--wa-line);
+  color: inherit;
+  text-decoration: none;
+}
+.wa-activity li:last-child .wa-activity-row {
+  border-bottom: 0;
+}
+.wa-activity-ico {
+  grid-area: ico;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #f3f4f6;
+  color: var(--wa-ink);
+}
+.wa-activity-ico--in {
+  background: var(--wa-yes-bg);
+  color: var(--wa-yes-ink);
+}
+.wa-activity-ico--muted {
+  color: var(--wa-muted);
+}
+.wa-activity-title {
+  grid-area: title;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 14px;
+}
+.wa-activity-time {
+  grid-area: time;
+  color: var(--wa-muted);
+  font-size: 12px;
+}
+.wa-activity-amt {
+  grid-area: amt;
+  font-family: var(--wa-display);
+  font-weight: 800;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.wa-activity-amt--in {
+  color: var(--wa-yes-ink);
+}
+.wa-activity-amt--muted {
+  color: var(--wa-muted);
+  text-decoration: line-through;
+}
+
+/* Collect: a won call's winnings. */
+.wa-collect {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 20px;
+  background: var(--wa-pink-wash);
+}
+.wa-hero .wa-collect,
+.wa-collect--compact {
+  margin: 14px 0 0;
+}
+.wa-collect-ico {
+  display: inline-grid;
+  color: var(--wa-pink-ink);
+}
+.wa-collect-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wa-collect-q {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* The owner's calls waiting on money. */
+.wa-pending {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.wa-pending-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--wa-surface);
+  box-shadow: var(--wa-shadow);
+  text-align: left;
+}
+.wa-pending-ico {
+  display: inline-grid;
+  color: var(--wa-muted);
+}
+.wa-pending-q {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 14px;
+}

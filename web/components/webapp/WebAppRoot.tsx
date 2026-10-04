@@ -12,6 +12,7 @@ import { DataProvider, ToastProvider } from "./data";
 import { LINK_CALLBACK_PATH } from "@/lib/webapp/linking";
 import { useAuth, AuthProvider } from "./session";
 import { ChumbucketWalletRoot } from "./chumbucketWallet";
+import { MoneyProvider } from "./money/MoneyProvider";
 import { ClaimScreen, SignInScreen } from "./screens/DoorScreens";
 import { Shell } from "./Shell";
 import { StateScreen } from "./ui";
@@ -54,7 +55,9 @@ function Gate({ children }: { children: React.ReactNode }) {
       return (
         <DataProvider userId={auth.identity!.userId}>
           <ToastProvider>
-            <Shell>{children}</Shell>
+            <MoneyProvider>
+              <Shell>{children}</Shell>
+            </MoneyProvider>
           </ToastProvider>
         </DataProvider>
       );

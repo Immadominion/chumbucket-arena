@@ -17,7 +17,7 @@
 import type { KeyValueStorage } from "./cache";
 import { isAddress } from "./solanaV0";
 import type { PreparedTrade, TradeOrder } from "./trade";
-import type { CallFeedEntry, Side } from "./types";
+import type { CallFeedEntry, Market, Side } from "./types";
 
 // ── wire shapes ──────────────────────────────────────────────────────────────
 
@@ -255,6 +255,12 @@ export function usd(baseUnits: string | bigint | null | undefined): string {
 export function balanceUsd(baseUnits: string | bigint | null | undefined): string {
   const cents = parseUnits(baseUnits) / 10_000n;
   return `$${thousands(cents / 100n)}.${(cents % 100n).toString().padStart(2, "0")}`;
+}
+
+/** A side as a market names it when that says more than YES / NO ("Lakers"), else YES / NO. */
+export function sideName(market: Pick<Market, "outcomes"> | null | undefined, side: Side): string {
+  const label = market?.outcomes.find((o) => o.side === side)?.label;
+  return label && label.toUpperCase() !== side ? label : side;
 }
 
 /** "$5 on YES": a confirmed fill's stamp. */
