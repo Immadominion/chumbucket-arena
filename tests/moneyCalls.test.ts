@@ -381,6 +381,16 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     expect(r.store.rows.get(out.call.call.id)!.attempts).toBe(2);
   });
 
+  test("a later quote never outlives the window the first one set: refused and retired", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    r.panta.fail(out.trade.order.orderId);
+    r.h.clock.advance(70_000); // a new 60 s quote would end after the window (T0 + 120 s)
+    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED", publicDetails: { reason: "CALL_EXPIRED" } });
+    expect(r.panta.rows.at(-1)!.state).toBe("FAILED");
+    expect(r.panta.prepares.at(-1)!.idempotencyKey.endsWith(".t2")).toBe(true);
+  });
+
   test("an expired call its own last quote funds after all comes back (the venue wins)", async () => {
     const r = moneyRig();
     const out = await ready(r);

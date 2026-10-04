@@ -124,6 +124,10 @@ describe("money routes", () => {
     expect(reasonOf({ publicDetails: { reason: "MARKET_CLOSED" } })).toEqual({ reason: "MARKET_CLOSED" });
     const other = new TRPCError({ code: "BAD_GATEWAY", message: "m", cause: new Error("secret upstream body") });
     expect(format({ shape, error: other, type: "mutation", path: "x", input: undefined, ctx: undefined }).data).not.toHaveProperty("details");
+    // Never a stack trace on the wire, whatever NODE_ENV says, with or without details.
+    const withStack = { ...shape, data: { ...shape.data, stack: "Error: at secret/path.ts:1" } };
+    expect(format({ shape: withStack, error: other, type: "mutation", path: "x", input: undefined, ctx: undefined }).data).not.toHaveProperty("stack");
+    expect(format({ shape: withStack, error: inFlight, type: "mutation", path: "x", input: undefined, ctx: undefined }).data).not.toHaveProperty("stack");
   });
 
   test("through the router, a refusal reaches the client with its reason", async () => {

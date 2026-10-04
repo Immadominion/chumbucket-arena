@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { randomInt, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { join } from "node:path";
 // Run: VERIFY_LOCAL_PG=true [MOBILE_MIGRATIONS_DIR=…] bun test tests/moneyLedgers.postgres.test.ts
 test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
   "money_calls and wallet_transfers: funded only by a fill, never expired mid-trade, history permanent",
-  () => {
+  async () => {
     const root = mkdtempSync(join(tmpdir(), "chum-money-"));
     const data = join(root, "isolated-db");
     const bin = process.env.POSTGRES_BIN_DIR ?? "/opt/homebrew/opt/postgresql@15/bin";
@@ -206,6 +206,45 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       const plain = randomUUID(), pm = market();
       call(plain, ANN, "YES", pm);
       bff(tradeRow(plain, "free-call-trade-key-01")); // a call made without an amount trades as before
+      // Only the money call's CURRENT quote trades it, and only inside its window.
+      const G3 = randomUUID(), g3m = market();
+      bff(intent(G3, ANN, g3m, { key: "tap-key-guardthree-abcdef" }));
+      call(G3, ANN, "YES", g3m);
+      refused(tradeRow(G3, "any-other-key-0001"), /current quote/);
+      refused(tradeRow(G3, "tap-key-guardthree-abcdef.t2"), /current quote/);
+      bff(tradeRow(G3, "tap-key-guardthree-abcdef.t1"));
+      bff(`UPDATE public.panta_trade_sessions SET state = 'QUOTED', provider_order_id = 'ord-g3', prepared = '{}'::jsonb WHERE call_id = '${G3}';`);
+      bff(`UPDATE public.money_calls SET expires_at = created_at + interval '1 millisecond' WHERE call_id = '${G3}';`);
+      refused(`UPDATE public.panta_trade_sessions SET state = 'SUBMITTED', signature = '${"9".repeat(64)}', signed_transaction = 'AAAA' WHERE call_id = '${G3}';`,
+        /window has closed/);
+      // A discard and a submit of one call serialize on the money_calls row: whichever commits second is refused.
+      const background = (text: string) => new Promise<{ ok: boolean; err: string }>((resolve) => {
+        const child = spawn(join(bin, "psql"), args, { stdio: ["pipe", "pipe", "pipe"] });
+        let err = "";
+        child.stderr.on("data", (d) => { err += String(d); });
+        child.on("close", (code) => resolve({ ok: code === 0, err }));
+        child.stdin.end(text);
+      });
+      const raceCall = (key: string) => {
+        const id = randomUUID(), rm = market();
+        bff(intent(id, ANN, rm, { key }));
+        call(id, ANN, "YES", rm);
+        bff(tradeRow(id, `${key}.t1`));
+        bff(`UPDATE public.panta_trade_sessions SET state = 'QUOTED', provider_order_id = 'ord-${id}', prepared = '{}'::jsonb WHERE call_id = '${id}';`);
+        return id;
+      };
+      const submitSql = (id: string, digit: string) => `UPDATE public.panta_trade_sessions SET state = 'SUBMITTED', signature = '${digit.repeat(64)}', signed_transaction = 'AAAA' WHERE call_id = '${id}';`;
+      const discardSql = (id: string) => `UPDATE public.money_calls SET state = 'EXPIRED', ended_reason = 'discarded' WHERE call_id = '${id}';`;
+      const R1 = raceCall("tap-key-racediscard-abcdef");
+      const discardFirst = background(`SET ROLE service_role; BEGIN; ${discardSql(R1)} SELECT pg_sleep(1.5); COMMIT;`);
+      await new Promise((r) => setTimeout(r, 400));
+      refused(submitSql(R1, "5"), /has ended/);
+      expect((await discardFirst).ok).toBe(true);
+      const R2 = raceCall("tap-key-racesubmit-abcdef");
+      const submitFirst = background(`SET ROLE service_role; BEGIN; ${submitSql(R2, "6")} SELECT pg_sleep(1.5); COMMIT;`);
+      await new Promise((r) => setTimeout(r, 400));
+      refused(discardSql(R2), /cannot expire/);
+      expect((await submitFirst).ok).toBe(true);
       sql(`ALTER TABLE public.panta_trade_sessions ENABLE TRIGGER panta_trade_sessions_guard;`);
 
       // ── private means private, through the anon and authenticated keys too ──
@@ -237,7 +276,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       refused(`TRUNCATE public.money_calls;`, /permanent/, "test_admin");
       refused(`SELECT * FROM public.money_calls;`, /permission denied/, "authenticated");
       refused(`SELECT * FROM public.money_calls;`, /permission denied/, "anon");
-      expect(bff(`SELECT count(*) FROM public.money_calls WHERE user_id = '${ANN}'`)).toBe("10");
+      expect(bff(`SELECT count(*) FROM public.money_calls WHERE user_id = '${ANN}'`)).toBe("13");
 
       // ── wallet_transfers ──
       const T1 = randomUUID();

@@ -25,6 +25,10 @@ export interface PantaCallIntent {
    * PENDING, through money.*; an ended one is never brought back here.
    */
   moneyState?: "PENDING" | "FUNDED" | "FREE" | "EXPIRED" | null;
+  /** The money call's current attempt key (idempotency_key || '.t' || attempts): the only quote that may trade it. */
+  moneyTradeKey?: string | null;
+  /** When the money call's window closes (unix ms). */
+  moneyExpiresAt?: number | null;
 }
 export interface PantaTradingStore {
   callIntent(userId: string, callId: string): Promise<PantaCallIntent | null>;
@@ -66,10 +70,14 @@ export class SupabasePantaTradingStore implements PantaTradingLedger {
     if (!market) return null;
     // Unreadable fails closed: a money call's state is never assumed.
     const money = this.opts.moneyCalls === true
-      ? (await this.pg.select<{ state: NonNullable<PantaCallIntent["moneyState"]> }>("money_calls", new URLSearchParams({ call_id: `eq.${callId}`, select: "state", limit: "1" })))[0]?.state ?? null
+      ? (await this.pg.select<{ state: NonNullable<PantaCallIntent["moneyState"]>; idempotency_key: string; attempts: number; expires_at: string }>(
+          "money_calls", new URLSearchParams({ call_id: `eq.${callId}`, select: "state,idempotency_key,attempts,expires_at", limit: "1" })))[0] ?? null
       : null;
     return { callId, marketId: call.market_id, venueMarketId: market.venue_market_id, side: call.side,
-      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }), moneyState: money };
+      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }),
+      moneyState: money?.state ?? null,
+      moneyTradeKey: money ? `${money.idempotency_key}.t${money.attempts}` : null,
+      moneyExpiresAt: money ? Date.parse(money.expires_at) : null };
   }
   async find(userId: string, idempotencyKey: string) {
     return (await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({ user_id: `eq.${userId}`, idempotency_key: `eq.${idempotencyKey}`, select: columns, limit: "1" })))[0] ?? null;

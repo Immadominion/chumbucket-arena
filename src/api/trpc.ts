@@ -68,10 +68,12 @@ const t = initTRPC.context<Context>().create({
    * are sent as `data.details`; nothing else of a cause is.
    */
   errorFormatter({ shape, error }) {
+    // Never a stack trace on the wire, whatever NODE_ENV says.
+    const { stack: _stack, ...data } = shape.data as typeof shape.data & { stack?: unknown };
     const details = (error.cause as { publicDetails?: unknown } | undefined)?.publicDetails;
-    if (!details || typeof details !== "object" || Array.isArray(details)) return shape;
+    if (!details || typeof details !== "object" || Array.isArray(details)) return { ...shape, data };
     const safe = Object.fromEntries(Object.entries(details as Record<string, unknown>).filter(([, v]) => typeof v === "string"));
-    return { ...shape, data: { ...shape.data, details: safe } };
+    return { ...shape, data: { ...data, details: safe } };
   },
 });
 

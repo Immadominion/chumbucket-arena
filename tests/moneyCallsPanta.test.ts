@@ -92,12 +92,17 @@ test("prepare → sign → submit → FILLED: FUNDED only after the fill transit
     marketId: venueMarket, category: "crypto", title: "Synthetic question?", description: "Synthetic rules", phase: "primary", status: "primary", resolved: false,
     startTime: Math.floor(h.clock.now() / 1000) - 3600, endTime: Math.floor(h.clock.now() / 1000) + 86400, resolutionTime: null, yesPrice: "0.5", noPrice: "0.5",
     onChain: { isActive: true, resolutionRule: "Synthetic rules" } })), { preconnect: fetch.preconnect }) });
+  // The durable ledger's read: the call, and its money call (state, current key, window).
   const ledger = new Ledger((userId, callId) => {
     const call = h.calls.getCall(callId);
-    return call && call.userId === userId ? { callId, marketId: call.marketId, venueMarketId: venueMarket, side: call.side } : null;
+    const money = store.rows.get(callId);
+    return call && call.userId === userId ? { callId, marketId: call.marketId, venueMarketId: venueMarket, side: call.side,
+      moneyState: money?.state ?? null, moneyTradeKey: money ? `${money.idempotency_key}.t${money.attempts}` : null,
+      moneyExpiresAt: money ? Date.parse(money.expires_at) : null } : null;
   });
   const funding = new PantaFundingIndex(null);
-  const store = new InMemoryMoneyCallStore({ now: () => h.clock.now(),
+  // eslint-disable-next-line prefer-const
+  const store: InMemoryMoneyCallStore = new InMemoryMoneyCallStore({ now: () => h.clock.now(),
     filled: async (u, c) => [...ledger.rows.values()].some(r => r.user_id === u && r.call_id === c && r.state === "FILLED") });
   const index = new MoneyCallIndex(store);
   let seq = 0;
@@ -119,9 +124,20 @@ test("prepare → sign → submit → FILLED: FUNDED only after the fill transit
   if (out.status !== "READY") throw new Error(out.status);
   expect(out.trade.order).toMatchObject({ owner: wallet, amountBaseUnits: "1000000", fundingState: "QUOTED" });
   const callId = out.call.call.id;
+  // The pantaTrading route itself never funds a money call, not even a pending one.
+  await expect(trading.prepare("ann", { callId, wallet, amountBaseUnits: "1000000", idempotencyKey: "direct-route-key-0001", maxSlippageBps: 100 }))
+    .rejects.toMatchObject({ message: "This call was made with an amount. Fund it from the call itself." });
 
   const tx = VersionedTransaction.deserialize(Buffer.from(out.trade.order.transaction.payload, "base64"));
   tx.sign([owner]);
+  // Signed after the call's window closed: refused before anything is stored or broadcast.
+  const row = store.rows.get(callId)!;
+  const window = row.expires_at;
+  row.expires_at = new Date(h.clock.now()).toISOString();
+  await expect(trading.submit("ann", out.trade.order.orderId, Buffer.from(tx.serialize()).toString("base64")))
+    .rejects.toMatchObject({ message: "This call's money window has closed. Make a new call." });
+  expect(broadcasts).toHaveLength(0);
+  row.expires_at = window;
   const submitted = await trading.submit("ann", out.trade.order.orderId, Buffer.from(tx.serialize()).toString("base64"));
   expect(submitted.fundingState).toBe("SUBMITTED");
   expect(broadcasts).toHaveLength(1);

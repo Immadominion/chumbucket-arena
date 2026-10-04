@@ -268,9 +268,15 @@ export class MoneyCallsService {
     const prepared = await this.deps.trading(false).prepare(person.userId, {
       callId: next.call_id, wallet: wallet.address, amountBaseUnits: next.amount_base_units,
       idempotencyKey: tradeKey(next), maxSlippageBps: next.max_slippage_bps,
-    }, this.session(person));
+    }, this.session(person), { moneyCall: true });
+    // A later quote never outlives the window the first one set.
+    const firstQuote = !current && next.attempts === 1;
+    if (!firstQuote && prepared.order.expiresAt > Date.parse(next.expires_at)) {
+      await this.retireQuote(next).catch(() => undefined);
+      throw new MoneyError("EXPIRED", "This call's window closes before a new quote could be signed. Make a new call.", { reason: "CALL_EXPIRED" });
+    }
     // The window is the FIRST quote's life plus the grace, set once, never extended.
-    if (!current && next.attempts === 1) {
+    if (firstQuote) {
       const window = await this.deps.store.update(next.call_id, { state: "PENDING", attempts: next.attempts },
         { expires_at: iso(prepared.order.expiresAt + PENDING_GRACE_MS) });
       if (window) { next = window; this.deps.index.put(next); }

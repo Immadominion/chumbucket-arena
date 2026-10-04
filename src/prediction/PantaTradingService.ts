@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { PantaExecution, PantaPreparedOrder } from "./PantaExecution.ts";
 import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
-import type { PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
+import type { PantaCallIntent, PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
 import type { PredictionVenue, VenueOrder } from "./PredictionVenue.ts";
 import type { AccountWallets } from "../wallet/accountWallets.ts";
 import { VenueError } from "./errors.ts";
@@ -13,6 +13,21 @@ export interface PantaPrepareInput { callId: string; wallet: string; amountBaseU
 export interface PantaPrepareSession { signInWallet?: string | null; }
 /** Short on purpose: the apps lead with a link icon and open the account's wallets. */
 export const WALLET_NOT_LINKED_COPY = "Link this wallet to your account first";
+/** A call made with an amount is funded only through money.* (docs/money-api.md). */
+export const MONEY_CALL_ROUTE_COPY = "This call was made with an amount. Fund it from the call itself.";
+const MONEY_WINDOW_CLOSED_COPY = "This call's money window has closed. Make a new call.";
+/**
+ * A money call may be traded only by money.*, only while PENDING, only with
+ * its current attempt's key, and only inside its window. The SQL trigger on
+ * panta_trade_sessions applies the same rule (money_call_trade_guard_v1).
+ */
+function moneyCallRefusal(call: PantaCallIntent | null, key: string, now: number): string | null {
+  if (!call?.moneyState) return null;
+  if (call.moneyState !== "PENDING") return MONEY_WINDOW_CLOSED_COPY;
+  if (call.moneyTradeKey && key !== call.moneyTradeKey) return "This isn't this call's current quote. Check the call again.";
+  if (call.moneyExpiresAt != null && call.moneyExpiresAt <= now) return MONEY_WINDOW_CLOSED_COPY;
+  return null;
+}
 const refuse = (message: string): never => { throw new VenueError("VENUE_BAD_REQUEST", message, { venue: "panta" }); };
 export class PantaTradingService {
   constructor(private readonly deps: {
@@ -51,7 +66,12 @@ export class PantaTradingService {
     if (status === "none" && session.signInWallet === wallet) return;
     throw new VenueError("WALLET_NOT_LINKED", WALLET_NOT_LINKED_COPY, { venue: "panta" });
   }
-  async prepare(userId: string, input: PantaPrepareInput, session: PantaPrepareSession = {}): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
+  /**
+   * `opts.moneyCall`: the caller is money.* quoting its own PENDING money call.
+   * Every other caller (the pantaTrading route) is refused any money call.
+   */
+  async prepare(userId: string, input: PantaPrepareInput, session: PantaPrepareSession = {},
+    opts: { moneyCall?: boolean } = {}): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
     if (!/^[1-9][0-9]{0,15}$/.test(input.amountBaseUnits) || BigInt(input.amountBaseUnits) > BigInt(this.deps.maxAmountBaseUnits)) return refuse("Enter a positive USDC amount within the server trade limit");
     await this.assertOwnWallet(userId, input.wallet, session);
     const existing = await this.deps.store.find(userId, input.idempotencyKey);
@@ -61,9 +81,12 @@ export class PantaTradingService {
     }
     const call = await this.deps.store.callIntent(userId, input.callId);
     if (!call) return refuse("Only your own call on this exact Panta market can be funded");
-    // A call made with an amount is funded only while pending, through money.*:
-    // an expired, discarded or replaced one is never brought back from here.
-    if (call.moneyState && call.moneyState !== "PENDING") return refuse("This call's money window has closed. Make a new call.");
+    // A call made with an amount is funded only through money.*, only while
+    // pending, with its current attempt's key, inside its window: never
+    // around a price check, never past expiry, never brought back.
+    if (call.moneyState && !opts.moneyCall) return refuse(MONEY_CALL_ROUTE_COPY);
+    const moneyRefusal = moneyCallRefusal(call, input.idempotencyKey, this.now());
+    if (moneyRefusal) return refuse(moneyRefusal);
     // SOL-quoted markets take calls, never trades: our trade path is Panta's
     // USDC primary buy. Refused before any provider read or reservation.
     if (call.tradable === false) return refuse("Trading isn't available on this market. Your call still counts");
@@ -125,6 +148,9 @@ export class PantaTradingService {
     if (row.state === "FILLED") return this.view(row);
     if (row.state === "QUOTED") {
       if (row.prepared!.order.expiresAt <= this.now()) return refuse("Wallet approval arrived after quote expiry; do not broadcast");
+      // A money call's quote is signed only while the call is pending, current and inside its window.
+      const moneyRefusal = moneyCallRefusal(await this.deps.store.callIntent(userId, row.call_id), row.idempotency_key, this.now());
+      if (moneyRefusal) return refuse(moneyRefusal);
       const saved = await this.deps.store.update(row.id, "QUOTED", { state: "SUBMITTED", signature: tx.signature, signed_transaction: signedPayload });
       row = saved ?? await this.own(userId, orderId);
       if (row.signature !== tx.signature || row.signed_transaction !== signedPayload) return refuse("This intent already approved a different transaction");
