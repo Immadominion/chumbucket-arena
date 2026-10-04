@@ -63,6 +63,19 @@ const LIVE_LEGACY_PRE_PIVOT = String.raw`
   CREATE SCHEMA auth;
   GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
   CREATE TABLE auth.users(id uuid PRIMARY KEY);
+  -- Supabase Auth's own table (every project has it): who signed in with
+  -- which provider. 20261003200000_find_person_identities reads it.
+  CREATE TABLE auth.identities (
+    provider_id text NOT NULL,
+    user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    identity_data jsonb NOT NULL,
+    provider text NOT NULL,
+    last_sign_in_at timestamptz,
+    created_at timestamptz,
+    updated_at timestamptz,
+    email text GENERATED ALWAYS AS (lower(identity_data ->> 'email')) STORED,
+    id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    CONSTRAINT identities_provider_id_provider_unique UNIQUE (provider_id, provider));
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
     AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   GRANT SELECT ON auth.users TO service_role;
@@ -77,9 +90,14 @@ const LIVE_LEGACY_PRE_PIVOT = String.raw`
     is_primary boolean NOT NULL DEFAULT false, first_seen_at timestamptz NOT NULL DEFAULT now(),
     last_signed_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now());
+  -- As 20260715134226 created it (its first and only CREATE; link_identity
+  -- and the pending-target functions write every one of these columns).
   CREATE TABLE public.linked_identities(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    provider text NOT NULL, provider_subject text NOT NULL, provider_email text, provider_username text,
+    provider text NOT NULL, provider_subject text NOT NULL, provider_username text,
+    provider_display_name text, provider_avatar_url text, provider_email text,
+    verified_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(provider, provider_subject));
   CREATE TABLE public.friends(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -253,6 +271,22 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            INSERT INTO public.user_mutes(muter_user_id, muted_user_id) VALUES ('${ADA}', '${BOB}');`);
       expect(svc(`SELECT public.update_own_profile_v1('${ADA}', 'Ada L', 'my bio', 3)->>'ok'`)).toBe("true");
 
+      // ── add a friend's lookup (find_person_identities) over the chain ─────
+      sql(`INSERT INTO auth.identities(provider_id, user_id, identity_data, provider, last_sign_in_at) VALUES
+             ('x-ada', '${A1}', '{"user_name":"Ada_X","avatar_url":"https://pbs.twimg.com/profile_images/1/a_normal.jpg","email":"ada@example.com"}', 'x', now()),
+             ('x-bob', '${A2}', '{"user_name":"bob_x"}', 'x', now())`);
+      const byX = (h: string) => svc(`SELECT coalesce(string_agg(user_id::text, ','), '<none>') FROM public.person_x_identities_v1('${h}', NULL)`);
+      const byWallet = (w: string) => svc(`SELECT coalesce(public.person_for_wallet_v1('${w}')::text, '<null>')`);
+      expect(byX("ada_x")).toBe(ADA);
+      expect(byX("@BOB_X")).toBe(BOB);
+      expect(byWallet(ADA_WALLET)).toBe(ADA);
+      // add_wallet_friend_v1's placeholder is nobody to find.
+      expect(byWallet(NEW_FRIEND)).toBe("<null>");
+      for (const role of ["anon", "authenticated"]) {
+        denied(role, `SELECT * FROM public.person_x_identities_v1('ada_x', NULL)`);
+        denied(role, `SELECT public.person_for_wallet_v1('${ADA_WALLET}')`);
+      }
+
       // ── delete ────────────────────────────────────────────────────────────
       const out = JSON.parse(svc(`SELECT public.delete_account_v1('${ADA}', '${A1}')::text`)) as {
         ok: boolean; outcome: string; summary: Record<string, number>;
@@ -279,11 +313,19 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       // A retry is "already deleted", never a second pass.
       expect(svc(`SELECT public.delete_account_v1('${ADA}', '${A1}')->>'outcome'`)).toBe("already_deleted");
 
+      // Add a friend no longer finds her, by her X account or her old wallet;
+      // everyone else is still found.
+      expect(byX("ada_x")).toBe("<none>");
+      expect(byWallet(ADA_WALLET)).toBe("<null>");
+      expect(byX("bob_x")).toBe(BOB);
+
       // ── nothing brings the deleted row back ───────────────────────────────
       // An old build's wallet connect makes, at most, a fresh empty placeholder.
       const synced = sql(`SET ROLE anon; SELECT public.sync_user_by_wallet('${ADA_WALLET}')`);
       expect(synced).not.toBe(ADA);
       expect(sql(`SELECT is_placeholder::text || '|' || coalesce(full_name, '-') FROM public.users WHERE id = '${synced}'`)).toBe("true|-");
+      // That placeholder is nobody to add as a friend.
+      expect(byWallet(ADA_WALLET)).toBe("<null>");
       // Lockdown's carry-over binds a new sign-in at that wallet to the
       // placeholder at most, never to the anonymised row.
       const bound = svc(`SELECT public.bind_wallet_session_v1('${A3}', '${ADA_WALLET}')::text`);

@@ -21,6 +21,7 @@ export type RateLimitedAction =
   | "calls.create"
   | "calls.respond"
   | "people.follow"
+  | "people.find"
   | "trust.report"
   | "trust.relation"
   | "account.export"
@@ -58,6 +59,13 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
     { limit: 20, windowMs: MINUTE },
     { limit: 200, windowMs: HOUR },
     { limit: 1000, windowMs: DAY },
+  ],
+  // Looking someone up to add as a friend. A person types a name and taps
+  // Find; a script walking the directory by X handle or wallet does not get far.
+  "people.find": [
+    { limit: 20, windowMs: MINUTE },
+    { limit: 150, windowMs: HOUR },
+    { limit: 500, windowMs: DAY },
   ],
   "trust.report": [
     { limit: 5, windowMs: MINUTE },

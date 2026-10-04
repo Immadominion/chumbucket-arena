@@ -373,6 +373,22 @@ export class SupabaseCallsStore implements CallsStore {
     return rows[0] ? this.mirror.upsertPerson(personFromRow(rows[0])) : undefined;
   }
 
+  /**
+   * The same read-through, by @username: an account that claimed its handle
+   * after boot (people.find). Usernames are stored lowercase by every path
+   * that sets one since usernames existed; older mixed-case handles were
+   * already read at hydration. Never creates or merges an identity, and a
+   * handle two rows somehow share is left alone rather than guessed.
+   */
+  async refreshPersonByHandle(handle: string): Promise<Person | undefined> {
+    const wanted = handle.replace(/^@/, "").toLowerCase();
+    if (!/^[a-z0-9_]{1,40}$/.test(wanted)) return undefined;
+    const rows = await this.pg.select<UserRow>(USERS_TABLE, new URLSearchParams({
+      handle: `eq.${wanted}`, select: USER_COLUMNS, limit: "2",
+    }));
+    return rows.length === 1 ? this.mirror.upsertPerson(personFromRow(rows[0]!)) : undefined;
+  }
+
   getPersonByHandle(handle: string): Person | undefined {
     return this.mirror.getPersonByHandle(handle);
   }

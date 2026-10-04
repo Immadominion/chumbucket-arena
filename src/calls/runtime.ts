@@ -37,6 +37,9 @@ import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
 import { CallsService, type CallsIdKind } from "./CallsService.ts";
 import { pantaFundingIndexFor } from "../prediction/PantaFunding.ts";
 import { noFriendsReader, SupabaseFriendsReader, type FriendsReader } from "./friends.ts";
+import { SupabasePersonIdentityReader } from "./identityReader.ts";
+import { directoryIdentityReader, type PersonIdentityReader } from "./personFinder.ts";
+import { noXAvatarLookup, resolveXAvatarConfig, UnavatarXAvatarLookup, type XAvatarLookup } from "./xAvatars.ts";
 import { resolveCallsConfig, type CallsConfig } from "./config.ts";
 import { emptyMarketReader, predictionStoreReader, type VenueMarketReader } from "./markets.ts";
 import { CallReceiptsProjection } from "./receipts.ts";
@@ -59,6 +62,10 @@ export interface CallsRuntime {
   viewer: ViewerResolver;
   /** The viewer's friends from the old app (read-only), for people.suggested. */
   friends?: FriendsReader;
+  /** Who holds an X account or a wallet (read-only), for people.find. */
+  identities: PersonIdentityReader;
+  /** Public X pictures for handles nobody on Chumbucket has, for people.find. */
+  xAvatars: XAvatarLookup;
   /** Whether calls are written to Postgres, and — always — why. */
   persistence: PersistenceDecision;
   /** The durable store when one was built; null when this runtime is in memory. */
@@ -85,6 +92,8 @@ export interface BuildCallsRuntimeOverrides {
   clock?: Clock;
   viewer?: ViewerResolver;
   friends?: FriendsReader;
+  identities?: PersonIdentityReader;
+  xAvatars?: XAvatarLookup;
   newId?: (kind: CallsIdKind) => string;
   /** Packet B's runtime, when it should not come from the module memo. */
   prediction?: PredictionRuntime;
@@ -229,6 +238,25 @@ export function buildCallsRuntime(
         )
       : noFriendsReader);
 
+  // The same service-role client reads who holds an X account or a wallet
+  // (read-only definer functions). Without a database, nobody has signed in
+  // with X and a wallet is whatever the directory says.
+  const identities: PersonIdentityReader =
+    overrides.identities ??
+    (social && !overrides.store
+      ? new SupabasePersonIdentityReader(
+          { supabaseUrl: social.supabaseUrl, serviceRoleKey: social.serviceRoleKey },
+          overrides.fetchImpl,
+        )
+      : directoryIdentityReader(store));
+
+  // Public X pictures reach out to unavatar.io, so only a configured
+  // production-shaped server does it, and only when not switched off.
+  const xAvatarConfig = resolveXAvatarConfig();
+  const xAvatars: XAvatarLookup =
+    overrides.xAvatars ??
+    (social && !overrides.store && xAvatarConfig.enabled ? new UnavatarXAvatarLookup({ config: xAvatarConfig }) : noXAvatarLookup);
+
   let detach: (() => void) | null = null;
   return {
     config,
@@ -239,6 +267,8 @@ export function buildCallsRuntime(
     receipts,
     viewer,
     friends,
+    identities,
+    xAvatars,
     persistence,
     durable,
     prediction,

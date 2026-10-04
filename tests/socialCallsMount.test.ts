@@ -46,6 +46,8 @@ describe("the integration patch keeps the original paths and adds canonical foll
       "calls.top",
       "markets.detail",
       "markets.open",
+      // Add a friend: "is this them?" before people.follow (personFinder.ts).
+      "people.find",
       "people.follow",
       "people.following",
       "people.get",

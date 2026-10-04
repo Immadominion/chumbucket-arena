@@ -12,7 +12,7 @@
  * no existing path or shape changes; see src/calls/people.ts):
  *
  *   people.leaderboard · people.search · people.following
- *   calls.top · calls.addUpdate · people.suggested
+ *   calls.top · calls.addUpdate · people.suggested · people.find
  *
  * Deliberate properties:
  *  - it is ONE new file and touches no integration-owned file. Nesting it is
@@ -52,11 +52,14 @@ import { z } from "zod";
 import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
 import { isCallsError, type CallsErrorCode } from "../calls/errors.ts";
 import { noFriendsReader } from "../calls/friends.ts";
+import { FIND_QUERY_COPY, findPerson, parseFindQuery } from "../calls/personFinder.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
 import { guard, router } from "./trpc.ts";
 import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 import { isTrustError } from "../trust/errors.ts";
+import { redactSecrets } from "../prediction/redact.ts";
+import { systemClock } from "../prediction/clock.ts";
 import { trustRuntimeFor } from "../trust/runtime.ts";
 import { trustTrpcError } from "./trust.ts";
 
@@ -240,6 +243,28 @@ async function refreshProfileRow(rt: CallsRuntime, personRef: string): Promise<v
       refreshed,
       new Promise<void>((resolve) => {
         timer = setTimeout(resolve, PROFILE_REFRESH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** How long people.find waits for one directory read-through. */
+export const FIND_REFRESH_TIMEOUT_MS = 3_000;
+
+const FIND_UNAVAILABLE = "We couldn't look that up right now. Try again in a moment.";
+
+/** A read-through that must finish (found or not) in time, or fail the lookup. */
+export async function within<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Promise.race subscribes to `work`, so a read that fails after losing the
+  // race is already handled and never surfaces as an unhandled rejection.
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`read-through took longer than ${ms}ms`)), ms);
       }),
     ]);
   } finally {
@@ -545,6 +570,62 @@ const peopleNamespace = router({
         // Blocked and muted people, and people who blocked the viewer (src/trust).
         const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
         return rt.service.suggestedPeople({ limit: input.limit, friendIds }, viewer, { excludeAuthors });
+      });
+    }),
+
+  /**
+   * "Is this them?" — the add-a-friend confirmation card. An X handle or
+   * profile link, a Chumbucket @username, or a Solana wallet in; the matching
+   * people out (picture, name, @username, X handle, public record, whether
+   * the session already follows them), or — for an X handle nobody here has —
+   * that handle and its public X picture, to invite. See
+   * src/calls/personFinder.ts.
+   *
+   * Session only, rate-limited per person, and writes nothing: adding is a
+   * separate people.follow once the person has seen the card. A MUTATION only
+   * so the query (which may be a wallet) travels in the body, never in a URL
+   * or an access log — the same reason as auth.whoami. A wallet is never
+   * echoed back.
+   */
+  find: publicProcedure
+    .input(z.object({ query: z.string().trim().min(1).max(200) }).strict())
+    .mutation(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        const viewer = await requireViewer(rt, ctx);
+        safety(ctx.app.config).limiter.charge("people.find", viewer);
+        const query = parseFindQuery(input.query);
+        if (!query) throw new TRPCError({ code: "BAD_REQUEST", message: FIND_QUERY_COPY });
+        const durable = rt.durable;
+        try {
+          return await findPerson(
+            {
+              store: rt.store,
+              people: rt.service.people,
+              identities: rt.identities,
+              xAvatars: rt.xAvatars,
+              clock: systemClock,
+              ...(durable
+                ? {
+                    refreshById: async (id: string) => {
+                      await within(durable.refreshPerson(id), FIND_REFRESH_TIMEOUT_MS);
+                    },
+                    refreshByHandle: async (handle: string) => {
+                      await within(durable.refreshPersonByHandle(handle), FIND_REFRESH_TIMEOUT_MS);
+                    },
+                  }
+                : {}),
+            },
+            query,
+            viewer,
+          );
+        } catch (err) {
+          if (err instanceof TRPCError || isCallsError(err) || isTrustError(err)) throw err;
+          // Never "nobody matched" when we could not look. The message is
+          // redacted (a PgrestError already is) and names no query.
+          console.warn(`[people.find] lookup unavailable: ${redactSecrets(err instanceof Error ? err.message : String(err))}`);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: FIND_UNAVAILABLE });
+        }
       });
     }),
 
