@@ -74,6 +74,7 @@ export function SignInMethods() {
   const qc = useQueryClient();
   const wallets = useWallets();
   const [data, setData] = useState<Methods | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const [line, setLine] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [move, setMove] = useState<Move | null>(null);
@@ -86,8 +87,10 @@ export function SignInMethods() {
     if (!token) return;
     try {
       setData(await auth.api.signInMethods(token));
-    } catch (e) {
-      setLine(stopLine(e));
+      setUnavailable(false);
+    } catch {
+      // A server without sign-in methods yet: Settings simply doesn't show them.
+      setUnavailable(true);
     }
   }, [auth.api]);
 
@@ -210,6 +213,7 @@ export function SignInMethods() {
     }
   };
 
+  if (data === null && unavailable) return null;
   const rows = data?.methods ?? [];
   const current = rows.find((r) => r.current) ?? null;
   const missing = data?.linking ? KINDS.filter((k) => !rows.some((r) => r.kind === k)) : [];

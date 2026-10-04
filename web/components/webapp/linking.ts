@@ -79,11 +79,13 @@ export async function linkProviderHere(provider: "x" | "google"): Promise<void> 
  * Called once at load by the session (it reads the URL first): what came back
  * from a linkIdentity round trip, if one was under way.
  */
-export function noteLinkReturn(errorCode: string | null): boolean {
+export function noteLinkReturn(errorCode: string | null, returned: boolean): boolean {
   const store = session();
   const method = store?.getItem(LINKING_KEY);
   if (!store || !method) return false;
   store.removeItem(LINKING_KEY);
+  // Left at the provider and came back some other way: nothing to report.
+  if (!returned && !errorCode) return false;
   store.setItem(LINK_RETURN_KEY, JSON.stringify({ method, error: errorCode }));
   return true;
 }

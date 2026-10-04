@@ -211,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const params = new URLSearchParams(url.hash.replace(/^#/, ""));
       const desc = url.searchParams.get("error_description") ?? params.get("error_description");
       const code = url.searchParams.get("error_code") ?? params.get("error_code");
-      const linking = noteLinkReturn(desc ? (code ?? "cancelled") : null);
+      const linking = noteLinkReturn(desc ? (code ?? "cancelled") : null, url.searchParams.has("signin"));
       if (desc) {
         if (!linking) setError("Sign-in was cancelled. Nothing changed.");
         for (const k of ["error", "error_code", "error_description"]) url.searchParams.delete(k);
