@@ -60,7 +60,7 @@ provider's). Expected, actionable outcomes are NOT errors: they come back as a
 | `FORBIDDEN` | the session is not linked to an account yet |
 | `PRECONDITION_FAILED` | `MONEY_CALLS_ENABLED` off; Panta trading paused/unconfigured; market not taking calls; a market our trade path cannot buy on (SOL-quoted: "This market takes free calls only."); the money call is not in a state that allows this action; a call or transfer review that timed out |
 | `NOT_FOUND` | no such money call / transfer / market / call **on your account** (someone else's reads as not found) |
-| `CONFLICT` | an idempotency key reused with different details; an order is still going through |
+| `CONFLICT` | an idempotency key reused with different details; an order is still going through; another transfer from the same wallet is in flight (`TRANSFER_IN_FLIGHT`, see below) |
 | `BAD_REQUEST` | malformed input; amount outside the limits; your own call on Back/Fade; a wallet approval that does not match the reviewed transfer |
 | `UNPROCESSABLE_CONTENT` | the chosen wallet is not linked to the account (`WALLET_NOT_LINKED`: lead with "link this wallet") |
 | `TOO_MANY_REQUESTS` | per-account rate limit |
@@ -204,10 +204,15 @@ input:  z.object({ callId: uuid, wallet: wallet.optional() }).strict()
 output: same union as prepareCall minus SETTLED
 ```
 A fresh Panta quote for a `PENDING` call whose last order `FAILED`, whose
-quote expired, or that has none. Re-runs the gas and funds checks. A live,
-unsigned quote is returned as is (a dropped reply never builds a second one).
-Refused with `CONFLICT` while an order is `SUBMITTED` ("Your $5 is still going
-through."), `PRECONDITION_FAILED` after `PENDING`.
+quote expired, or that has none, inside the call's window (it never extends
+it). Re-runs the gas and funds checks. A live, unsigned quote is returned as is
+(a dropped reply never builds a second one). A re-quote is made only while the
+call's side still trades within its `maxSlippageBps` of the price the call was
+locked at; otherwise `PRECONDITION_FAILED` "The price moved since you made this
+call. Make a new call." (`PRICE_MOVED`), and the person starts a new call. No
+readable price: `SERVICE_UNAVAILABLE`. Refused with `CONFLICT` while an order is
+`SUBMITTED` ("Your $5 is still going through."), `PRECONDITION_FAILED` after
+`PENDING` or past `expiresAt`.
 
 ### `money.keepFree` (mutation)
 
@@ -258,21 +263,29 @@ offer "finish, keep free or discard" instead of leaving a ghost.
 | from | to | who | condition |
 |---|---|---|---|
 | — | `PENDING` | `prepareCall` (`READY`) | intent row written durably BEFORE the call exists |
-| `PENDING` / `FREE` / `EXPIRED` | `FUNDED` | the fill transition only | a `FILLED` `panta_trade_sessions` row for this call (SQL-checked) |
+| `PENDING` | `FUNDED` | the fill transition only | a `FILLED` `panta_trade_sessions` row for this call (SQL-checked) |
+| `EXPIRED` / `FREE` | `FUNDED` | the fill transition or the sweeper | the call's OWN LAST quote (current attempt key) filled and that quote expired no later than the call did; never after `discard` (SQL-checked) |
 | `PENDING` | `FREE` | owner (`keepFree`) | no `SUBMITTED` order; market taking calls; price readable; the new free call made first |
 | `PENDING` | `EXPIRED` | owner (`discard`) or the sweeper | no `SUBMITTED`/`FILLED` order (SQL-checked) |
 
-- `expiresAt` = 10 minutes after the latest quote, never earlier than the
-  quote's own expiry + 60 s, and never later than 30 minutes after the call was
-  created. A signature can therefore never land on an expired call.
+- `expiresAt` = the FIRST quote's expiry + 60 s (about two minutes; two
+  minutes from creation until a first quote exists). It is never extended, by
+  a retry or anything else: a call held open longer could wait to see where
+  the price goes and fund only the winners.
+- A money call is traded only while `PENDING`, and only through `money.*`:
+  `pantaTrading.prepare` refuses any call whose money call has ended
+  ("This call's money window has closed. Make a new call."), and the database
+  refuses a new or newly signed trade for it.
 - The sweeper (every reconciler pass) marks `FUNDED` any pending call whose
-  order filled, and `EXPIRED` any past `expiresAt` (or whose market stopped
+  order filled (and any expired one, in the last day, whose own last quote
+  filled in time), and `EXPIRED` any past `expiresAt` (or whose market stopped
   taking calls) with nothing going through. An expired call is withdrawn
   (hidden with reason `money_call_expired`): the owner still sees it as
   `money.state: "EXPIRED"`; nobody else ever did.
 - Visibility: `PENDING`, `EXPIRED` and `FREE` (replaced) money calls are
   owner-only on every read (feed, call, profile, market detail, top calls,
-  suggestions, notifications) and never count toward a public record,
+  suggestions, notifications), also through the Supabase anon and
+  authenticated keys (a restrictive RLS policy on `calls`), and never count toward a public record,
   leaderboard or crowd split; a pending call never unlocks the crowd split
   either. A `FUNDED` call is an ordinary public call (with the visibility the
   person chose); after keep free, the new free call is the public one.
@@ -283,7 +296,10 @@ offer "finish, keep free or discard" instead of leaving a ghost.
 ## (b) Filled amounts and funded-first ordering
 
 - `funding.amountBaseUnits` + `funding.side` on every `CallFeedEntry` of a
-  `FILLED` call (above). Present only with `MONEY_CALLS_ENABLED`.
+  `FILLED` call whose confirmed fills sum to at least $1 (above). Present only
+  with `MONEY_CALLS_ENABLED`. Below $1 the entry keeps the plain marker (no
+  amount, no `$` stamp) and does not count as funded anywhere below: a dust
+  trade buys no ranking.
 - `people.get` → `calls`: funded calls first (newest first), then free calls
   (newest first).
 - `calls.top`: funded calls first, then the existing order.
@@ -348,6 +364,7 @@ input: z.object({
 output:
   | { status: "INVALID"; reason: "ADDRESS" | "SAME_WALLET" | "TOKEN_ACCOUNT" | "OVER_BALANCE" | "AMOUNT"; message: string }
   | { status: "NEEDS_GAS"; wallet: { address: string; walletType: string }; topUp: { amountBaseUnits: string } | null }
+  | { status: "SENT"; transfer: TransferView }   // the same key again after it was signed: its actual state, never a new review
   | { status: "READY"; transfer: TransferView;
       transaction: { encoding: "solana-tx-base64"; payload: string; expiresAt: number };
       review: TransferReview }
@@ -389,13 +406,25 @@ any wallet sees it; the exact signed bytes are stored before broadcast (a
 retried submit re-sends the identical bytes only); `CONFIRMED` only when the
 chain shows the exact reviewed message landed with exactly `amountBaseUnits`
 USDC leaving `from` and arriving at `to`'s USDC account; `FAILED` only when the
-chain says it failed or its blockhash expired without it landing. The quote
+chain says it failed, or when the RPC answered that it has no such
+transaction AND its blockhash expired (an RPC that cannot answer, or pruned
+history, is never proof of failure). Replaying a key whose transfer was
+signed answers `SENT` with the transfer's actual state. The quote
 lives 60 s; replaying the same `idempotencyKey` after that answers
 `PRECONDITION_FAILED` ("This review expired. Nothing was sent. Start again."),
 so start again with a new key. Errors on submit: `BAD_REQUEST` (the approval
 is not the owner's signature over exactly the reviewed message, or a different
 approval than one already stored), `PRECONDITION_FAILED` (the review expired,
 or the transfer already failed), `NOT_FOUND` (not your transfer).
+
+**One transfer in flight per source wallet.** While a transfer from a wallet
+is `BUILT` (its review not yet expired) or `SUBMITTED`, a new
+`cashOutPrepare` / `depositFromWalletPrepare` from that wallet is refused with
+`CONFLICT` "Another transfer from this wallet is still going through. Try
+again when it's done.", and the error's `data.details` is
+`{ reason: "TRANSFER_IN_FLIGHT", transferId }` (poll that transfer with
+`money.transferStatus`). An expired review is retired automatically. The
+database enforces it too (a partial unique index).
 
 **The transaction (what every signer must check before signing).** One v0
 transaction, no address lookup tables, signatures empty, exactly one signer:
@@ -529,7 +558,7 @@ output: {
   minBaseUnits: string;             // "1000000"
   maxBaseUnits: string | null;      // the server's per-trade limit
   defaultAmountBaseUnits: string | null; // signed in: the last amount used, else "5000000"
-  pendingTtlMs: number;             // 600000
+  pendingTtlMs: number;             // 120000: a new call's window before its first quote
 }
 ```
 
@@ -556,6 +585,10 @@ the flag-off behaviour, in what it is told and in what it may do:
   checked per account on the server, never by a global switch;
 - calls show filled amounts, funded-first ordering and `fundedCalls` only to
   viewers the rollout includes; other viewers read exactly the flag-off shapes.
+
+Client builds (`NEXT_PUBLIC_*`, `--dart-define`) keep their own switches on
+during an `admins` rollout and follow the per-account answers above, so the
+server alone decides who sees what.
 
 Server machinery that keeps admins' data correct for everyone runs whenever a
 switch is not off: pending money calls stay private to their owner for every
