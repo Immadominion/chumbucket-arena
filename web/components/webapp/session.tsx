@@ -140,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         if (mine !== epoch.current) return;
         if (e instanceof BffRejected && e.message === "AUTH_USER_UNLINKED") {
+          writeJson(IDENTITY_KEY, null);
           setIdentity(null);
           setStatus("needsAccount");
           return;
@@ -286,7 +287,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const completeProfile = useCallback(
     async (name: string, handle: string) => {
-      const token = sessionRef.current?.access_token;
+      // The freshest token: Supabase refreshes it on its own schedule.
+      const token = (await accessToken()) ?? sessionRef.current?.access_token;
       if (!token) return identityCopy("AUTH_TOKEN_MISSING");
       setBusy("claim");
       try {
@@ -304,7 +306,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const claimUsername = useCallback(
     async (handle: string) => {
-      const token = sessionRef.current?.access_token;
+      // The freshest token: Supabase refreshes it on its own schedule.
+      const token = (await accessToken()) ?? sessionRef.current?.access_token;
       if (!token) return identityCopy("AUTH_TOKEN_MISSING");
       setBusy("claim");
       try {
