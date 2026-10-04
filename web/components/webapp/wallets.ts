@@ -1,9 +1,10 @@
 /**
  * Browser Solana wallets, through the Wallet Standard (Phantom, Solflare,
- * Backpack and the rest register themselves this way). Only two features
- * are used: `standard:connect`, to learn the address, and
- * `solana:signMessage`, to sign the sign-in message. Nothing here can sign a
- * transaction: the web app never asks for one.
+ * Backpack and the rest register themselves this way). Three features are
+ * used: `standard:connect`, to learn the address; `solana:signMessage`, to
+ * sign the sign-in message; and `solana:signTransaction`, to sign a Panta
+ * trade the BFF built. Never `signAndSendTransaction`: the BFF checks the
+ * signed bytes against the trade it reviewed and broadcasts them itself.
  *
  * The registry protocol is a pair of window events (the
  * `@wallet-standard/app` handshake), small enough to speak directly rather
@@ -11,6 +12,7 @@
  */
 
 import { sameBytes } from "@/lib/webapp/siws";
+import { signedOnlyInSlot } from "@/lib/webapp/solanaTx";
 
 export interface WalletAccount {
   address: string;
@@ -33,6 +35,16 @@ type SignMessageFeature = {
     ...inputs: Array<{ account: WalletAccount; message: Uint8Array }>
   ) => Promise<ReadonlyArray<{ signedMessage: Uint8Array; signature: Uint8Array }>>;
 };
+
+type SignTransactionFeature = {
+  supportedTransactionVersions?: ReadonlyArray<"legacy" | 0>;
+  signTransaction: (
+    ...inputs: Array<{ account: WalletAccount; transaction: Uint8Array; chain?: string }>
+  ) => Promise<ReadonlyArray<{ signedTransaction: Uint8Array }>>;
+};
+
+/** Panta trades are mainnet USDC. */
+export const SOLANA_MAINNET = "solana:mainnet";
 
 const wallets: StandardWallet[] = [];
 const listeners = new Set<() => void>();
@@ -79,6 +91,14 @@ export function solanaWallets(): StandardWallet[] {
   );
 }
 
+/** Wallets that can sign a v0 Solana transaction (a Panta trade), not only a message. */
+export function transactionWallets(): StandardWallet[] {
+  return solanaWallets().filter((w) => {
+    const feature = w.features["solana:signTransaction"] as SignTransactionFeature | undefined;
+    return !!feature && typeof feature.signTransaction === "function" && (feature.supportedTransactionVersions ?? [0]).includes(0);
+  });
+}
+
 export function onWalletsChange(cb: () => void): () => void {
   start();
   listeners.add(cb);
@@ -117,4 +137,28 @@ export async function signMessage(wallet: StandardWallet, account: WalletAccount
     throw new WalletDeclined("unexpected signature");
   }
   return signed.signature;
+}
+
+/**
+ * `account`'s signature on exactly `transaction`, as the full signed bytes.
+ * A wallet that changed the transaction (added an instruction, swapped the
+ * fee payer, signed another slot) is refused here; the BFF would refuse it
+ * anyway, but the person hears it from the wallet step, not as a failed trade.
+ */
+export async function signTransaction(
+  wallet: StandardWallet,
+  account: WalletAccount,
+  transaction: Uint8Array,
+): Promise<Uint8Array> {
+  const feature = wallet.features["solana:signTransaction"] as SignTransactionFeature | undefined;
+  if (!feature) throw new WalletDeclined("no signTransaction");
+  let out: ReadonlyArray<{ signedTransaction: Uint8Array }>;
+  try {
+    out = await feature.signTransaction({ account, transaction, chain: SOLANA_MAINNET });
+  } catch {
+    throw new WalletDeclined("sign refused");
+  }
+  const signed = out[0]?.signedTransaction;
+  if (!signed || !signedOnlyInSlot(transaction, signed, 0)) throw new WalletDeclined("unexpected transaction");
+  return signed;
 }

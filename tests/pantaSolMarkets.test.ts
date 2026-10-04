@@ -378,6 +378,7 @@ describe("trading", () => {
       chain: { broadcast: async () => {} },
       venue: { getMarket: async () => { read++; throw new Error("unreachable"); } } as never,
       maxAmountBaseUnits: "100000000",
+      wallets: { owns: async () => true },
     });
     await expect(service.prepare("alice", { callId: "c1", wallet: REAL.SOL_OPEN_HYPE.address, amountBaseUnits: "1000000",
       idempotencyKey: "k1", maxSlippageBps: 100 })).rejects.toThrow("Trading isn't available on this market");

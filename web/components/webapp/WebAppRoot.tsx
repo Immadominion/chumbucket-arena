@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { DataProvider, ToastProvider } from "./data";
 import { LINK_CALLBACK_PATH } from "@/lib/webapp/linking";
 import { useAuth, AuthProvider } from "./session";
+import { ChumbucketWalletRoot } from "./chumbucketWallet";
 import { ClaimScreen, SignInScreen } from "./screens/DoorScreens";
 import { Shell } from "./Shell";
 import { StateScreen } from "./ui";
@@ -72,7 +73,9 @@ export function WebAppRoot({ className, children }: { className: string; childre
         children
       ) : mounted ? (
         <AuthProvider>
-          <Gate>{children}</Gate>
+          <ChumbucketWalletRoot>
+            <Gate>{children}</Gate>
+          </ChumbucketWalletRoot>
         </AuthProvider>
       ) : (
         <Splash />

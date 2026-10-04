@@ -29,6 +29,7 @@ import { z } from "zod";
 import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdentityError.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import { WalletLinkService } from "../auth/WalletLinkService.ts";
+import { chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
 import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
 import { AccountLinkService, type LinkCompletion } from "../auth/AccountLinkService.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
@@ -78,6 +79,7 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   WALLET_OWNED_BY_ANOTHER_USER: "CONFLICT",
   WALLET_REQUIRES_TRANSFER: "CONFLICT",
   WALLET_LINK_FAILED: "INTERNAL_SERVER_ERROR",
+  WALLET_TYPE_UNAVAILABLE: "PRECONDITION_FAILED",
 
   LEGACY_EVIDENCE_UNVERIFIED: "FORBIDDEN",
   LEGACY_CLAIMED_BY_ANOTHER_USER: "CONFLICT",
@@ -127,6 +129,7 @@ function serviceFor(config: AppConfig): WalletLinkService {
     walletProfileCarry: rt.walletProfileCarry === true,
     ...(rt.accountLinks ? { accountLinks: rt.accountLinks } : {}),
     accountLinking: rt.accountLinking === true,
+    chumbucketWallet: chumbucketWalletEnabled(config),
   });
 }
 
@@ -412,8 +415,9 @@ export const authRouter = router({
         message: z.string().min(1).max(4096),
         signature: z.string().min(1).max(256),
         purpose: purpose.optional(),
-        /** "embedded": a key the app generated on the phone. Label only. */
-        walletType: z.enum(["mwa", "embedded"]).optional(),
+        /** "embedded": a key the app generated on the phone; "chumbucket": the
+         *  Chumbucket wallet (refused while CHUMBUCKET_WALLET_ENABLED is off). Label only. */
+        walletType: z.enum(["mwa", "embedded", "chumbucket"]).optional(),
       }),
     )
     .mutation(({ ctx, input }) =>

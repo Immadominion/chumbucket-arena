@@ -29,7 +29,9 @@ export type VenueErrorCode =
   /** A funding-state transition that the lifecycle forbids (e.g. anything → FILLED off-reconciliation). */
   | "INVALID_TRANSITION"
   /** Adapter/config misuse caught before any network call. */
-  | "VENUE_MISCONFIGURED";
+  | "VENUE_MISCONFIGURED"
+  /** The signing wallet is not one of the account's own proven wallets. */
+  | "WALLET_NOT_LINKED";
 
 /** Codes worth retrying with backoff. A schema change is NOT one of them. */
 const RETRYABLE: ReadonlySet<VenueErrorCode> = new Set<VenueErrorCode>([

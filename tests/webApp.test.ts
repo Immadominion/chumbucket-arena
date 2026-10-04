@@ -743,16 +743,25 @@ describe("web app rules", () => {
     expect(sheet).toContain('e.key === "Escape"');
   });
 
-  test("the web app ships none of the Arena: no Privy, no Arena session, no escrow", () => {
+  test("the web app ships none of the Arena: no Arena session, no escrow; Privy only as the Chumbucket wallet", () => {
     for (const { file, text } of files) {
-      expect({ file, match: text.match(/@privy-io|@\/lib\/session|@\/lib\/trpc|arena-onchain|AppProviders|@solana\/web3\.js/)?.[0] ?? null }).toEqual({ file, match: null });
+      expect({ file, match: text.match(/@\/lib\/session|@\/lib\/trpc|arena-onchain|AppProviders|@solana\/web3\.js/)?.[0] ?? null }).toEqual({ file, match: null });
+      // Privy is the Chumbucket wallet's provider, imported in exactly one file, loaded on first need.
+      if (!file.endsWith("ChumbucketWalletPrivy.tsx")) expect({ file, match: text.match(/@privy-io/)?.[0] ?? null }).toEqual({ file, match: null });
     }
+    const root = readCode(join(WEB, "components/webapp/chumbucketWallet.tsx"));
+    expect(root).toContain('dynamic(() => import("./ChumbucketWalletPrivy"), { ssr: false })');
+    expect(root).toContain('process.env.NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED === "true"');
   });
 
-  test("it never asks a wallet to sign a transaction", () => {
+  test("a wallet only ever signs a trade the BFF built; the browser never sends one", () => {
     for (const { file, text } of files) {
-      expect({ file, match: text.match(/signTransaction|signAndSendTransaction|sendTransaction/)?.[0] ?? null }).toEqual({ file, match: null });
+      expect({ file, match: text.match(/signAndSendTransaction|sendTransaction|sendRawTransaction/)?.[0] ?? null }).toEqual({ file, match: null });
     }
+    // The one Wallet Standard signing path, and it checks the bytes it got back.
+    const wallets = readCode(join(WEB, "components/webapp/wallets.ts"));
+    expect(wallets).toContain('"solana:signTransaction"');
+    expect(wallets).toContain("signedOnlyInSlot(transaction, signed, 0)");
   });
 
   test("the retired Arena pages are gone and their paths lead to the web app", () => {
@@ -851,7 +860,7 @@ describe("web app: sign-in methods", () => {
     await api.previewSignInLink("other-tok", "ab".repeat(32));
     await api.completeSignInLink("other-tok", "ab".repeat(32));
     await api.requestWalletNonce("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "chumbucket.fun", "https://chumbucket.fun");
-    await api.linkWallet("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "message", "signature");
+    await api.linkWallet("tok", { address: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", message: "message", signature: "signature" });
     expect(calls.map((c) => [c.path, c.kind])).toEqual([
       ["auth.signInMethods", "mutation"],
       ["auth.unlinkSignIn", "mutation"],

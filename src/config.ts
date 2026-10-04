@@ -63,6 +63,13 @@ export interface AppConfig {
   };
   /** Auth / embedded wallets (Privy). Verified server-side; users never see crypto. */
   privy?: { appId: string; appSecret?: string; verificationKey?: string };
+  /**
+   * The Chumbucket wallet: one wallet per account that follows the login,
+   * linked with a SIWS proof as wallet type 'chumbucket' (src/wallet/). Off
+   * unless exactly CHUMBUCKET_WALLET_ENABLED=true, and only after
+   * 20261004130000_linked_wallets_chumbucket_type.sql is applied.
+   */
+  chumbucketWallet?: { enabled: boolean };
   /** Supabase social read model used by the mobile app and indexer. */
   social?: {
     supabaseUrl: string;
@@ -274,6 +281,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (env.PRIVY_APP_SECRET) cfg.privy.appSecret = env.PRIVY_APP_SECRET;
     if (env.PRIVY_VERIFICATION_KEY) cfg.privy.verificationKey = env.PRIVY_VERIFICATION_KEY;
   }
+  cfg.chumbucketWallet = { enabled: env.CHUMBUCKET_WALLET_ENABLED === "true" };
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     const network = (env.SOLANA_NETWORK ?? "devnet").toLowerCase();
     cfg.social = {

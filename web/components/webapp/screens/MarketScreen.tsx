@@ -34,6 +34,8 @@ import { retryAfterPriceRefresh } from "@/lib/webapp/prices";
 import type { CallOutcome, CallVisibility, MarketDetail, Side } from "@/lib/webapp/types";
 import { GET_APP_HREF } from "@/components/site/config";
 import { useShare } from "../cards";
+import { useChumbucketWallet } from "../chumbucketWallet";
+import { TradeSheet } from "../TradeSheet";
 import { actionError, useNow, useToast } from "../data";
 import { Icon } from "../Icon";
 import { useAfterCall, useMarket } from "../queries";
@@ -92,6 +94,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
   const [thesis, setThesis] = useState("");
   const [visibility, setVisibility] = useState<CallVisibility>("public");
   const [trading, setTrading] = useState(false);
+  const chumbucket = useChumbucketWallet();
   const left = closesIn(market.closesAt, now);
 
   useEffect(() => {
@@ -299,22 +302,27 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
         </button>
       ) : null}
 
-      <Sheet
-        open={trading}
-        onClose={() => setTrading(false)}
-        title="Trade in the app"
-        subtitle="Real USDC from your own wallet, on Panta."
-        footer={
-          <a href={GET_APP_HREF} className="wa-btn wa-btn--primary wa-btn--block">
-            <Icon name="android-solid" size={20} />
-            Get the Android app
-          </a>
-        }
-      >
-        <p style={{ margin: "0 0 8px", color: "var(--wa-muted)", fontSize: 14 }}>
-          Trading is optional and you can lose what you put in. Your free call stays on your record either way.
-        </p>
-      </Sheet>
+      {/* With the Chumbucket wallet on, the trade happens here, signed in the browser. */}
+      {chumbucket.enabled && viewerCall ? (
+        <TradeSheet open={trading} onClose={() => setTrading(false)} market={market} call={viewerCall} />
+      ) : (
+        <Sheet
+          open={trading}
+          onClose={() => setTrading(false)}
+          title="Trade in the app"
+          subtitle="Real USDC from your own wallet, on Panta."
+          footer={
+            <a href={GET_APP_HREF} className="wa-btn wa-btn--primary wa-btn--block">
+              <Icon name="android-solid" size={20} />
+              Get the Android app
+            </a>
+          }
+        >
+          <p style={{ margin: "0 0 8px", color: "var(--wa-muted)", fontSize: 14 }}>
+            Trading is optional and you can lose what you put in. Your free call stays on your record either way.
+          </p>
+        </Sheet>
+      )}
     </>
   );
 }

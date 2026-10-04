@@ -111,7 +111,7 @@ export async function linkWalletHere(api: Api, token: string, wallet: StandardWa
   const account = await connect(wallet);
   const challenge = await api.requestWalletNonce(token, account.address, window.location.host, window.location.origin);
   const signature = await signMessage(wallet, account, new TextEncoder().encode(challenge.message));
-  await api.linkWallet(token, account.address, challenge.message, bs58.encode(signature));
+  await api.linkWallet(token, { address: account.address, message: challenge.message, signature: bs58.encode(signature) });
 }
 
 // ── the other side's proof ───────────────────────────────────────────────────

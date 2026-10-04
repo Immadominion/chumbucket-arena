@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { PantaExecution } from "../src/prediction/PantaExecution.ts";
-import { PantaTradingService, type PantaPrepareInput } from "../src/prediction/PantaTradingService.ts";
+import { PantaTradingService, WALLET_NOT_LINKED_COPY, type PantaPrepareInput } from "../src/prediction/PantaTradingService.ts";
 import type { PantaCallIntent, PantaTradeSession, PantaTradingStore } from "../src/prediction/PantaTradingStore.ts";
 import { PantaVenue } from "../src/prediction/PantaVenue.ts";
 import { PantaChain, validateSignedPantaTransaction, confirmsUsdcDeposit, MAINNET_USDC_MINT } from "../src/prediction/PantaChain.ts";
@@ -84,10 +84,13 @@ function rig() {
     },
   });
   const venue = new PantaVenue({apiKey:"pk_live_synthetic_trading_test",clock,fetchImpl:Object.assign(async () => new Response(JSON.stringify({marketId:market,category:"crypto",title:"Synthetic question?",description:"Synthetic rules",phase:"primary",status:"primary",resolved:false,startTime:Math.floor(clock.now()/1000)-3600,endTime:Math.floor(clock.now()/1000)+86400,resolutionTime:null,yesPrice:"1.2",noPrice:"0.3",onChain:{isActive:true,resolutionRule:"Synthetic rules"}})),{preconnect:fetch.preconnect})});
-  const deps={store:ledger,execution,venue,maxAmountBaseUnits:"100000000",now:()=>clock.now(),onFilled:(row:PantaTradeSession)=>{filled.push(row.call_id);},chain:{failed:async()=>chainFailed,neverLanded:async()=>dropped,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
+  // The account's proven wallets (linked_wallets), as the server reads them.
+  const linked=new Set([wallet]); const owners=new Set([user]); let linksDown=false; const linkReads:string[]=[];
+  const wallets={owns:async(userId:string,address:string)=>{linkReads.push(address);if(linksDown) throw new Error("synthetic read failure");return owners.has(userId)&&linked.has(address);}};
+  const deps={store:ledger,execution,venue,wallets,maxAmountBaseUnits:"100000000",now:()=>clock.now(),onFilled:(row:PantaTradeSession)=>{filled.push(row.call_id);},chain:{failed:async()=>chainFailed,neverLanded:async()=>dropped,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
   const service = new PantaTradingService(deps);
   const input: PantaPrepareInput = {callId,wallet,amountBaseUnits:"1000000",idempotencyKey:"synthetic-intent-key",maxSlippageBps:100};
-  return {clock,ledger,service,input,operations,filled,restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;},providerOutage(){providerDown=true;}};
+  return {clock,ledger,service,input,operations,filled,linked,owners,linkReads,linksDown(){linksDown=true;},restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;},providerOutage(){providerDown=true;}};
 }
 function signed(payload:string) {const tx=VersionedTransaction.deserialize(Buffer.from(payload,"base64"));tx.sign([owner]);return Buffer.from(tx.serialize()).toString("base64");}
 
@@ -110,9 +113,34 @@ test("one durable reservation yields an exact reusable unsigned review, never fu
   expect(first.review.avgPrice).toBe("1.2");expect(first.review.attribution).toBe("Powered by Panta");
   expect(h.operations).toEqual(["/primaryorderquote/","/primaryorderbuild/"]);expect(h.broadcasts).toBe(0);
 });
+test("a buy is only quoted for one of the account's own proven wallets, refused before any reservation or provider read",async()=>{
+  const h=rig();const stranger=Keypair.fromSeed(new Uint8Array(32).fill(21)).publicKey.toBase58();
+  await expect(h.service.prepare(user,{...h.input,wallet:stranger,idempotencyKey:"stranger-wallet-key"})).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
+  expect(h.operations).toEqual([]);expect(h.ledger.writes).toBe(0);expect(h.linkReads).toEqual([stranger]);
+  // Another person's linked wallet is not this person's.
+  await expect(h.service.prepare(other,h.input)).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
+  expect(h.operations).toEqual([]);expect(h.ledger.writes).toBe(0);
+  const first=await h.service.prepare(user,h.input);expect(first.order.fundingState).toBe("QUOTED");
+});
+test("the wallet a Sign-in-with-Solana session proves may sign; any other session wallet claim is still checked",async()=>{
+  const h=rig();h.linked.clear();
+  const prepared=await h.service.prepare(user,h.input,{signInWallet:wallet});
+  expect(prepared.order.owner).toBe(wallet);expect(h.linkReads).toEqual([]);
+  const stranger=Keypair.fromSeed(new Uint8Array(32).fill(22)).publicKey.toBase58();
+  await expect(h.service.prepare(user,{...h.input,idempotencyKey:"other-session-key"},{signInWallet:stranger})).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
+});
+test("a revoked link stops even an exact replay, and unreadable links fail closed",async()=>{
+  const h=rig();const first=await h.service.prepare(user,h.input);expect(first.order.fundingState).toBe("QUOTED");
+  h.linked.delete(wallet);
+  await expect(h.service.prepare(user,h.input)).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
+  h.linked.add(wallet);h.linksDown();
+  await expect(h.service.prepare(user,h.input)).rejects.toMatchObject({code:"VENUE_UNAVAILABLE"});
+  expect(h.operations).toEqual(["/primaryorderquote/","/primaryorderbuild/"]);
+});
 test("idempotency conflict, wrong person, expired quote and excessive amount refuse without a second buy",async()=>{
   const h=rig();await h.service.prepare(user,h.input);
   await expect(h.service.prepare(user,{...h.input,amountBaseUnits:"2000000"})).rejects.toMatchObject({code:"IDEMPOTENCY_CONFLICT"});
+  h.owners.add(other); // even with the wallet proven on their account too, it is not their call
   await expect(h.service.prepare(other,h.input)).rejects.toThrow("your own call");
   await expect(h.service.prepare(user,{...h.input,amountBaseUnits:"100000001",idempotencyKey:"synthetic-other-key"})).rejects.toThrow("limit");
   h.clock.advance(61_000);await expect(h.service.prepare(user,h.input)).rejects.toThrow("expired");
@@ -232,6 +260,19 @@ test("native router rejects DevAuth wallet strings and client-selected person id
   cfg.predictions!.flags={fundedPositions:true};
   const legacy=predictionsRouter.createCaller({app,wallet:asWallet(wallet)});
   await expect(legacy.createOrder({idempotencyKey:"synthetic-legacy",venueMarketId:market,side:"YES",amountBaseUnits:"1000000"})).rejects.toThrow("wallet-signed");
+});
+test("the router hands prepare only the issuer-verified sign-in wallet, so an unlinked wallet session is refused",async()=>{
+  const h=rig();h.linked.clear();const cfg=loadConfig({PANTA_API_KEY:"pk_live_synthetic_router_test",PANTA_PARTNER_USER_ID:"usr_synthetic_partner",PANTA_PROGRAM_ID:PANTA_MAINNET_PROGRAM_ID,PANTA_SCHEMA_READY:"true",FUNDED_POSITIONS:"true",SUPABASE_URL:"https://synthetic.invalid",SUPABASE_SERVICE_ROLE_KEY:"synthetic-only",SOLANA_NETWORK:"mainnet-beta"});
+  const app=await createApp({config:cfg});const store=new FakeIdentityStore().addUser("auth-test",user);
+  const verifier=new FakeJwtVerifier().issue("google-session","auth-test").issue("wallet-session","auth-test",wallet);
+  primeAuthIdentityRuntime(cfg,{store,verifier,policy:resolveAuthIdentityPolicy(cfg)});setPantaTradingRuntime(cfg,h.service);
+  const trust=buildTrustRuntime(cfg,{store:new InMemoryTrustStore(),authAdmin:new RecordingAuthUserAdmin()});setTrustRuntime(cfg,trust);
+  await trust.service.acceptFundedTrading(user,trust.config.termsVersion);
+  const google=pantaTradingRouter.createCaller({app,supabaseAccessToken:"google-session"});
+  await expect(google.prepare(h.input)).rejects.toMatchObject({code:"UNPROCESSABLE_CONTENT",message:WALLET_NOT_LINKED_COPY});
+  expect(h.operations).toEqual([]);
+  const signedIn=pantaTradingRouter.createCaller({app,supabaseAccessToken:"wallet-session"});
+  expect((await signedIn.prepare(h.input)).order.owner).toBe(wallet);
 });
 test("a broadcast that can never land is FAILED by chain evidence and frees the call for a fresh funding",async()=>{
   const h=rig();const prepared=await h.service.prepare(user,h.input);

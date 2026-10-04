@@ -27,6 +27,8 @@ import type {
   ThesisUpdate,
 } from "./types";
 import type { LinkMethod, LinkPreview, LinkTicket, SignInMethods } from "./linking";
+import type { PreparedTrade, TradeOrder } from "./trade";
+import { LINK_DOMAIN, LINK_URI } from "./chumbucketLink";
 
 export type Caller = <T>(path: string, input: unknown, kind: "query" | "mutation") => Promise<T>;
 
@@ -38,6 +40,23 @@ export interface Whoami {
 }
 
 export type UsernameStatus = "available" | "invalid" | "reserved" | "taken";
+
+/** `wallet.status`: whether this server runs the Chumbucket wallet, and the account's wallets. */
+export interface WalletStatus {
+  enabled: boolean;
+  account: {
+    tradingWallet: { address: string; walletType: string } | null;
+    chumbucketWallet: string | null;
+  } | null;
+}
+
+/** `wallet.balance`: the trading wallet's real mainnet balance, as integer strings. */
+export interface WalletBalance {
+  wallet: string;
+  walletType: string;
+  lamports: string;
+  usdcBaseUnits: string;
+}
 
 export function makeApi(call: Caller) {
   const q = <T>(path: string, input: unknown = {}) => call<T>(path, input, "query");
@@ -88,12 +107,38 @@ export function makeApi(call: Caller) {
     updateProfile: (patch: { displayName?: string; bio?: string; avatarId?: number }) =>
       m<{ profile: OwnProfile }>("account.updateProfile", patch),
 
+    // ── trading and the Chumbucket wallet (POST: private, session-keyed) ──
+    walletStatus: () => m<WalletStatus>("wallet.status", {}),
+    walletBalance: () => m<WalletBalance>("wallet.balance", {}),
+    prepareTrade: (input: { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number }) =>
+      m<PreparedTrade>("pantaTrading.prepare", input),
+    submitTrade: (orderId: string, signedTransaction: string) => m<TradeOrder>("pantaTrading.submit", { orderId, signedTransaction }),
+    tradeOrder: (orderId: string) => m<TradeOrder>("pantaTrading.order", { orderId }),
+    callOrder: (callId: string) => m<{ order: TradeOrder | null }>("pantaTrading.callOrder", { callId }),
+
     // ── identity (the token is an input here, so these are POSTs) ──
     whoami: (supabaseAccessToken: string) => m<Whoami>("auth.whoami", { supabaseAccessToken }),
     completeProfile: (supabaseAccessToken: string, displayName: string, handle: string) =>
       m<{ userId: string }>("auth.completeProfile", { supabaseAccessToken, displayName, handle }),
     claimUsername: (supabaseAccessToken: string, handle: string) =>
       m<{ userId: string; handle: string }>("auth.claimUsername", { supabaseAccessToken, handle }),
+    /** A link challenge for the account's own wallet (the Chumbucket wallet). */
+    requestWalletLink: (supabaseAccessToken: string, address: string) =>
+      m<{ message: string }>("auth.requestWalletNonce", {
+        supabaseAccessToken,
+        address,
+        domain: LINK_DOMAIN,
+        uri: LINK_URI,
+        purpose: "link_wallet",
+      }),
+    /**
+     * A SIWS link proof onto this account: a browser wallet from Settings →
+     * Sign-in methods, or the Chumbucket wallet (`walletType: "chumbucket"`).
+     */
+    linkWallet: (
+      supabaseAccessToken: string,
+      input: { address: string; message: string; signature: string; walletType?: "chumbucket" },
+    ) => m<{ userId: string; address: string; outcome: string }>("auth.linkWallet", { supabaseAccessToken, ...input, purpose: "link_wallet" }),
     usernameStatus: (handle: string) => q<{ handle: string; status: UsernameStatus }>("auth.usernameStatus", { handle }),
 
     // ── sign-in methods (Settings). preview/complete take the OTHER side's token ──
@@ -111,8 +156,6 @@ export function makeApi(call: Caller) {
       }),
     requestWalletNonce: (supabaseAccessToken: string, address: string, domain: string, uri: string) =>
       m<{ message: string; expiresAt: string }>("auth.requestWalletNonce", { supabaseAccessToken, address, domain, uri }),
-    linkWallet: (supabaseAccessToken: string, address: string, message: string, signature: string) =>
-      m<{ address: string; outcome: string }>("auth.linkWallet", { supabaseAccessToken, address, message, signature }),
   };
 }
 

@@ -5,15 +5,22 @@ import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
 import type { PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
 import type { PredictionVenue, VenueOrder } from "./PredictionVenue.ts";
+import type { AccountWallets } from "../wallet/accountWallets.ts";
 import { VenueError } from "./errors.ts";
 
 export interface PantaPrepareInput { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number; }
+/** What the verified session itself proves: the address of a Sign-in-with-Solana session (Supabase Auth checked its signature). */
+export interface PantaPrepareSession { signInWallet?: string | null; }
+/** Short on purpose: the apps lead with a link icon and open the account's wallets. */
+export const WALLET_NOT_LINKED_COPY = "Link this wallet to your account first";
 const refuse = (message: string): never => { throw new VenueError("VENUE_BAD_REQUEST", message, { venue: "panta" }); };
 export class PantaTradingService {
   constructor(private readonly deps: {
     store: PantaTradingStore; execution: PantaExecution;
     chain: Pick<PantaChain, "broadcast"> & Partial<Pick<PantaChain, "failed">> & Partial<Pick<PantaSettlementChain, "neverLanded">>;
     venue: PredictionVenue; maxAmountBaseUnits: string; now?: () => number;
+    /** The account's own proven wallets: the only ones a buy may be quoted for. */
+    wallets: AccountWallets;
     /** Told once per confirmed fill, after the FILLED row is durable. */
     onFilled?: (row: PantaTradeSession) => void;
   }) {}
@@ -28,8 +35,22 @@ export class PantaTradingService {
     if (row.prepared.order.expiresAt <= this.now()) return refuse("This quote expired. Request a new quote before wallet approval");
     return row.prepared;
   }
-  async prepare(userId: string, input: PantaPrepareInput): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
+  /**
+   * The signing wallet must be the account's own: an active, SIWS-proven link,
+   * or the wallet this very session signed in with. Checked on every prepare,
+   * a replay included, before any reservation or provider read; a wallet whose
+   * links cannot be read is refused, never assumed.
+   */
+  private async assertOwnWallet(userId: string, wallet: string, session: PantaPrepareSession): Promise<void> {
+    if (session.signInWallet && session.signInWallet === wallet) return;
+    let owns: boolean;
+    try { owns = await this.deps.wallets.owns(userId, wallet); }
+    catch { throw new VenueError("VENUE_UNAVAILABLE", "We couldn't confirm this wallet is yours. Try again in a moment", { venue: "panta" }); }
+    if (!owns) throw new VenueError("WALLET_NOT_LINKED", WALLET_NOT_LINKED_COPY, { venue: "panta" });
+  }
+  async prepare(userId: string, input: PantaPrepareInput, session: PantaPrepareSession = {}): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
     if (!/^[1-9][0-9]{0,15}$/.test(input.amountBaseUnits) || BigInt(input.amountBaseUnits) > BigInt(this.deps.maxAmountBaseUnits)) return refuse("Enter a positive USDC amount within the server trade limit");
+    await this.assertOwnWallet(userId, input.wallet, session);
     const existing = await this.deps.store.find(userId, input.idempotencyKey);
     if (existing) { const prepared = this.replay(existing, input); return { order: prepared.order, review: prepared.review }; }
     if (await this.deps.store.activeForCall(userId, input.callId, input.wallet)) {
