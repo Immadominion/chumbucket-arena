@@ -81,6 +81,19 @@ export interface AppConfig {
   authIdentity?: {
     /** Off until reviewed migration anchors and legacy security gates are ready. */
     existingAccountClaimsEnabled?: boolean;
+    /**
+     * Off unless ACCOUNT_LINKING_ENABLED=true: a wallet linked to an account
+     * (SIWS proof) signs in to that account, and Settings links and unlinks
+     * sign-ins. Needs 20261004120000_account_sign_ins.sql and, for Google/X,
+     * Supabase Auth's manual identity linking.
+     */
+    accountLinkingEnabled?: boolean;
+    /**
+     * Off unless ACCOUNT_FOLD_ENABLED=true: a sign-in already on another
+     * account folds that account in, after proof of both (never one with
+     * funded activity or money).
+     */
+    accountFoldEnabled?: boolean;
     siwsDomains?: string[];
     siwsUris?: string[];
     nonceTtlSeconds?: number;
@@ -272,9 +285,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (env.HELIUS_WEBHOOK_AUTH) {
     cfg.indexer = { heliusWebhookAuth: env.HELIUS_WEBHOOK_AUTH };
   }
-  if (env.SIWS_DOMAINS || env.SIWS_URIS || env.SIWS_NONCE_TTL_SECONDS || env.EXISTING_ACCOUNT_CLAIMS_ENABLED) {
+  if (
+    env.SIWS_DOMAINS || env.SIWS_URIS || env.SIWS_NONCE_TTL_SECONDS || env.EXISTING_ACCOUNT_CLAIMS_ENABLED ||
+    env.ACCOUNT_LINKING_ENABLED || env.ACCOUNT_FOLD_ENABLED
+  ) {
     cfg.authIdentity = {
       existingAccountClaimsEnabled: env.EXISTING_ACCOUNT_CLAIMS_ENABLED === "true",
+      accountLinkingEnabled: env.ACCOUNT_LINKING_ENABLED === "true",
+      accountFoldEnabled: env.ACCOUNT_FOLD_ENABLED === "true",
       ...(env.SIWS_DOMAINS
         ? { siwsDomains: env.SIWS_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean) }
         : {}),

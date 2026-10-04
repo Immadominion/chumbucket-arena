@@ -17,6 +17,7 @@
  */
 
 import type { AppConfig } from "../config.ts";
+import { SupabaseAccountLinkStore, type AccountLinkStore } from "./AccountLinkStore.ts";
 import { SupabaseExistingAccountStore, type ExistingAccountStore } from "./ExistingAccountStore.ts";
 import {
   NoopIdentityStore,
@@ -76,6 +77,12 @@ export interface AuthIdentityRuntime {
   policy: AuthIdentityPolicy;
   /** Whether a wallet sign-in carries over the existing account at that wallet. Absent = off. */
   walletProfileCarry?: boolean;
+  /** Additional sign-ins (20261004120000). Absent without a Supabase project. */
+  accountLinks?: AccountLinkStore;
+  /** ACCOUNT_LINKING_ENABLED: link/unlink sign-ins; a linked wallet signs in to its account. Absent = off. */
+  accountLinking?: boolean;
+  /** ACCOUNT_FOLD_ENABLED: fold another account in, with proof of both. Absent = off. */
+  accountFold?: boolean;
 }
 
 /**
@@ -123,6 +130,9 @@ export function buildAuthIdentityRuntime(config: AppConfig): AuthIdentityRuntime
   const sc = storeConfig(config);
   return {
     ...(sc ? { existingAccounts: new SupabaseExistingAccountStore(sc) } : {}),
+    ...(sc ? { accountLinks: new SupabaseAccountLinkStore(sc) } : {}),
+    accountLinking: config.authIdentity?.accountLinkingEnabled === true,
+    accountFold: config.authIdentity?.accountFoldEnabled === true,
     store: sc ? new SupabaseIdentityStore(sc) : new NoopIdentityStore(),
     verifier: sc ? new GoTrueJwtVerifier(sc) : new UnconfiguredJwtVerifier(),
     policy: resolveAuthIdentityPolicy(config),

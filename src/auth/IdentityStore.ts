@@ -170,7 +170,35 @@ export class SupabaseIdentityStore implements IdentityStore {
     });
     const rows = await this.getRows<{ id: string }>("users", params);
     if (rows.length > 1) throw new AuthIdentityError("AUTH_USER_AMBIGUOUS");
-    return rows[0]?.id ?? null;
+    return rows[0]?.id ?? this.additionalSignInAccount(authUserId);
+  }
+
+  /**
+   * Not an account's primary sign-in: the account it reaches as an ADDITIONAL
+   * sign-in (20261004120000_account_sign_ins.sql), never a deleted one. Before
+   * that migration there are none, so a missing function is "none".
+   */
+  private async additionalSignInAccount(authUserId: string): Promise<string | null> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.restBase}/rpc/resolve_auth_user_v1`, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ p_auth_user_id: authUserId }),
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new AuthIdentityError("IDENTITY_STORE_ERROR");
+    }
+    if (res.status === 404) return null;
+    const value = await this.decode<{ ok?: unknown; user_id?: unknown } | null>(res, "rpc/resolve_auth_user_v1")
+      .catch((error: unknown) => {
+        if (error instanceof AuthIdentityError) throw error;
+        throw new AuthIdentityError("IDENTITY_STORE_ERROR");
+      });
+    const id = value && value.ok === true ? value.user_id : null;
+    return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
   }
 
   async createPersonForAuthUser(authUserId: string, displayName: string): Promise<string> {
