@@ -27,6 +27,7 @@ import type {
   ThesisUpdate,
 } from "./types";
 import type { PreparedTrade, TradeOrder } from "./trade";
+import { LINK_DOMAIN, LINK_URI } from "./chumbucketLink";
 
 export type Caller = <T>(path: string, input: unknown, kind: "query" | "mutation") => Promise<T>;
 
@@ -120,6 +121,19 @@ export function makeApi(call: Caller) {
       m<{ userId: string }>("auth.completeProfile", { supabaseAccessToken, displayName, handle }),
     claimUsername: (supabaseAccessToken: string, handle: string) =>
       m<{ userId: string; handle: string }>("auth.claimUsername", { supabaseAccessToken, handle }),
+    /** A link challenge for the account's own wallet (the Chumbucket wallet). */
+    requestWalletLink: (supabaseAccessToken: string, address: string) =>
+      m<{ message: string }>("auth.requestWalletNonce", {
+        supabaseAccessToken,
+        address,
+        domain: LINK_DOMAIN,
+        uri: LINK_URI,
+        purpose: "link_wallet",
+      }),
+    linkWallet: (
+      supabaseAccessToken: string,
+      input: { address: string; message: string; signature: string; walletType: "chumbucket" },
+    ) => m<{ userId: string; address: string; outcome: string }>("auth.linkWallet", { supabaseAccessToken, ...input, purpose: "link_wallet" }),
     usernameStatus: (handle: string) => q<{ handle: string; status: UsernameStatus }>("auth.usernameStatus", { handle }),
   };
 }

@@ -16,6 +16,10 @@ import {
   withSignature,
 } from "../web/lib/webapp/solanaTx.ts";
 import { isFinal, placeTrade, TradeError, usdToBaseUnits, type PreparedTrade, type TradeApi, type TradeOrder } from "../web/lib/webapp/trade.ts";
+import { sign as nodeSign } from "node:crypto";
+import { isLinkChallenge, LINK_DOMAIN, LINK_URI, linkChumbucketWallet, type WalletLinkApi } from "../web/lib/webapp/chumbucketLink.ts";
+import { WalletLinkService } from "../src/auth/WalletLinkService.ts";
+import { FakeIdentityStore, FakeJwtVerifier, makeWallet, TEST_DOMAIN, TEST_URI, testPolicy } from "./authIdentityFixtures.ts";
 
 const owner = Keypair.fromSeed(new Uint8Array(32).fill(7));
 const stranger = Keypair.fromSeed(new Uint8Array(32).fill(8));
@@ -119,5 +123,58 @@ describe("placing a trade", () => {
     expect(usdToBaseUnits(25)).toBe("25000000");
     expect(() => usdToBaseUnits(0)).toThrow();
     expect(() => usdToBaseUnits(2.5)).toThrow();
+  });
+});
+
+describe("linking the Chumbucket wallet from the browser", () => {
+  // The web helper against the BFF's real WalletLinkService (in-memory store).
+  function rig(chumbucketWallet = true) {
+    const store = new FakeIdentityStore().addUser("auth-web", "user-web");
+    const verifier = new FakeJwtVerifier().issue("tok-web", "auth-web");
+    const service = new WalletLinkService({
+      store, verifier, chumbucketWallet,
+      policy: { ...testPolicy, allowedDomains: [...testPolicy.allowedDomains], allowedUris: [...testPolicy.allowedUris] },
+    });
+    const api: WalletLinkApi = {
+      requestWalletLink: (token, address) =>
+        service.requestWalletNonce({ accessToken: token, address, domain: LINK_DOMAIN, uri: LINK_URI, purpose: "link_wallet" }),
+      linkWallet: (token, input) => service.linkWallet({ accessToken: token, purpose: "link_wallet", ...input }),
+    };
+    return { store, api };
+  }
+
+  test("the browser's domain is the BFF's own, so the challenge is issued and the proof links it as chumbucket", async () => {
+    expect([LINK_DOMAIN, LINK_URI]).toEqual([TEST_DOMAIN, TEST_URI]);
+    const { store, api } = rig();
+    const wallet = makeWallet();
+    let signed = "";
+    await linkChumbucketWallet({
+      api, token: "tok-web", address: wallet.address,
+      signMessage: async (message) => {
+        signed = new TextDecoder().decode(message);
+        return new Uint8Array(nodeSign(null, Buffer.from(message), wallet.privateKey));
+      },
+    });
+    expect(isLinkChallenge(signed, wallet.address)).toBe(true);
+    expect(store.walletOwner(wallet.address)).toBe("user-web");
+    expect(store.walletTypeOf(wallet.address)).toBe("chumbucket");
+  });
+
+  test("a challenge for another address, a short signature, or the flag off: nothing is linked", async () => {
+    const wallet = makeWallet();
+    const other = makeWallet();
+    const sign = async (message: Uint8Array) => new Uint8Array(nodeSign(null, Buffer.from(message), wallet.privateKey));
+    const swapped = rig();
+    await expect(linkChumbucketWallet({
+      api: { ...swapped.api, requestWalletLink: (token) => swapped.api.requestWalletLink(token, other.address) },
+      token: "tok-web", address: wallet.address, signMessage: sign,
+    })).rejects.toThrow("challenge");
+    const short = rig();
+    await expect(linkChumbucketWallet({ api: short.api, token: "tok-web", address: wallet.address, signMessage: async () => new Uint8Array(63) }))
+      .rejects.toThrow("signature");
+    const off = rig(false);
+    await expect(linkChumbucketWallet({ api: off.api, token: "tok-web", address: wallet.address, signMessage: sign }))
+      .rejects.toMatchObject({ code: "WALLET_TYPE_UNAVAILABLE" });
+    for (const h of [swapped, short, off]) expect(h.store.walletOwner(wallet.address)).toBeUndefined();
   });
 });
