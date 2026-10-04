@@ -5,6 +5,11 @@
  *                   in, which of the account's proven wallets trades
  *   wallet.balance  that wallet's real mainnet USDC and SOL (read-only RPC,
  *                   genesis-pinned like deposits.balance)
+ *   wallet.privyToken  a ten-minute JWT whose `sub` is the ACCOUNT, which the
+ *                   apps hand Privy (src/wallet/privyJwt.ts). Every sign-in of
+ *                   one account gets the same `sub`, so the same wallet.
+ *
+ * Each is rate limited per account.
  *
  * POST mutations, like deposits.*: the Supabase session rides in the
  * Authorization header and nothing private lands in a URL. No input names a
@@ -19,6 +24,7 @@ import type { DepositPerson } from "../deposits/accounts.ts";
 import { DepositError, isDepositError, type DepositErrorCode } from "../deposits/errors.ts";
 import { depositsRuntimeFor, type DepositsRuntime } from "../deposits/runtime.ts";
 import { readDepositBalance } from "../deposits/service.ts";
+import { privyJwtSignerFor } from "../wallet/privyJwt.ts";
 import { CHUMBUCKET_WALLET_TYPE, chooseTradingWallet, chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
@@ -59,6 +65,12 @@ export const walletRouter = router({
     const rt = depositsRuntimeFor(ctx.app.config);
     const resolved = await rt.accounts.resolve(ctx.supabaseAccessToken).catch(() => ({ ok: false }) as const);
     if (!resolved.ok) return { enabled: true as const, account: null };
+    try {
+      rt.limiter.take(resolved.person.userId, "walletStatus");
+    } catch (error) {
+      if (isDepositError(error)) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: error.message });
+      throw error;
+    }
     const trading = chooseTradingWallet(resolved.person, true);
     const own = resolved.person.wallets.find((w) => w.walletType === CHUMBUCKET_WALLET_TYPE);
     return {
@@ -89,6 +101,20 @@ export const walletRouter = router({
         usdcBaseUnits: balance.usdcBaseUnits,
         slot: balance.slot,
       };
+    }),
+  ),
+
+  privyToken: publicProcedure.input(z.object({}).strict().optional()).mutation(({ ctx }) =>
+    run(async () => {
+      if (!chumbucketWalletEnabled(ctx.app.config)) {
+        throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
+      }
+      const signer = privyJwtSignerFor(ctx.app.config, ctx.app.config.chumbucketWallet?.privyJwt);
+      if (!signer) throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
+      const rt = depositsRuntimeFor(ctx.app.config);
+      const who = await person(ctx, rt);
+      rt.limiter.take(who.userId, "privyToken");
+      return signer.mint(who.userId);
     }),
   ),
 });

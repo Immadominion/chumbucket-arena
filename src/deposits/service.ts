@@ -48,8 +48,12 @@ export interface DepositAmountInput {
   receiptEmail?: string | undefined;
 }
 
-type Action = "quote" | "create" | "order" | "proof" | "balance";
-const LIMITS: Record<Action, number> = { quote: 30, create: 8, order: 90, proof: 6, balance: 40 };
+type Action = "quote" | "create" | "order" | "proof" | "balance" | "walletStatus" | "privyToken";
+const LIMITS: Record<Action, number> = {
+  quote: 30, create: 8, order: 90, proof: 6, balance: 40,
+  // The Chumbucket wallet (src/api/wallet.ts). A Privy token lives ten minutes.
+  walletStatus: 30, privyToken: 12,
+};
 
 /** Per-person sliding window. Crossmint allows 120 writes/min per PROJECT. */
 export class DepositRateLimiter {

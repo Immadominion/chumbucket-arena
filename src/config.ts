@@ -69,7 +69,12 @@ export interface AppConfig {
    * unless exactly CHUMBUCKET_WALLET_ENABLED=true, and only after
    * 20261004130000_linked_wallets_chumbucket_type.sql is applied.
    */
-  chumbucketWallet?: { enabled: boolean };
+  chumbucketWallet?: {
+    enabled: boolean;
+    /** PRIVY_JWT_PRIVATE_KEY + BFF_PUBLIC_URL: the per-account token Privy
+     *  verifies against this BFF's JWKS (src/wallet/privyJwt.ts). */
+    privyJwt?: { privateKey: string; issuer: string };
+  };
   /** Supabase social read model used by the mobile app and indexer. */
   social?: {
     supabaseUrl: string;
@@ -268,7 +273,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (env.PRIVY_APP_SECRET) cfg.privy.appSecret = env.PRIVY_APP_SECRET;
     if (env.PRIVY_VERIFICATION_KEY) cfg.privy.verificationKey = env.PRIVY_VERIFICATION_KEY;
   }
-  cfg.chumbucketWallet = { enabled: env.CHUMBUCKET_WALLET_ENABLED === "true" };
+  cfg.chumbucketWallet = {
+    enabled: env.CHUMBUCKET_WALLET_ENABLED === "true",
+    ...(env.PRIVY_JWT_PRIVATE_KEY && env.BFF_PUBLIC_URL
+      ? { privyJwt: { privateKey: env.PRIVY_JWT_PRIVATE_KEY, issuer: env.BFF_PUBLIC_URL } }
+      : {}),
+  };
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     const network = (env.SOLANA_NETWORK ?? "devnet").toLowerCase();
     cfg.social = {

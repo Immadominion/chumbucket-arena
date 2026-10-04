@@ -18,6 +18,7 @@ import { servedRouter } from "./router.ts";
 import { reportError } from "../ops/errorReporting.ts";
 import { handleReady } from "../ops/readiness.ts";
 import { makeContext } from "./trpc.ts";
+import { PRIVY_JWKS_PATH, privyJwtSignerFor } from "../wallet/privyJwt.ts";
 
 /** Credential from the request: `Authorization: Bearer <privy token>`, or the
  *  `x-wallet` header in dev mode. */
@@ -71,6 +72,30 @@ export function clientIpFrom(
   }
 }
 
+/**
+ * The public key Privy verifies the Chumbucket wallet's account tokens with
+ * (src/wallet/privyJwt.ts). Public by design; 404 while no key is configured.
+ */
+export function handlePrivyJwks(app: App, req: IncomingMessage, res: ServerResponse): void {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "content-type": "application/json", allow: "GET, HEAD" });
+    res.end(JSON.stringify({ error: "method not allowed" }));
+    return;
+  }
+  const signer = privyJwtSignerFor(app.config, app.config.chumbucketWallet?.privyJwt);
+  if (!signer) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not configured" }));
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "cache-control": "public, max-age=300",
+    "access-control-allow-origin": "*",
+  });
+  res.end(req.method === "HEAD" ? undefined : JSON.stringify(signer.jwks()));
+}
+
 export interface StartServerOptions {
   /** Default: `servedRouter()` — the calls BFF surface unless LEGACY_ARENA_ROUTES=true. */
   router?: AnyRouter;
@@ -86,6 +111,10 @@ export function startServer(app: App, port: number, host?: string, options: Star
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/ready") {
         handleReady(req, res);
+        return;
+      }
+      if (url.pathname === PRIVY_JWKS_PATH) {
+        handlePrivyJwks(app, req, res);
         return;
       }
       if (url.pathname === "/webhooks/helius") {
