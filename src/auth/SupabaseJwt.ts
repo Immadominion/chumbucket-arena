@@ -56,7 +56,7 @@ export function latestAmrMethod(token: string): string | undefined {
     for (const entry of claims.amr) {
       if (!entry || typeof entry !== "object") continue;
       const { method, timestamp } = entry as { method?: unknown; timestamp?: unknown };
-      if (typeof method !== "string" || !/^[a-z0-9_/-]{1,32}$/.test(method)) continue;
+      if (typeof method !== "string" || !/^[a-z0-9_/-]{1,48}$/.test(method)) continue;
       const at = typeof timestamp === "number" ? timestamp : 0;
       if (!best || at >= best.at) best = { method, at };
     }
