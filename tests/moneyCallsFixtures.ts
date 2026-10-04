@@ -147,7 +147,7 @@ export function moneyRig(opts: { markets?: VenueMarket[]; people?: Person[] } = 
     calls: { service: calls, store: h.calls, flush: async () => { flushes++; } },
     trading: () => panta,
     ledger: () => panta,
-    balances, gas, maxBaseUnits: 100_000_000n, chumbucketWallet: true, now: () => h.clock.now(),
+    balances, gas, maxBaseUnits: 100_000_000n, chumbucketWallet: () => true, now: () => h.clock.now(),
   });
   panta.onFilled = row => {
     funding.markFilled(row.call_id, Date.parse(row.updated_at), { id: row.id, amountBaseUnits: row.amount_base_units, side: row.side });

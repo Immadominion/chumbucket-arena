@@ -10,13 +10,23 @@
 
 import type { AppConfig } from "../config.ts";
 import type { DepositPerson, DepositWallet } from "../deposits/accounts.ts";
+import { chumbucketWalletRollout, rolloutActive, rolloutAllows } from "../rollout.ts";
 
 /** `linked_wallets.wallet_type` of the Chumbucket wallet. */
 export const CHUMBUCKET_WALLET_TYPE = "chumbucket";
 
-/** Off unless exactly CHUMBUCKET_WALLET_ENABLED=true. */
+/**
+ * CHUMBUCKET_WALLET_ENABLED is "true" or "admins" (src/rollout.ts): on for
+ * someone. Off for any other value. Whether a person gets it is
+ * `chumbucketWalletFor`.
+ */
 export function chumbucketWalletEnabled(config: AppConfig): boolean {
-  return config.chumbucketWallet?.enabled === true;
+  return rolloutActive(chumbucketWalletRollout(config));
+}
+
+/** Whether this account gets the Chumbucket wallet. Null: no account (flag-off answer under "admins"). */
+export function chumbucketWalletFor(config: AppConfig, userId: string | null | undefined): boolean {
+  return rolloutAllows(config, chumbucketWalletRollout(config), userId);
 }
 
 /**

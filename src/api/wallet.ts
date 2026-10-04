@@ -27,7 +27,7 @@ import { DepositError, isDepositError, type DepositErrorCode } from "../deposits
 import { depositsRuntimeFor, type DepositsRuntime } from "../deposits/runtime.ts";
 import { readDepositBalance } from "../deposits/service.ts";
 import { privyJwtSignerFor } from "../wallet/privyJwt.ts";
-import { CHUMBUCKET_WALLET_TYPE, chooseTradingWallet, chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
+import { CHUMBUCKET_WALLET_TYPE, chooseTradingWallet, chumbucketWalletEnabled, chumbucketWalletFor } from "../wallet/tradingWallet.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
 
@@ -76,11 +76,31 @@ async function run<T>(action: () => Promise<T>): Promise<T> {
   }
 }
 
+const OFF_COPY = "Your Chumbucket wallet isn't available yet.";
+
+/**
+ * CHUMBUCKET_WALLET_ENABLED per account (src/rollout.ts). "admins": an account
+ * that is not an admin, or a session with no account, gets exactly the
+ * flag-off answer.
+ */
+async function walletPerson(ctx: Context, rt: DepositsRuntime): Promise<DepositPerson> {
+  const config = ctx.app.config;
+  if (!chumbucketWalletEnabled(config)) throw new DepositError("UNAVAILABLE", OFF_COPY);
+  if (chumbucketWalletFor(config, null)) return person(ctx, rt);
+  let who: DepositPerson;
+  try { who = await person(ctx, rt); } catch { throw new DepositError("UNAVAILABLE", OFF_COPY); }
+  if (!chumbucketWalletFor(config, who.userId)) throw new DepositError("UNAVAILABLE", OFF_COPY);
+  return who;
+}
+
 export const walletRouter = router({
   status: publicProcedure.input(z.object({}).strict().optional()).mutation(async ({ ctx }) => {
-    if (!chumbucketWalletEnabled(ctx.app.config)) return { enabled: false as const, account: null };
+    const off = { enabled: false as const, account: null };
+    if (!chumbucketWalletEnabled(ctx.app.config)) return off;
     const rt = depositsRuntimeFor(ctx.app.config);
     const resolved = await rt.accounts.resolve(ctx.supabaseAccessToken).catch(() => ({ ok: false }) as const);
+    // "admins": per account; anyone else is told exactly what flag-off says.
+    if (!chumbucketWalletFor(ctx.app.config, resolved.ok ? resolved.person.userId : null)) return off;
     if (!resolved.ok) return { enabled: true as const, account: null };
     try {
       rt.limiter.take(resolved.person.userId, "walletStatus");
@@ -101,11 +121,8 @@ export const walletRouter = router({
 
   balance: publicProcedure.input(z.object({}).strict().optional()).mutation(({ ctx }) =>
     run(async () => {
-      if (!chumbucketWalletEnabled(ctx.app.config)) {
-        throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
-      }
       const rt = depositsRuntimeFor(ctx.app.config);
-      const who = await person(ctx, rt);
+      const who = await walletPerson(ctx, rt);
       const trading = chooseTradingWallet(who, true);
       if (!trading) throw new DepositError("NO_WALLET", "Set up your wallet first.");
       if (!rt.balances) throw new DepositError("BALANCE_UNAVAILABLE", "Balances aren't available on this server.");
@@ -123,12 +140,17 @@ export const walletRouter = router({
 
   privyToken: publicProcedure.input(z.object({}).strict().optional()).mutation(({ ctx }) =>
     run(async () => {
-      if (!chumbucketWalletEnabled(ctx.app.config)) {
-        throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
+      const config = ctx.app.config;
+      if (!chumbucketWalletEnabled(config)) throw new DepositError("UNAVAILABLE", OFF_COPY);
+      const signer = privyJwtSignerFor(config, config.chumbucketWallet?.privyJwt);
+      if (!signer) throw new DepositError("UNAVAILABLE", OFF_COPY);
+      let userId: string;
+      if (chumbucketWalletFor(config, null)) userId = await account(ctx);
+      else {
+        // "admins": a Privy token only for an admin account; anyone else, exactly flag-off.
+        try { userId = await account(ctx); } catch { throw new DepositError("UNAVAILABLE", OFF_COPY); }
+        if (!chumbucketWalletFor(config, userId)) throw new DepositError("UNAVAILABLE", OFF_COPY);
       }
-      const signer = privyJwtSignerFor(ctx.app.config, ctx.app.config.chumbucketWallet?.privyJwt);
-      if (!signer) throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
-      const userId = await account(ctx);
       depositsRuntimeFor(ctx.app.config).limiter.take(userId, "privyToken");
       return signer.mint(userId);
     }),

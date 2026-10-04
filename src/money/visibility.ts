@@ -16,6 +16,7 @@
  * pending call is never public for an instant.
  */
 import type { AppConfig } from "../config.ts";
+import { moneyCallsRollout, rolloutActive, rolloutAllows } from "../rollout.ts";
 import { InMemoryMoneyCallStore, SupabaseMoneyCallStore, type MoneyCallRow, type MoneyCallStore } from "./store.ts";
 
 export interface MoneyCallOwnerView {
@@ -71,9 +72,18 @@ export class MoneyCallIndex implements MoneyCallVisibility {
   }
 }
 
-/** On only with MONEY_CALLS_ENABLED=true. */
+/**
+ * MONEY_CALLS_ENABLED is "true" or "admins": the server-side machinery runs
+ * (which calls are private, the fill hook, the sweeper). Whether a person
+ * gets money calls is `moneyCallsFor`.
+ */
 export function moneyCallsEnabled(config: AppConfig | undefined): boolean {
-  return config?.money?.callsEnabled === true;
+  return rolloutActive(moneyCallsRollout(config));
+}
+
+/** Whether this account gets money calls (src/rollout.ts). Null: no account. */
+export function moneyCallsFor(config: AppConfig | undefined, userId: string | null | undefined): boolean {
+  return rolloutAllows(config, moneyCallsRollout(config), userId);
 }
 
 const stores = new WeakMap<AppConfig, MoneyCallStore>();

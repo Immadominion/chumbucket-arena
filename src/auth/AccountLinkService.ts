@@ -30,7 +30,8 @@ import { randomBytes } from "node:crypto";
 import { codeForStoreReason, failAuth } from "./AuthIdentityError.ts";
 import type { AccountLinkStore, AccountSignIns, LinkMethod } from "./AccountLinkStore.ts";
 import type { SupabaseJwtVerifier, SupabaseSession } from "./SupabaseJwt.ts";
-import { hashNonce, isSolanaAddress, type WalletLinkService } from "./WalletLinkService.ts";
+import { hashNonce, isSolanaAddress, type AuthedIdentity, type WalletLinkService } from "./WalletLinkService.ts";
+import type { StoreResult } from "./IdentityStore.ts";
 import { CHUMBUCKET_WALLET_TYPE } from "../wallet/tradingWallet.ts";
 
 export type MethodKind = "wallet" | "x" | "google";
@@ -133,8 +134,12 @@ interface Deps {
   identity: WalletLinkService;
   links?: AccountLinkStore;
   verifier: SupabaseJwtVerifier;
-  linking: boolean;
-  fold: boolean;
+  /**
+   * On or off for everyone, or per account (a staged rollout, src/rollout.ts):
+   * an account it is off for gets exactly the flag-off answers.
+   */
+  linking: boolean | ((userId: string) => boolean);
+  fold: boolean | ((userId: string) => boolean);
   /** Override only in tests. Production uses 32 bytes of CSPRNG. */
   makeTicket?: () => string;
 }
@@ -259,8 +264,43 @@ export class AccountLinkService {
     return this.deps.links;
   }
 
+  private linkingFor(userId: string): boolean {
+    const rule = this.deps.linking;
+    return typeof rule === "function" ? rule(userId) : rule;
+  }
+  private foldFor(userId: string): boolean {
+    const rule = this.deps.fold;
+    return typeof rule === "function" ? rule(userId) : rule;
+  }
+
+  /** Off for everyone: refused before anything is read, as before. */
   private requireLinking(): void {
-    if (!this.deps.linking) failAuth("ACCOUNT_LINKING_DISABLED");
+    if (this.deps.linking === false) failAuth("ACCOUNT_LINKING_DISABLED");
+  }
+
+  /**
+   * The caller's account, when linking is on for it. With a staged rollout,
+   * a session with no account or an account it is off for gets exactly the
+   * flag-off refusal, ACCOUNT_LINKING_DISABLED.
+   */
+  private async linkingAccount(accessToken: string): Promise<AuthedIdentity & { session: SupabaseSession }> {
+    this.requireLinking();
+    if (typeof this.deps.linking !== "function") return this.deps.identity.authenticateSession(accessToken);
+    let who: AuthedIdentity & { session: SupabaseSession };
+    try { who = await this.deps.identity.authenticateSession(accessToken); } catch { failAuth("ACCOUNT_LINKING_DISABLED"); }
+    if (!this.linkingFor(who.userId)) failAuth("ACCOUNT_LINKING_DISABLED");
+    return who;
+  }
+
+  /** A ticket's own account (the one linking into), when linking is on for it. */
+  private async ticketAccount(ticketHash: string, authUserId: string): Promise<StoreResult> {
+    const preview = await this.links().preview(ticketHash, authUserId);
+    if (typeof this.deps.linking === "function") {
+      const into = typeof preview.into_user_id === "string" ? preview.into_user_id : null;
+      // No ticket an account outside the rollout could hold: the flag-off answer.
+      if (!preview.ok || !into || !this.linkingFor(into)) failAuth("ACCOUNT_LINKING_DISABLED");
+    }
+    return preview;
   }
 
   /** A verified session that need not reach an account yet (the other side). */
@@ -275,16 +315,17 @@ export class AccountLinkService {
   async signInMethods(accessToken: string): Promise<SignInMethods> {
     const who = await this.deps.identity.authenticateSession(accessToken);
     const data = await this.links().signIns(who.userId);
+    // Per account: with a staged rollout, anyone else is told exactly what flag-off says.
+    const linking = this.linkingFor(who.userId);
     return {
       methods: signInMethodRows(data, who.session),
-      linking: this.deps.linking,
-      fold: this.deps.linking && this.deps.fold,
+      linking,
+      fold: linking && this.foldFor(who.userId),
     };
   }
 
   async unlink(accessToken: string, ref: string): Promise<{ signIns: number; wallets: number }> {
-    this.requireLinking();
-    const who = await this.deps.identity.authenticate(accessToken);
+    const who = await this.linkingAccount(accessToken);
     const signIn = /^s:(.+)$/.exec(ref)?.[1];
     const wallet = /^w:(.+)$/.exec(ref)?.[1];
     if (signIn !== undefined && !UUID.test(signIn)) failAuth("SIGN_IN_NOT_FOUND");
@@ -316,8 +357,7 @@ export class AccountLinkService {
   }
 
   async startLink(accessToken: string, method: LinkMethod): Promise<LinkTicket> {
-    this.requireLinking();
-    const who = await this.deps.identity.authenticate(accessToken);
+    const who = await this.linkingAccount(accessToken);
     const ticket = this.makeTicket();
     const issued = await this.links().issueTicket({
       userId: who.userId,
@@ -339,7 +379,7 @@ export class AccountLinkService {
     this.requireLinking();
     const session = await this.otherSide(otherAccessToken);
     const links = this.links();
-    const preview = await links.preview(hashNonce(ticket), session.authUserId);
+    const preview = await this.ticketAccount(hashNonce(ticket), session.authUserId);
     if (!preview.ok) failAuth(codeForStoreReason(preview.reason, "LINK_TICKET_INVALID"));
     const into = String(preview.into_user_id ?? "");
     const other = typeof preview.other_user_id === "string" ? preview.other_user_id : null;
@@ -354,7 +394,7 @@ export class AccountLinkService {
       ? null
       : typeof preview.refusal === "string"
         ? (REFUSALS[preview.refusal] ?? "ACCOUNT_NOT_FOLDABLE")
-        : !this.deps.fold ? "ACCOUNT_FOLD_DISABLED" : null;
+        : !this.foldFor(into) ? "ACCOUNT_FOLD_DISABLED" : null;
     return {
       outcome,
       proof: { kind: method, label: typeof preview.proof_label === "string" ? preview.proof_label : null },
@@ -368,11 +408,19 @@ export class AccountLinkService {
   async completeLink(otherAccessToken: string, ticket: string, expect: LinkExpectation): Promise<LinkCompletion> {
     this.requireLinking();
     const session = await this.otherSide(otherAccessToken);
+    // Per account: the ticket's own account decides (a staged rollout reads it first).
+    let allowLink = this.deps.linking === true, allowFold = this.deps.fold === true;
+    if (typeof this.deps.linking === "function" || typeof this.deps.fold === "function") {
+      const preview = await this.ticketAccount(hashNonce(ticket), session.authUserId);
+      const into = typeof preview.into_user_id === "string" ? preview.into_user_id : "";
+      allowLink = this.linkingFor(into);
+      allowFold = allowLink && this.foldFor(into);
+    }
     const done = await this.links().complete({
       ticketHash: hashNonce(ticket),
       authUserId: session.authUserId,
-      allowLink: this.deps.linking,
-      allowFold: this.deps.fold,
+      allowLink,
+      allowFold,
       expectedOutcome: expect.outcome,
       expectedOtherUserId: expect.otherUserId,
     });

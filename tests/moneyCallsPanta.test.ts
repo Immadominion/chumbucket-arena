@@ -111,7 +111,7 @@ test("prepare → sign → submit → FILLED: FUNDED only after the fill transit
   const balances = new FakeBalances();
   balances.set(wallet, "5000000");
   money = new MoneyCallsService({ store, index, calls: { service: calls, store: h.calls, flush: async () => {} },
-    trading: () => trading, ledger: () => ledger, balances, gas: new FakeGas(), maxBaseUnits: 100_000_000n, chumbucketWallet: true, now: () => h.clock.now() });
+    trading: () => trading, ledger: () => ledger, balances, gas: new FakeGas(), maxBaseUnits: 100_000_000n, chumbucketWallet: () => true, now: () => h.clock.now() });
 
   const ann = { userId: "ann", authUserId: "ann", email: null, wallets: [{ address: wallet, walletType: "chumbucket", primary: true, session: false }] };
   const out = await money.prepareCall(ann, { call: { kind: "own", marketId: "m", side: "YES" }, amountBaseUnits: "1000000",

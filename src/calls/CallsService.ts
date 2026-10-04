@@ -87,6 +87,13 @@ export interface CallsServiceDeps {
    * every read is exactly what it was.
    */
   moneyCalls?: MoneyCallVisibility;
+  /**
+   * MONEY_CALLS_ENABLED=admins: which viewers see money (filled amounts,
+   * funded-first ordering, funded counts, their own pending call). Everyone
+   * else reads exactly as with the switch off. Absent: every viewer, when
+   * `moneyCalls` is present.
+   */
+  moneyFor?: (viewerUserId: string | null) => boolean;
 }
 
 /** A call money will fund: the actor's own, or a Back (Tail) / Fade of someone else's. */
@@ -124,12 +131,14 @@ export class CallsService {
   private readonly callCutoffMs: number;
   private readonly funding: CallFundingReader | undefined;
   private readonly money: MoneyCallVisibility | undefined;
+  private readonly moneyFor: (viewerUserId: string | null) => boolean;
 
   constructor(deps: CallsServiceDeps) {
     this.allowPantaCalls = deps.allowPantaCalls === true;
     this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
     this.funding = deps.funding;
     this.money = deps.moneyCalls;
+    this.moneyFor = this.money ? deps.moneyFor ?? (() => true) : () => false;
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock ?? systemClock;
@@ -146,6 +155,7 @@ export class CallsService {
       ...(money ? {
         isPrivate: (callId: string) => money.isPrivate(callId),
         isFunded: (callId: string) => (funding?.fundingOf(callId) ?? null) !== null,
+        showsMoney: (viewerUserId: string | null) => this.moneyFor(viewerUserId),
       } : {}),
     });
   }
@@ -331,7 +341,7 @@ export class CallsService {
       .callsByAuthor(person.id)
       .filter((c) => c.hiddenAt === null)
       .filter((c) => this.canSee(c, viewerUserId))
-      .sort(this.money ? this.fundedFirst : newestFirst);
+      .sort(this.moneyFor(viewerUserId) ? this.fundedFirst : newestFirst);
 
     return {
       person: this.decorate(person),
@@ -753,9 +763,9 @@ export class CallsService {
       // Present only on a call backed by a confirmed fill; a free call's
       // entry keeps its exact shape. The filled amount and side only with
       // money calls on, for "$5 on YES".
-      ...funded(this.funding?.fundingOf(call.id) ?? null, this.money !== undefined),
+      ...funded(this.funding?.fundingOf(call.id) ?? null, this.moneyFor(viewerUserId)),
       // The owner's own pending or expired money call. Nobody else sees the call.
-      ...(this.money && viewerUserId === call.userId ? ownMoney(this.money.ownerView(call.id)) : {}),
+      ...(this.money && viewerUserId === call.userId && this.moneyFor(viewerUserId) ? ownMoney(this.money.ownerView(call.id)) : {}),
     };
   }
 

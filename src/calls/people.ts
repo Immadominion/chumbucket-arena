@@ -106,6 +106,8 @@ export interface PeopleDirectoryDeps {
   isPrivate?: (callId: string) => boolean;
   /** MONEY_CALLS_ENABLED only: a call backed by a confirmed fill. Funded calls rank first on call lists. */
   isFunded?: (callId: string) => boolean;
+  /** MONEY_CALLS_ENABLED=admins: which viewers see funded ordering and counts. Absent: all. */
+  showsMoney?: (viewerUserId: string | null) => boolean;
 }
 
 /**
@@ -129,6 +131,7 @@ export class PeopleDirectory {
   private readonly callCutoffMs: number;
   private readonly isPrivate: (callId: string) => boolean;
   private readonly isFunded: ((callId: string) => boolean) | undefined;
+  private readonly showsMoney: (viewerUserId: string | null) => boolean;
 
   constructor(deps: PeopleDirectoryDeps) {
     this.store = deps.store;
@@ -137,6 +140,12 @@ export class PeopleDirectory {
     this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
     this.isPrivate = deps.isPrivate ?? (() => false);
     this.isFunded = deps.isFunded;
+    this.showsMoney = deps.showsMoney ?? (() => true);
+  }
+
+  /** Funded-call facts for this viewer, or none (the switch is off for them). */
+  private fundedFor(viewerUserId: string | null): ((callId: string) => boolean) | undefined {
+    return this.isFunded && this.showsMoney(viewerUserId) ? this.isFunded : undefined;
   }
 
   /** Rule 1's scope, minus calls that were never public (a pending or expired money call). */
@@ -211,7 +220,7 @@ export class PeopleDirectory {
     const since = span === null ? null : now - span;
 
     const records = this.recordsByAuthor(since);
-    const funded = this.fundedCallsByAuthor(since);
+    const funded = this.fundedCallsByAuthor(since, this.fundedFor(viewerUserId));
     const rows: (LeaderboardRow & { score: number })[] = [];
     for (const [userId, record] of records) {
       if (record.counts.decided === 0) continue;
@@ -280,8 +289,7 @@ export class PeopleDirectory {
    * confirmed fill (locked inside the window). Null with money calls off, so
    * a row keeps its exact earlier shape.
    */
-  private fundedCallsByAuthor(since: number | null): Map<string, number> | null {
-    const isFunded = this.isFunded;
+  private fundedCallsByAuthor(since: number | null, isFunded: ((callId: string) => boolean) | undefined): Map<string, number> | null {
     if (!isFunded) return null;
     const out = new Map<string, number>();
     for (const call of this.store.listCalls()) {
@@ -370,7 +378,7 @@ export class PeopleDirectory {
       else responsesByTarget.set(r.targetCallId, [r]);
     }
 
-    const isFunded = this.isFunded;
+    const isFunded = this.fundedFor(viewerUserId);
     const candidates = this.store
       .liveCalls()
       .filter((c) => c.visibility === "public" && c.userId !== viewerUserId && !hidden(c.userId) && !this.isPrivate(c.id))

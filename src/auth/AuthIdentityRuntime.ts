@@ -27,6 +27,7 @@ import {
 } from "./IdentityStore.ts";
 import { GoTrueJwtVerifier, UnconfiguredJwtVerifier, type SupabaseJwtVerifier } from "./SupabaseJwt.ts";
 import { SIWS_PROOF_VERSION, type SiwsNetwork } from "./SiwsMessage.ts";
+import { accountFoldRollout, accountLinkingRollout, rolloutActive, type Rollout } from "../rollout.ts";
 
 export interface AuthIdentityPolicy {
   /** Domains a SIWS proof may name. An allowlist, never a client-supplied hint. */
@@ -83,6 +84,22 @@ export interface AuthIdentityRuntime {
   accountLinking?: boolean;
   /** ACCOUNT_FOLD_ENABLED: fold another account in, with proof of both. Absent = off. */
   accountFold?: boolean;
+  /**
+   * The rollouts (src/rollout.ts). "admins": linking (and fold) only for
+   * TRUST_ADMIN_USER_IDS accounts; anyone else gets exactly the flag-off
+   * behaviour. Absent: `accountLinking` / `accountFold` say on or off for all.
+   */
+  accountLinkingRollout?: Rollout;
+  accountFoldRollout?: Rollout;
+}
+
+/** This runtime's linking rollout. */
+export function linkingRolloutOf(rt: AuthIdentityRuntime): Rollout {
+  return rt.accountLinkingRollout ?? (rt.accountLinking === true ? "on" : "off");
+}
+/** This runtime's fold rollout. */
+export function foldRolloutOf(rt: AuthIdentityRuntime): Rollout {
+  return rt.accountFoldRollout ?? (rt.accountFold === true ? "on" : "off");
 }
 
 /**
@@ -131,10 +148,14 @@ export function buildAuthIdentityRuntime(config: AppConfig): AuthIdentityRuntime
   return {
     ...(sc ? { existingAccounts: new SupabaseExistingAccountStore(sc) } : {}),
     ...(sc ? { accountLinks: new SupabaseAccountLinkStore(sc) } : {}),
-    accountLinking: config.authIdentity?.accountLinkingEnabled === true,
-    accountFold: config.authIdentity?.accountFoldEnabled === true,
+    accountLinking: accountLinkingRollout(config) === "on",
+    accountFold: accountFoldRollout(config) === "on",
+    accountLinkingRollout: accountLinkingRollout(config),
+    accountFoldRollout: accountFoldRollout(config),
+    // With "admins" the store still reads additional sign-ins; the resolver
+    // then honours one only for an account linking is on for.
     store: sc
-      ? new SupabaseIdentityStore(sc, fetch, { additionalSignIns: config.authIdentity?.accountLinkingEnabled === true })
+      ? new SupabaseIdentityStore(sc, fetch, { additionalSignIns: rolloutActive(accountLinkingRollout(config)) })
       : new NoopIdentityStore(),
     verifier: sc ? new GoTrueJwtVerifier(sc) : new UnconfiguredJwtVerifier(),
     policy: resolveAuthIdentityPolicy(config),

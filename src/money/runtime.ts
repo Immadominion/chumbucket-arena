@@ -12,7 +12,7 @@ import { pantaLifecycleFor, pantaTradingFor } from "../prediction/PantaTradingRu
 import { RpcRentReader } from "../solTopUp/need.ts";
 import { pantaTradable } from "../prediction/marketQuote.ts";
 import { solTopUpRuntimeFor } from "../solTopUp/runtime.ts";
-import { chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
+import { chumbucketWalletFor } from "../wallet/tradingWallet.ts";
 import { RpcUsdcCredits, type UsdcCreditsReader } from "./activity.ts";
 import { MoneyGas, type GasPort } from "./gas.ts";
 import { registerMoneyHooks, type MoneyHooks, type MoneySweepReport } from "./hooks.ts";
@@ -53,7 +53,7 @@ export function buildMoneyRuntime(config: AppConfig): MoneyRuntime {
     balances,
     gas,
     maxBaseUnits: maxRaw && /^[1-9][0-9]{0,15}$/.test(maxRaw) ? BigInt(maxRaw) : null,
-    chumbucketWallet: chumbucketWalletEnabled(config),
+    chumbucketWallet: userId => chumbucketWalletFor(config, userId),
     tradable: marketId => {
       const market = calls.markets.getMarket(marketId);
       return market !== undefined && market.venue === "panta" && pantaTradable(market);

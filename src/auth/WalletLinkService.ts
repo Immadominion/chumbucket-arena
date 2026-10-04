@@ -130,14 +130,19 @@ export interface WalletLinkDeps {
   walletProfileCarry?: boolean;
   /** Additional sign-ins (20261004120000_account_sign_ins.sql). */
   accountLinks?: AccountLinkStore;
-  /** ACCOUNT_LINKING_ENABLED: a linked wallet's sign-in lands on its account. Default off. */
-  accountLinking?: boolean;
+  /**
+   * ACCOUNT_LINKING_ENABLED: a linked wallet's sign-in lands on its account,
+   * and an additional sign-in reaches the account it was linked to. Default
+   * off. A function is the per-account answer of a staged rollout
+   * (src/rollout.ts): an account it is off for gets exactly the flag-off path.
+   */
+  accountLinking?: boolean | ((userId: string) => boolean);
   /**
    * CHUMBUCKET_WALLET_ENABLED. The "chumbucket" label is refused while off:
    * the database admits it only once 20261004130000 is applied, and the flag
-   * is turned on after that.
+   * is turned on after that. A function: per account (src/rollout.ts).
    */
-  chumbucketWallet?: boolean;
+  chumbucketWallet?: boolean | ((userId: string) => boolean);
 }
 
 /** `carry`: this request is a sign-in, and may bind the session (see authenticateSession). */
@@ -172,6 +177,20 @@ export class WalletLinkService {
     this.makeNonce = deps.makeNonce ?? (() => randomBytes(32).toString("hex"));
   }
 
+  /** Linking is on for someone (a staged rollout counts). */
+  private linkingActive(): boolean {
+    return typeof this.deps.accountLinking === "function" || this.deps.accountLinking === true;
+  }
+  /** Linking is on for this account. */
+  private linkingFor(userId: string): boolean {
+    const rule = this.deps.accountLinking;
+    return typeof rule === "function" ? rule(userId) : rule === true;
+  }
+  private chumbucketWalletFor(userId: string): boolean {
+    const rule = this.deps.chumbucketWallet;
+    return typeof rule === "function" ? rule(userId) : rule === true;
+  }
+
   /**
    * Supabase JWT -> exactly one canonical user.
    *
@@ -203,13 +222,26 @@ export class WalletLinkService {
 
     // The account's primary sign-in, or an additional one (a linked wallet's,
     // or a folded account's).
-    let userId = await this.deps.store.userIdForAuthUser(session.authUserId);
+    const resolved = this.deps.store.resolveAuthUser
+      ? await this.deps.store.resolveAuthUser(session.authUserId)
+      : { userId: await this.deps.store.userIdForAuthUser(session.authUserId), additional: false };
+    let userId = resolved.userId;
+    // An additional sign-in counts only for an account linking is on for; for
+    // any other it is exactly as if linking were off (no account).
+    if (userId && resolved.additional && !this.linkingFor(userId)) userId = null;
     // A wallet linked to an account with a SIWS proof signs in to that account
     // on any device. The database re-checks the wallet against this session's
     // own Web3 identity, and trusts only a link its audit trail backs.
-    if (!userId && opts.carry === true && session.solanaWallet && this.deps.accountLinking === true && this.deps.accountLinks) {
-      const linked = await this.deps.accountLinks.resolveWalletSignIn(session.authUserId, session.solanaWallet);
-      if (linked.ok && typeof linked.user_id === "string") userId = linked.user_id;
+    if (!userId && opts.carry === true && session.solanaWallet && this.linkingActive() && this.deps.accountLinks) {
+      // A staged rollout reads whose wallet it is first, and binds nothing
+      // for an account linking is off for.
+      const target = typeof this.deps.accountLinking === "function" && this.deps.accountLinks.walletAccount
+        ? await this.deps.accountLinks.walletAccount(session.solanaWallet)
+        : undefined;
+      if (target === undefined || (target !== null && this.linkingFor(target))) {
+        const linked = await this.deps.accountLinks.resolveWalletSignIn(session.authUserId, session.solanaWallet);
+        if (linked.ok && typeof linked.user_id === "string" && this.linkingFor(linked.user_id)) userId = linked.user_id;
+      }
     }
     // A wallet sign-in reaches the account that wallet already has — once the
     // old client-writable wallet mappings are closed (see the runtime flag).
@@ -383,7 +415,7 @@ export class WalletLinkService {
     if (purpose !== "link_wallet" && purpose !== "transfer_wallet") failAuth("SIWS_PURPOSE_MISMATCH");
 
     if (!isSolanaAddress(input.address)) failAuth("SIWS_ADDRESS_MISMATCH", "not a Solana address");
-    if (input.walletType === "chumbucket" && this.deps.chumbucketWallet !== true) failAuth("WALLET_TYPE_UNAVAILABLE");
+    if (input.walletType === "chumbucket" && !this.chumbucketWalletFor(identity.userId)) failAuth("WALLET_TYPE_UNAVAILABLE");
 
     // Static bindings + signature. Throws before any write.
     const fields = verifySiwsProof(input.message, input.signature, {
@@ -401,7 +433,7 @@ export class WalletLinkService {
     // of both accounts. Checked before the nonce is spent.
     // With linking off this is exactly the pre-linking path (no extra lookup).
     if (
-      this.deps.accountLinking === true &&
+      this.linkingFor(identity.userId) &&
       this.deps.accountLinks &&
       (await this.deps.accountLinks.walletSignInConflict(identity.userId, fields.address))
     ) {

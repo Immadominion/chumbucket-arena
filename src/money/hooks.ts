@@ -13,6 +13,7 @@
  */
 import type { AppConfig } from "../config.ts";
 import type { PantaTradeSession } from "../prediction/PantaTradingStore.ts";
+import { moneyCallsRollout, rolloutActive } from "../rollout.ts";
 
 export interface MoneySweepReport {
   funded: number;
@@ -33,7 +34,7 @@ export function registerMoneyHooks(builder: (config: AppConfig) => MoneyHooks): 
 
 /** The money hooks for this app, or null with money calls off (or not loaded). */
 export function moneyHooksFor(config: AppConfig): MoneyHooks | null {
-  if (config.money?.callsEnabled !== true || !build) return null;
+  if (!rolloutActive(moneyCallsRollout(config)) || !build) return null;
   try { return build(config); } catch { return null; }
 }
 

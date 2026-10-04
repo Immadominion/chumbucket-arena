@@ -7,6 +7,7 @@
 import type { Frost } from "./domain/ids.ts";
 import type { RateLimitConfig } from "./engine/RateLimiter.ts";
 import { livePredictionVenue } from "./prediction/venuePolicy.ts";
+import { parseAdminIds, parseRollout } from "./rollout.ts";
 
 export interface GameConfig {
   rakeBps: number; // basis points of the losers' pool → Manager's Pot
@@ -70,7 +71,10 @@ export interface AppConfig {
    * 20261004130000_linked_wallets_chumbucket_type.sql is applied.
    */
   chumbucketWallet?: {
+    /** On for every account (CHUMBUCKET_WALLET_ENABLED=true). */
     enabled: boolean;
+    /** The rollout (src/rollout.ts): on, admins only, or off. */
+    rollout?: import("./rollout.ts").Rollout;
     /** PRIVY_JWT_PRIVATE_KEY + BFF_PUBLIC_URL: the per-account token Privy
      *  verifies against this BFF's JWKS (src/wallet/privyJwt.ts). */
     privyJwt?: { privateKey: string; issuer: string };
@@ -82,7 +86,17 @@ export interface AppConfig {
    * 20261004140000_money_calls.sql and 20261004140500_wallet_transfers.sql
    * are applied. Off, every existing procedure answers exactly as before.
    */
-  money?: { callsEnabled: boolean };
+  money?: {
+    /** On for every account (MONEY_CALLS_ENABLED=true). */
+    callsEnabled: boolean;
+    /** The rollout (src/rollout.ts): on, admins only, or off. */
+    callsRollout?: import("./rollout.ts").Rollout;
+  };
+  /**
+   * TRUST_ADMIN_USER_IDS, for staged rollouts (src/rollout.ts): with a switch
+   * set to "admins", only these accounts get the feature.
+   */
+  rolloutAdmins?: string[];
   /** Supabase social read model used by the mobile app and indexer. */
   social?: {
     supabaseUrl: string;
@@ -108,12 +122,16 @@ export interface AppConfig {
      * Supabase Auth's manual identity linking.
      */
     accountLinkingEnabled?: boolean;
+    /** ACCOUNT_LINKING_ENABLED's rollout (src/rollout.ts): on, admins only, or off. */
+    accountLinkingRollout?: import("./rollout.ts").Rollout;
     /**
      * Off unless ACCOUNT_FOLD_ENABLED=true: a sign-in already on another
      * account folds that account in, after proof of both (never one with
      * funded activity or money).
      */
     accountFoldEnabled?: boolean;
+    /** ACCOUNT_FOLD_ENABLED's rollout (src/rollout.ts): on, admins only, or off. */
+    accountFoldRollout?: import("./rollout.ts").Rollout;
     siwsDomains?: string[];
     siwsUris?: string[];
     nonceTtlSeconds?: number;
@@ -294,13 +312,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (env.PRIVY_APP_SECRET) cfg.privy.appSecret = env.PRIVY_APP_SECRET;
     if (env.PRIVY_VERIFICATION_KEY) cfg.privy.verificationKey = env.PRIVY_VERIFICATION_KEY;
   }
+  cfg.rolloutAdmins = parseAdminIds(env.TRUST_ADMIN_USER_IDS);
+  const walletRollout = parseRollout(env.CHUMBUCKET_WALLET_ENABLED);
   cfg.chumbucketWallet = {
-    enabled: env.CHUMBUCKET_WALLET_ENABLED === "true",
+    enabled: walletRollout === "on",
+    rollout: walletRollout,
     ...(env.PRIVY_JWT_PRIVATE_KEY && env.BFF_PUBLIC_URL
       ? { privyJwt: { privateKey: env.PRIVY_JWT_PRIVATE_KEY, issuer: env.BFF_PUBLIC_URL } }
       : {}),
   };
-  cfg.money = { callsEnabled: env.MONEY_CALLS_ENABLED === "true" };
+  const moneyRollout = parseRollout(env.MONEY_CALLS_ENABLED);
+  cfg.money = { callsEnabled: moneyRollout === "on", callsRollout: moneyRollout };
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     const network = (env.SOLANA_NETWORK ?? "devnet").toLowerCase();
     cfg.social = {
@@ -319,7 +341,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     cfg.authIdentity = {
       existingAccountClaimsEnabled: env.EXISTING_ACCOUNT_CLAIMS_ENABLED === "true",
       accountLinkingEnabled: env.ACCOUNT_LINKING_ENABLED === "true",
+      accountLinkingRollout: parseRollout(env.ACCOUNT_LINKING_ENABLED),
       accountFoldEnabled: env.ACCOUNT_FOLD_ENABLED === "true",
+      accountFoldRollout: parseRollout(env.ACCOUNT_FOLD_ENABLED),
       ...(env.SIWS_DOMAINS
         ? { siwsDomains: env.SIWS_DOMAINS.split(",").map((d) => d.trim()).filter(Boolean) }
         : {}),

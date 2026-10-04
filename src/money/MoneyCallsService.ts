@@ -115,8 +115,8 @@ export interface MoneyCallsDeps {
   gas: GasPort;
   /** The per-approval USDC ceiling (PANTA_MAX_AMOUNT_BASE_UNITS). */
   maxBaseUnits: bigint | null;
-  /** CHUMBUCKET_WALLET_ENABLED: the Chumbucket wallet is the trading wallet. */
-  chumbucketWallet: boolean;
+  /** CHUMBUCKET_WALLET_ENABLED for this account: its Chumbucket wallet is the trading wallet. */
+  chumbucketWallet: (userId: string) => boolean;
   /** Whether our trade path can buy on this market (a USDC-quoted Panta market). Absent: every market. */
   tradable?: (marketId: string) => boolean;
   now?: () => number;
@@ -476,7 +476,7 @@ export class MoneyCallsService {
       if (!named) throw new MoneyError("WALLET_NOT_LINKED", "Link this wallet to your account first");
       return named;
     }
-    const chosen = chooseTradingWallet(person, this.deps.chumbucketWallet);
+    const chosen = chooseTradingWallet(person, this.deps.chumbucketWallet(person.userId));
     if (!chosen) throw new MoneyError("NO_WALLET", "Set up your wallet first.");
     return chosen;
   }

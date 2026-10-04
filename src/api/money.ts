@@ -25,14 +25,15 @@ import { collectableWinnings, buildActivity, solanaPayUri } from "../money/activ
 import { isMoneyError, MoneyError, MONEY_OFF_COPY, type MoneyErrorCode } from "../money/errors.ts";
 import { MONEY_MIN_BASE_UNITS, MONEY_PRESETS_BASE_UNITS, PENDING_TTL_MS } from "../money/MoneyCallsService.ts";
 import { moneyRuntimeFor } from "../money/runtime.ts";
-import { moneyCallsEnabled } from "../money/visibility.ts";
+import { moneyCallsFor } from "../money/visibility.ts";
 import { MAINNET_USDC_MINT } from "../prediction/PantaChain.ts";
 import { pantaLifecycleFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
 import { isVenueError } from "../prediction/errors.ts";
 import { isPgrestError } from "../prediction/pgrest.ts";
 import { isTrustError } from "../trust/errors.ts";
 import { trustRuntimeFor } from "../trust/runtime.ts";
-import { chooseTradingWallet, chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
+import { chooseTradingWallet, chumbucketWalletFor } from "../wallet/tradingWallet.ts";
+import { moneyCallsRollout } from "../rollout.ts";
 import { callsTrpcError, freshenPantaPrice } from "./calls.ts";
 import { trustTrpcError } from "./trust.ts";
 import type { Context } from "./trpc.ts";
@@ -106,20 +107,36 @@ async function run<T>(procedure: string, action: () => Promise<T>): Promise<T> {
   }
 }
 
-function requireOn(config: AppConfig): void {
-  if (!moneyCallsEnabled(config)) throw new MoneyError("DISABLED", MONEY_OFF_COPY);
-}
+const OFF = () => new MoneyError("DISABLED", MONEY_OFF_COPY);
 
 /** The account and its proven wallets, from the one resolver (via the deposits accounts). */
-async function person(ctx: Context, kind: keyof typeof LIMITS): Promise<DepositPerson> {
+async function resolvePerson(ctx: Context): Promise<DepositPerson> {
   const resolved = await depositsRuntimeFor(ctx.app.config).accounts.resolve(ctx.supabaseAccessToken, { email: false });
   if (!resolved.ok) {
     if (resolved.reason === "SIGNED_OUT") throw new MoneyError("SIGNED_OUT", "Sign in to do that.");
     if (resolved.reason === "NOT_LINKED") throw new MoneyError("NOT_LINKED", "Finish setting up your account first.");
     throw new MoneyError("UNAVAILABLE", "We couldn't confirm your account just now. Try again in a moment.");
   }
-  limiter(ctx.app.config).take(resolved.person.userId, kind);
   return resolved.person;
+}
+
+/**
+ * The account, if money calls are on for it (src/rollout.ts). Off: refused
+ * before anything is read. "admins": an account that is not an admin, or a
+ * session with no account, gets exactly the flag-off refusal.
+ */
+async function member(ctx: Context, kind: keyof typeof LIMITS): Promise<DepositPerson> {
+  const config = ctx.app.config;
+  const rollout = moneyCallsRollout(config);
+  if (rollout === "off") throw OFF();
+  let who: DepositPerson;
+  if (rollout === "on") who = await resolvePerson(ctx);
+  else {
+    try { who = await resolvePerson(ctx); } catch { throw OFF(); }
+    if (!moneyCallsFor(config, who.userId)) throw OFF();
+  }
+  limiter(config).take(who.userId, kind);
+  return who;
 }
 
 /** The calls mirror (and which calls are private) is read, and this person is in its directory. */
@@ -131,7 +148,7 @@ async function callsReady(config: AppConfig, userId: string) {
 }
 
 function trading(config: AppConfig, who: DepositPerson) {
-  return chooseTradingWallet(who, chumbucketWalletEnabled(config));
+  return chooseTradingWallet(who, chumbucketWalletFor(config, who.userId));
 }
 
 const baseUnits = z.string().regex(/^[1-9][0-9]{0,15}$/);
@@ -159,13 +176,17 @@ export const moneyRouter = router({
   /** Whether calls with money are on, the amounts, and (signed in) the default amount. */
   status: publicProcedure.input(none).mutation(({ ctx }) => run("money.status", async () => {
     const config = ctx.app.config;
-    const on = moneyCallsEnabled(config);
+    const rollout = moneyCallsRollout(config);
     const panta = pantaTradingReadiness(config);
     const max = config.predictions?.maxAmountBaseUnits;
+    // Per account: with "admins", anyone else is told exactly what flag-off says.
+    let on = rollout === "on";
     let defaultAmountBaseUnits: string | null = null;
-    if (on && ctx.supabaseAccessToken) {
+    if (rollout !== "off" && ctx.supabaseAccessToken) {
       const resolved = await depositsRuntimeFor(config).accounts.resolve(ctx.supabaseAccessToken, { email: false }).catch(() => null);
-      if (resolved?.ok) defaultAmountBaseUnits = await moneyRuntimeFor(config).calls.defaultAmount(resolved.person.userId).catch(() => null);
+      const userId = resolved?.ok ? resolved.person.userId : null;
+      on = moneyCallsFor(config, userId);
+      if (on && userId) defaultAmountBaseUnits = await moneyRuntimeFor(config).calls.defaultAmount(userId).catch(() => null);
     }
     return {
       enabled: on && panta.enabled,
@@ -181,8 +202,7 @@ export const moneyRouter = router({
   /** A call with an amount: your own, or Tail (back) / Fade on someone else's. */
   prepareCall: publicProcedure.input(prepareInput).mutation(({ ctx, input }) => run("money.prepareCall", async () => {
     const config = ctx.app.config;
-    requireOn(config);
-    const who = await person(ctx, "write");
+    const who = await member(ctx, "write");
     const rt = await callsReady(config, who.userId);
     const trust = trustRuntimeFor(config).service;
     trust.assertClean(input.thesis, "thesis");
@@ -208,8 +228,7 @@ export const moneyRouter = router({
 
   /** The money call, its SUBMITTED order re-checked first. Polled. */
   callStatus: publicProcedure.input(z.object({ callId: uuid }).strict()).mutation(({ ctx, input }) => run("money.callStatus", async () => {
-    requireOn(ctx.app.config);
-    const who = await person(ctx, "read");
+    const who = await member(ctx, "read");
     await callsReady(ctx.app.config, who.userId);
     return moneyRuntimeFor(ctx.app.config).calls.status(who.userId, input.callId);
   })),
@@ -217,8 +236,7 @@ export const moneyRouter = router({
   /** A fresh quote for a pending call whose trade failed or whose quote expired. */
   retry: publicProcedure.input(z.object({ callId: uuid, wallet: wallet.optional() }).strict()).mutation(({ ctx, input }) => run("money.retry", async () => {
     const config = ctx.app.config;
-    requireOn(config);
-    const who = await person(ctx, "write");
+    const who = await member(ctx, "write");
     await callsReady(config, who.userId);
     await trustRuntimeFor(config).service.assertFundedTradingAccepted(who.userId);
     return moneyRuntimeFor(config).calls.retry(who, input.callId, input.wallet);
@@ -227,8 +245,7 @@ export const moneyRouter = router({
   /** Go free instead: the pending call is withdrawn and a fresh free call is made at the current price. */
   keepFree: publicProcedure.input(z.object({ callId: uuid }).strict()).mutation(({ ctx, input }) => run("money.keepFree", async () => {
     const config = ctx.app.config;
-    requireOn(config);
-    const who = await person(ctx, "write");
+    const who = await member(ctx, "write");
     const rt = await callsReady(config, who.userId);
     // The fresh free call is stamped with the current price: read it now, like calls.create does.
     const own = rt.store.getCall(input.callId);
@@ -238,16 +255,14 @@ export const moneyRouter = router({
 
   /** Drop a pending call for good: withdrawn, never shown. */
   discard: publicProcedure.input(z.object({ callId: uuid }).strict()).mutation(({ ctx, input }) => run("money.discard", async () => {
-    requireOn(ctx.app.config);
-    const who = await person(ctx, "write");
+    const who = await member(ctx, "write");
     await callsReady(ctx.app.config, who.userId);
     return moneyRuntimeFor(ctx.app.config).calls.discard(who.userId, input.callId);
   })),
 
   /** The account's pending money calls, so nothing is left as a ghost. */
   pending: publicProcedure.input(none).mutation(({ ctx }) => run("money.pending", async () => {
-    requireOn(ctx.app.config);
-    const who = await person(ctx, "read");
+    const who = await member(ctx, "read");
     await callsReady(ctx.app.config, who.userId);
     return moneyRuntimeFor(ctx.app.config).calls.pending(who.userId);
   })),
@@ -255,8 +270,7 @@ export const moneyRouter = router({
   /** The trading wallet's real balance (the header pill), and whether a top-up must run first. */
   wallet: publicProcedure.input(none).mutation(({ ctx }) => run("money.wallet", async () => {
     const config = ctx.app.config;
-    requireOn(config);
-    const who = await person(ctx, "read");
+    const who = await member(ctx, "read");
     const chosen = trading(config, who);
     if (!chosen) return { wallet: null, balance: null, gas: null };
     const balances = depositsRuntimeFor(config).balances;
@@ -280,8 +294,7 @@ export const moneyRouter = router({
   activity: publicProcedure.input(z.object({ limit: z.number().int().min(1).max(50).default(20) }).strict().optional())
     .mutation(({ ctx, input }) => run("money.activity", async () => {
       const config = ctx.app.config;
-      requireOn(config);
-      const who = await person(ctx, "read");
+      const who = await member(ctx, "read");
       const rt = await callsReady(config, who.userId);
       const money = moneyRuntimeFor(config);
       let life: ReturnType<typeof pantaLifecycleFor> | null = null;
@@ -301,8 +314,7 @@ export const moneyRouter = router({
   cashOutPrepare: publicProcedure.input(z.object({ destination: z.string().min(1).max(64), amountBaseUnits: baseUnits, idempotencyKey }).strict())
     .mutation(({ ctx, input }) => run("money.cashOutPrepare", async () => {
       const config = ctx.app.config;
-      requireOn(config);
-      const who = await person(ctx, "write");
+      const who = await member(ctx, "write");
       const chosen = trading(config, who);
       if (!chosen) throw new MoneyError("NO_WALLET", "Set up your wallet first.");
       return moneyRuntimeFor(config).transfers.cashOut(who, chosen, input);
@@ -312,8 +324,7 @@ export const moneyRouter = router({
   depositFromWalletPrepare: publicProcedure.input(z.object({ fromWallet: wallet, amountBaseUnits: baseUnits, idempotencyKey }).strict())
     .mutation(({ ctx, input }) => run("money.depositFromWalletPrepare", async () => {
       const config = ctx.app.config;
-      requireOn(config);
-      const who = await person(ctx, "write");
+      const who = await member(ctx, "write");
       const chosen = trading(config, who);
       if (!chosen) throw new MoneyError("NO_WALLET", "Set up your wallet first.");
       return moneyRuntimeFor(config).transfers.depositFromWallet(who, chosen, input);
@@ -322,24 +333,21 @@ export const moneyRouter = router({
   /** The owner-signed transfer: stored, then broadcast. SUBMITTED, never "done". */
   transferSubmit: publicProcedure.input(z.object({ transferId: uuid, signedTransaction }).strict())
     .mutation(({ ctx, input }) => run("money.transferSubmit", async () => {
-      requireOn(ctx.app.config);
-      const who = await person(ctx, "write");
+      const who = await member(ctx, "write");
       return moneyRuntimeFor(ctx.app.config).transfers.submit(who.userId, input.transferId, input.signedTransaction);
     })),
 
   /** One transfer, re-checked against the chain. Polled. */
   transferStatus: publicProcedure.input(z.object({ transferId: uuid }).strict())
     .mutation(({ ctx, input }) => run("money.transferStatus", async () => {
-      requireOn(ctx.app.config);
-      const who = await person(ctx, "read");
+      const who = await member(ctx, "read");
       return moneyRuntimeFor(ctx.app.config).transfers.status(who.userId, input.transferId);
     })),
 
   /** Won positions to collect, with amounts. Collect with pantaTrading.claimPrepare / claimSubmit / claim. */
   winnings: publicProcedure.input(none).mutation(({ ctx }) => run("money.winnings", async () => {
     const config = ctx.app.config;
-    requireOn(config);
-    const who = await person(ctx, "read");
+    const who = await member(ctx, "read");
     await callsReady(config, who.userId);
     let life: ReturnType<typeof pantaLifecycleFor> | null = null;
     try { life = pantaLifecycleFor(config, true); } catch { life = null; }
@@ -352,8 +360,7 @@ export const moneyRouter = router({
   depositOptions: publicProcedure.input(z.object({ amountBaseUnits: baseUnits.optional() }).strict().optional())
     .mutation(({ ctx, input }) => run("money.depositOptions", async () => {
       const config = ctx.app.config;
-      requireOn(config);
-      const who = await person(ctx, "read");
+      const who = await member(ctx, "read");
       const deposits = depositsRuntimeFor(config);
       const chosen = trading(config, who);
       const open = depositsOpenTo(deposits.readiness, who.userId, deposits.admins);

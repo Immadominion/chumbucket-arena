@@ -81,6 +81,12 @@ export interface AccountLinkStore {
   }): Promise<StoreResult>;
   /** Public profile fields (handle, name) of up to two accounts, for a confirm sheet. */
   cards(userIds: string[]): Promise<AccountCard[]>;
+  /**
+   * Read-only: the account an active, proven wallet link names, or null. For
+   * a staged rollout to decide whether a linked wallet's sign-in may land
+   * before anything is bound (resolve_wallet_sign_in_v1 still re-checks).
+   */
+  walletAccount?(walletAddress: string): Promise<string | null>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -217,6 +223,16 @@ export class SupabaseAccountLinkStore implements AccountLinkStore {
   }
 
   // ── transport ──
+
+  async walletAccount(walletAddress: string): Promise<string | null> {
+    const params = new URLSearchParams({
+      wallet_address: `eq.${walletAddress}`, revoked_at: "is.null", verified_at: "not.is.null", select: "user_id", limit: "1",
+    });
+    const rows = await this.request<Array<{ user_id?: unknown }>>(`${this.restBase}/linked_wallets?${params}`,
+      { method: "GET", headers: this.headers() }, "linked_wallets");
+    const id = Array.isArray(rows) ? rows[0]?.user_id : null;
+    return typeof id === "string" && UUID.test(id) ? id : null;
+  }
 
   private async rpc(name: string, body: Record<string, unknown>, opts: { missingIs?: unknown } = {}): Promise<unknown> {
     return this.request<unknown>(`${this.restBase}/rpc/${name}`, {

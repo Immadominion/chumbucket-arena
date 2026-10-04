@@ -27,7 +27,14 @@ import { AuthIdentityError } from "./AuthIdentityError.ts";
 import { authIdentityRuntimeFor } from "./AuthIdentityRuntime.ts";
 import type { SupabaseSession } from "./SupabaseJwt.ts";
 import { WalletLinkService } from "./WalletLinkService.ts";
-import { chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
+import { chumbucketWalletRollout, rolloutAllows, type Rollout } from "../rollout.ts";
+import { linkingRolloutOf } from "./AuthIdentityRuntime.ts";
+
+/** A switch's answer: everyone, nobody, or per account for a staged rollout. */
+export function perAccount(config: AppConfig, rollout: Rollout): boolean | ((userId: string) => boolean) {
+  if (rollout !== "admins") return rollout === "on";
+  return (userId: string) => rolloutAllows(config, rollout, userId);
+}
 
 export interface ResolvedAccount {
   /** The session's own auth.uid(). */
@@ -50,8 +57,10 @@ export function accountService(config: AppConfig): WalletLinkService {
     policy: rt.policy,
     walletProfileCarry: rt.walletProfileCarry === true,
     ...(rt.accountLinks ? { accountLinks: rt.accountLinks } : {}),
-    accountLinking: rt.accountLinking === true,
-    chumbucketWallet: chumbucketWalletEnabled(config),
+    // On, off, or (src/rollout.ts "admins") per account: an account the
+    // rollout leaves out resolves exactly as with linking off.
+    accountLinking: perAccount(config, linkingRolloutOf(rt)),
+    chumbucketWallet: perAccount(config, chumbucketWalletRollout(config)),
   });
 }
 

@@ -27,10 +27,11 @@ import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
 import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdentityError.ts";
-import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { authIdentityRuntimeFor, foldRolloutOf, linkingRolloutOf } from "../auth/AuthIdentityRuntime.ts";
 import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
 import { AccountLinkService, type LinkCompletion } from "../auth/AccountLinkService.ts";
-import { accountService } from "../auth/accountResolver.ts";
+import { accountService, perAccount, resolveAccountOutcome } from "../auth/accountResolver.ts";
+import { rolloutAllows } from "../rollout.ts";
 import { accountRuntimeFor } from "../account/runtime.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
@@ -139,8 +140,9 @@ function accountLinkService(config: AppConfig): AccountLinkService {
     identity: serviceFor(config),
     ...(rt.accountLinks ? { links: rt.accountLinks } : {}),
     verifier: rt.verifier,
-    linking: rt.accountLinking === true,
-    fold: rt.accountFold === true,
+    // On, off, or per account for a staged rollout (src/rollout.ts).
+    linking: perAccount(config, linkingRolloutOf(rt)),
+    fold: perAccount(config, foldRolloutOf(rt)),
   });
 }
 
@@ -331,8 +333,20 @@ export const authRouter = router({
       }),
     ),
 
-  identityStatus: publicProcedure.query(({ ctx }) => {
+  identityStatus: publicProcedure.query(async ({ ctx }) => {
     const rt = authIdentityRuntimeFor(ctx.app.config);
+    const config = ctx.app.config;
+    const linkingRollout = linkingRolloutOf(rt), foldRollout = foldRolloutOf(rt);
+    // Per account: with a staged rollout, the session's own account decides
+    // (read-only resolution, from the Authorization header); anyone else, and
+    // a request with no session, is told exactly what flag-off says.
+    let account: string | null = null;
+    if ((linkingRollout === "admins" || foldRollout === "admins") && ctx.supabaseAccessToken) {
+      const resolved = await resolveAccountOutcome(config, ctx.supabaseAccessToken);
+      account = resolved.ok ? resolved.account.userId : null;
+    }
+    const linking = rolloutAllows(config, linkingRollout, account);
+    const fold = linking && rolloutAllows(config, foldRollout, account);
     return {
       enabled: rt.store.enabled,
       /** A wallet signature (Supabase Web3, Sign in with Solana) is a sign-in. */
@@ -341,9 +355,9 @@ export const authRouter = router({
       walletProfileCarry: rt.walletProfileCarry === true,
       existingAccountClaimsEnabled: ctx.app.config.authIdentity?.existingAccountClaimsEnabled === true && !!rt.existingAccounts,
       /** Settings can link and unlink sign-ins; a linked wallet signs in to its account. */
-      accountLinking: rt.accountLinking === true && !!rt.accountLinks,
+      accountLinking: linking && !!rt.accountLinks,
       /** A sign-in already on another account can fold that account in. */
-      accountFold: rt.accountLinking === true && rt.accountFold === true && !!rt.accountLinks,
+      accountFold: fold && !!rt.accountLinks,
       network: rt.policy.network,
       proofVersion: SIWS_PROOF_VERSION,
       allowedDomains: [...rt.policy.allowedDomains],

@@ -88,6 +88,12 @@ export interface IdentityStore {
   readonly enabled: boolean;
   /** auth.uid() -> exactly one public.users.id, or null when unlinked. */
   userIdForAuthUser(authUserId: string): Promise<string | null>;
+  /**
+   * The same answer, saying whether it came through an ADDITIONAL sign-in
+   * (linking) rather than the account's primary one. A store without
+   * additional sign-ins need not implement it: every answer is primary.
+   */
+  resolveAuthUser?(authUserId: string): Promise<{ userId: string | null; additional: boolean }>;
   /** Verified auth subject only. Idempotent; never merges legacy accounts. */
   createPersonForAuthUser(authUserId: string, displayName: string): Promise<string>;
   /** 'available' | 'invalid' | 'reserved' | 'taken' (case-insensitive). */
@@ -168,6 +174,10 @@ export class SupabaseIdentityStore implements IdentityStore {
    * the first one and hand someone else's account to this session.
    */
   async userIdForAuthUser(authUserId: string): Promise<string | null> {
+    return (await this.resolveAuthUser(authUserId)).userId;
+  }
+
+  async resolveAuthUser(authUserId: string): Promise<{ userId: string | null; additional: boolean }> {
     const params = new URLSearchParams({
       auth_user_id: `eq.${authUserId}`,
       select: "id",
@@ -175,8 +185,10 @@ export class SupabaseIdentityStore implements IdentityStore {
     });
     const rows = await this.getRows<{ id: string }>("users", params);
     if (rows.length > 1) throw new AuthIdentityError("AUTH_USER_AMBIGUOUS");
-    if (rows[0]?.id) return rows[0].id;
-    return this.opts.additionalSignIns === true ? this.additionalSignInAccount(authUserId) : null;
+    if (rows[0]?.id) return { userId: rows[0].id, additional: false };
+    if (this.opts.additionalSignIns !== true) return { userId: null, additional: false };
+    const additional = await this.additionalSignInAccount(authUserId);
+    return { userId: additional, additional: additional !== null };
   }
 
   /**

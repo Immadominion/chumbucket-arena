@@ -36,7 +36,7 @@ import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runt
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
 import { CallsService, type CallsIdKind } from "./CallsService.ts";
 import { pantaFundingIndexFor } from "../prediction/PantaFunding.ts";
-import { moneyCallIndexFor, moneyCallsEnabled, type MoneyCallIndex } from "../money/visibility.ts";
+import { moneyCallIndexFor, moneyCallsEnabled, moneyCallsFor, type MoneyCallIndex } from "../money/visibility.ts";
 import { noFriendsReader, SupabaseFriendsReader, type FriendsReader } from "./friends.ts";
 import { SupabasePersonIdentityReader } from "./identityReader.ts";
 import { directoryIdentityReader, type PersonIdentityReader } from "./personFinder.ts";
@@ -183,6 +183,8 @@ export function buildCallsRuntime(
   const service = new CallsService({
     allowPantaCalls: overrides.allowPantaCalls ?? (appConfig?.predictions?.pantaSchemaReady === true),
     ...(moneyCalls ? { moneyCalls } : {}),
+    // MONEY_CALLS_ENABLED=admins: only admins see money; everyone else reads as with it off.
+    ...(moneyCalls && appConfig ? { moneyFor: (viewer: string | null) => moneyCallsFor(appConfig, viewer) } : {}),
     store,
     markets,
     clock,

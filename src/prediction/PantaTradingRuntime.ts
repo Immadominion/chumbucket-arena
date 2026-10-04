@@ -20,6 +20,7 @@ import { SupabaseAccountWallets } from "../wallet/accountWallets.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import { PgrestError } from "./pgrest.ts";
 import { moneyHooksFor, notifyMoneyFill } from "../money/hooks.ts";
+import { moneyCallsRollout, rolloutActive } from "../rollout.ts";
 import { VenueError } from "./errors.ts";
 
 /** Independently checked as the executable mainnet owner of a live Panta market. */
@@ -136,7 +137,7 @@ export function pantaReconcilerFor(config: AppConfig, opts: { maxPerPass?: numbe
   return new PantaReconciler({ ledger: life.ledger ?? { submitted: async () => [] }, trading: life.trading,
     claimStore: life.claimStore, claims: life.claims, funding: life.funding,
     // MONEY_CALLS_ENABLED: expire abandoned pending calls, repair FUNDED, settle transfers.
-    money: config.money?.callsEnabled === true ? {
+    money: rolloutActive(moneyCallsRollout(config)) ? {
       sweep: async () => {
         const hooks = moneyHooksFor(config);
         return hooks ? hooks.sweep() : { funded: 0, expired: 0, transfersConfirmed: 0, transfersFailed: 0, errors: [] };
