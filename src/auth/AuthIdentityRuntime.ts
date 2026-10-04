@@ -133,7 +133,9 @@ export function buildAuthIdentityRuntime(config: AppConfig): AuthIdentityRuntime
     ...(sc ? { accountLinks: new SupabaseAccountLinkStore(sc) } : {}),
     accountLinking: config.authIdentity?.accountLinkingEnabled === true,
     accountFold: config.authIdentity?.accountFoldEnabled === true,
-    store: sc ? new SupabaseIdentityStore(sc) : new NoopIdentityStore(),
+    store: sc
+      ? new SupabaseIdentityStore(sc, fetch, { additionalSignIns: config.authIdentity?.accountLinkingEnabled === true })
+      : new NoopIdentityStore(),
     verifier: sc ? new GoTrueJwtVerifier(sc) : new UnconfiguredJwtVerifier(),
     policy: resolveAuthIdentityPolicy(config),
     walletProfileCarry: resolveWalletProfileCarry(config),

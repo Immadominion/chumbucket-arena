@@ -210,13 +210,18 @@ export class WalletLinkService {
     if (!this.deps.store.enabled) failAuth("IDENTITY_NOT_CONFIGURED");
     const token = (input.accessToken ?? "").trim();
     if (!token) failAuth("AUTH_TOKEN_MISSING");
+
+    // A sign-in that already reaches an account — by any rule of the one
+    // resolver, a linked wallet included — is that account: never a second.
+    try {
+      const who = await this.authenticateSession(token);
+      return { authUserId: who.authUserId, userId: who.userId };
+    } catch (e) {
+      if (!(e instanceof AuthIdentityError) || e.code !== "AUTH_USER_UNLINKED") throw e;
+    }
+
     const session = await this.deps.verifier.verify(token);
     if (!session) failAuth("AUTH_TOKEN_INVALID");
-
-    // A sign-in that already reaches an account (its primary, or an
-    // additional sign-in) is that account: never a second one.
-    const existing = await this.deps.store.userIdForAuthUser(session.authUserId);
-    if (existing) return { authUserId: session.authUserId, userId: existing };
 
     const result = await this.deps.store.createPersonWithUsername({
       authUserId: session.authUserId,
@@ -370,7 +375,12 @@ export class WalletLinkService {
     // sign-in, or a link there) is never linked here as well: it would sign in
     // to one account while linked to another. Moving it is a fold, with proof
     // of both accounts. Checked before the nonce is spent.
-    if (this.deps.accountLinks && (await this.deps.accountLinks.walletSignInConflict(identity.userId, fields.address))) {
+    // With linking off this is exactly the pre-linking path (no extra lookup).
+    if (
+      this.deps.accountLinking === true &&
+      this.deps.accountLinks &&
+      (await this.deps.accountLinks.walletSignInConflict(identity.userId, fields.address))
+    ) {
       failAuth("WALLET_OWNED_BY_ANOTHER_USER");
     }
 

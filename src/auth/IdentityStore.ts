@@ -152,6 +152,11 @@ export class SupabaseIdentityStore implements IdentityStore {
   constructor(
     private readonly cfg: IdentityStoreConfig,
     private readonly fetchImpl: typeof fetch = fetch,
+    /**
+     * ACCOUNT_LINKING_ENABLED: also resolve additional sign-ins. Off, a
+     * session resolves exactly as before linking existed (primary only).
+     */
+    private readonly opts: { additionalSignIns?: boolean } = {},
   ) {
     this.restBase = `${cfg.supabaseUrl.replace(/\/$/, "")}/rest/v1`;
   }
@@ -170,7 +175,8 @@ export class SupabaseIdentityStore implements IdentityStore {
     });
     const rows = await this.getRows<{ id: string }>("users", params);
     if (rows.length > 1) throw new AuthIdentityError("AUTH_USER_AMBIGUOUS");
-    return rows[0]?.id ?? this.additionalSignInAccount(authUserId);
+    if (rows[0]?.id) return rows[0].id;
+    return this.opts.additionalSignIns === true ? this.additionalSignInAccount(authUserId) : null;
   }
 
   /**
