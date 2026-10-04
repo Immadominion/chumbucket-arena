@@ -75,7 +75,7 @@ export function ResponseSheet({
           onClick={() => send.mutate()}
         >
           {send.isPending ? <Spinner /> : <Icon name={kind === "back" ? "plus" : kind === "fade" ? "exchange" : "lightning"} size={20} />}
-          {cta}
+          <span className="wa-btn-label">{cta}</span>
           <FreeChip />
         </button>
       }

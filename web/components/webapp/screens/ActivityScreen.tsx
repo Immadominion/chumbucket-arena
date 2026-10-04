@@ -39,7 +39,8 @@ const TONES: Record<string, { bg: string; fg: string }> = {
   yes: { bg: "var(--wa-yes-bg)", fg: "var(--wa-yes-ink)" },
   no: { bg: "var(--wa-no-bg)", fg: "var(--wa-no-ink)" },
   void: { bg: "#f3f4f6", fg: "var(--wa-muted)" },
-  dare: { bg: "var(--wa-pink-wash)", fg: "var(--wa-pink-ink)" },
+  // A dare is free: neutral ink, never the pink of money.
+  dare: { bg: "var(--wa-line)", fg: "var(--wa-ink)" },
 };
 
 export function ActivityScreen() {

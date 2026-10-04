@@ -38,7 +38,7 @@ import { actionError, useNow, useToast } from "../data";
 import { Icon } from "../Icon";
 import { useAfterCall, useMarket } from "../queries";
 import { useApi } from "../session";
-import { CallMarkChip, FreeChip, Sheet, Spinner, TopBar } from "../ui";
+import { CallMarkChip, FreeChip, PantaMark, Sheet, Spinner, TopBar } from "../ui";
 import { screenError } from "./common";
 
 const MAX = 280;
@@ -256,7 +256,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
                 onClick={() => lock.mutate()}
               >
                 {lock.isPending ? <Spinner /> : null}
-                Call {sideLabel(market, pick)}
+                <span className="wa-btn-label">Call {sideLabel(market, pick)}</span>
                 <FreeChip />
               </button>
             </div>
@@ -293,7 +293,8 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
         <button type="button" className="wa-disclosure" style={{ width: "100%", textAlign: "left" }} onClick={() => setTrading(true)}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "0 16px", fontWeight: 600, width: "100%" }}>
             <Icon name="wallet" size={20} />
-            Trade on Panta
+            Trade
+            <PantaMark />
             <Icon name="arrow-right" size={18} className="wa-caret" />
           </span>
         </button>
