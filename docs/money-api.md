@@ -25,7 +25,8 @@ default off). Off, every existing procedure answers exactly as before, and every
    the wallet this session signed in with); anything else is refused.
 4. **No ghosts.** A pending call is visible to its owner only, never counts
    toward a record, a crowd split, top calls, suggestions or notifications,
-   and either becomes public (funded or kept free) or expires.
+   and either becomes public (funded), is replaced by a fresh free call
+   (keep free), or expires.
 5. **Money is dollars on screen, integers on the wire.** Every amount is USDC
    base units (6 decimals) as a decimal integer string. `"5000000"` is `$5`.
    Probabilities stay `[0,1]` numbers; clients render percent.
@@ -100,7 +101,7 @@ interface CallFeedEntry {
               amountBaseUnits?: string; side?: "YES" | "NO" } | null;
   /** The OWNER's view of their own pending or expired money call. Never sent
    *  to anyone else (they never see the call at all). */
-  money?: { state: "PENDING" | "EXPIRED"; amountBaseUnits: string; side: "YES" | "NO"; expiresAt: number };
+  money?: { state: "PENDING" | "EXPIRED" | "FREE"; amountBaseUnits: string; side: "YES" | "NO"; expiresAt: number };
 }
 ```
 
@@ -120,7 +121,7 @@ prepareCall ─┬─ NEEDS_FUNDS → deposit sheet → (funds land) → prepare
                    → money.callStatus (poll) → FUNDED (public, "$5 on YES")
                                              → trade FAILED / quote expired:
                                                  money.retry   → READY again
-                                                 money.keepFree → FREE (public, Free)
+                                                 money.keepFree → a NEW free call at today's price (pending one withdrawn)
                                                  money.discard  → EXPIRED
                    (no choice made by expiresAt → EXPIRED, never shown)
 ```
@@ -211,12 +212,27 @@ through."), `PRECONDITION_FAILED` after `PENDING`.
 
 ```ts
 input:  z.object({ callId: uuid }).strict()
-output: { moneyCall: MoneyCallView; call: CallFeedEntry }
+output: { moneyCall: MoneyCallView; call: CallFeedEntry } // call = the NEW free call
 ```
-`PENDING → FREE`: the call becomes a public free call (the `Free` marker),
-exactly as locked. Back/Fade: the response is recorded on the target now.
-Refused while an order is `SUBMITTED` (`CONFLICT`) and once the market stopped
-taking calls (`PRECONDITION_FAILED`; the call then expires).
+Go free instead. The pending call's locked price is never kept (that would let
+someone watch the price, then keep the old one). Instead:
+- the pending money call becomes `FREE`: withdrawn (hidden with reason
+  `money_call_kept_free`), owner-only, on no record;
+- its live unsigned quote is retired, so it can no longer be signed;
+- a **new** free call is made at the current price and time through the
+  ordinary free path (`calls.create`, or `calls.respond` for a Tail/Fade, with
+  all of their checks and the same side, thesis, confidence and visibility).
+  `call` is that new call: a new `call.id`, `lockedAt` now, the `Free` marker.
+  A Tail/Fade counts on its target once, through the new call.
+
+Refusals leave the pending call exactly as it was (to retry, discard or
+expire): an order `SUBMITTED` → `CONFLICT`; the market stopped taking calls →
+`PRECONDITION_FAILED` (`MARKET_CLOSED`, "…there's no free call to make.");
+no readable price right now → `SERVICE_UNAVAILABLE` ("This market's price
+isn't available right now. Try again in a minute."); past `expiresAt` →
+`PRECONDITION_FAILED` (the call is expired). Replaying `keepFree` after it
+succeeded answers with the same new free call. If the buy filled after all,
+the answer is the `FUNDED` call instead.
 
 ### `money.discard` (mutation)
 
@@ -224,8 +240,8 @@ taking calls (`PRECONDITION_FAILED`; the call then expires).
 input:  z.object({ callId: uuid }).strict()
 output: { moneyCall: MoneyCallView }
 ```
-`PENDING → EXPIRED` now (the person closed the sheet for good). Refused while
-an order is `SUBMITTED`.
+`PENDING → EXPIRED` now (the person closed the sheet for good); its live
+unsigned quote is retired. Refused while an order is `SUBMITTED`.
 
 ### `money.pending` (mutation)
 
@@ -242,7 +258,7 @@ offer "finish, keep free or discard" instead of leaving a ghost.
 |---|---|---|---|
 | — | `PENDING` | `prepareCall` (`READY`) | intent row written durably BEFORE the call exists |
 | `PENDING` / `FREE` / `EXPIRED` | `FUNDED` | the fill transition only | a `FILLED` `panta_trade_sessions` row for this call (SQL-checked) |
-| `PENDING` | `FREE` | owner (`keepFree`) | no `SUBMITTED` order; market still taking calls |
+| `PENDING` | `FREE` | owner (`keepFree`) | no `SUBMITTED` order; market taking calls; price readable; the new free call made first |
 | `PENDING` | `EXPIRED` | owner (`discard`) or the sweeper | no `SUBMITTED`/`FILLED` order (SQL-checked) |
 
 - `expiresAt` = 10 minutes after the latest quote, never earlier than the
@@ -253,11 +269,15 @@ offer "finish, keep free or discard" instead of leaving a ghost.
   taking calls) with nothing going through. An expired call is withdrawn
   (hidden with reason `money_call_expired`): the owner still sees it as
   `money.state: "EXPIRED"`; nobody else ever did.
-- Visibility: `PENDING` and `EXPIRED` calls are owner-only on every read
-  (feed, call, profile, market detail, top calls, suggestions, notifications)
-  and never count toward a public record, leaderboard or crowd split; a
-  pending call never unlocks the crowd split either. `FUNDED` and `FREE` calls
-  are ordinary public calls (with the visibility the person chose).
+- Visibility: `PENDING`, `EXPIRED` and `FREE` (replaced) money calls are
+  owner-only on every read (feed, call, profile, market detail, top calls,
+  suggestions, notifications) and never count toward a public record,
+  leaderboard or crowd split; a pending call never unlocks the crowd split
+  either. A `FUNDED` call is an ordinary public call (with the visibility the
+  person chose); after keep free, the new free call is the public one.
+- Expiry, discard and keep free retire the current attempt's unsigned quote
+  (QUOTED → FAILED in the trade ledger), so an old approval can't be signed
+  later.
 
 ## (b) Filled amounts and funded-first ordering
 
@@ -477,9 +497,10 @@ ahead of time. `SOL_TOPUP_ENABLED` off: `topUp` is `null`.
 
 ## (g) Market publishing
 
-With `MONEY_CALLS_ENABLED`, `marketCreation.preparePublish` and
-`submitPublish` accept only the **proposer**, paying from one of the
-proposer's **own** proven wallets:
+Always (whenever publishing is enabled, whatever `MONEY_CALLS_ENABLED` says),
+`marketCreation.preparePublish` and `submitPublish` accept only the
+**proposer**, paying from one of the proposer's **own** proven wallets. A
+reviewer paying for and owning a user's market was a bug:
 - a reviewer who is not the proposer: `FORBIDDEN` "Only the person who
   proposed this market can publish it." Reviewers still approve or reject.
 - a wallet that is not the proposer's: `FORBIDDEN` "Link this wallet to your
@@ -487,7 +508,6 @@ proposer's **own** proven wallets:
   create is committed); links that cannot be read: `BAD_GATEWAY`, never
   assumed.
 - `ProposalView.canPublish` is true only for the proposer.
-Off, the existing behaviour (proposer or reviewer, any wallet) is unchanged.
 
 ## Unchanged procedures the flows reuse
 
@@ -531,6 +551,11 @@ apply before setting `MONEY_CALLS_ENABLED=true`:
   and wallet top-ups; the trade ledger's discipline).
 With the flag on and `money_calls` unreadable, the calls feed fails closed
 rather than show a pending call publicly.
+
+Deployment: one BFF instance. Like the calls mirror it builds on, which calls
+are private is held in that process's memory (hydrated from `money_calls`
+before any read, updated in the same tick as every transition). Running more
+than one replica needs a shared read path first.
 
 Background work: the money sweeper (expiry, FUNDED repair, settling
 `SUBMITTED` transfers) runs inside the Panta reconciler's pass
