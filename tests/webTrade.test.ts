@@ -28,6 +28,7 @@ import {
   withSignature,
 } from "../web/lib/webapp/solanaTx.ts";
 import {
+  checkedSigner,
   confirmTrade,
   isFinal,
   placeTrade,
@@ -176,7 +177,12 @@ describe("the browser's own check before any wallet signs", () => {
 });
 
 describe("placing a trade", () => {
-  function rig(over: Partial<PreparedTrade["order"]> = {}, now = 1_000, payload = bytesToBase64(pantaBuy())) {
+  function rig(
+    over: Partial<PreparedTrade["order"]> = {},
+    now = 1_000,
+    payload = bytesToBase64(pantaBuy()),
+    review: Partial<PreparedTrade["review"]> = {},
+  ) {
     const submitted: Array<{ orderId: string; signedTransaction: string }> = [];
     const prepared: Array<Record<string, unknown>> = [];
     const api: TradeApi = {
@@ -185,7 +191,7 @@ describe("placing a trade", () => {
         return {
           order: { orderId: "ord_1", owner: input.wallet, side: "YES", amountBaseUnits: input.amountBaseUnits, fundingState: "QUOTED",
             transaction: { encoding: "solana-tx-base64", payload, expiresAt: now + 60_000 }, expiresAt: now + 60_000, ...over },
-          review: { amountUsdc: "5.000000", amountBaseUnits: input.amountBaseUnits, avgPrice: "0.5", feeUsdc: "0.01", expectedShares: "9.2" },
+          review: { amountUsdc: "5.000000", amountBaseUnits: input.amountBaseUnits, avgPrice: "0.5", feeUsdc: "0.01", expectedShares: "9.2", ...review },
         };
       },
       async submitTrade(orderId, signedTransaction) {
@@ -196,7 +202,7 @@ describe("placing a trade", () => {
     return { api, submitted, prepared, payload, now: () => now };
   }
   const signs: Uint8Array[] = [];
-  const signer = { address: owner.publicKey.toBase58(), sign: async (b: Uint8Array) => { signs.push(b); return sign(b); } };
+  const signer = checkedSigner(owner.publicKey.toBase58(), async (b: Uint8Array) => { signs.push(b); return sign(b); });
   const trade = (h: ReturnType<typeof rig>, s = signer) =>
     placeTrade({ api: h.api, callId, venueMarketId: market, side: "YES", amountBaseUnits: usdToBaseUnits(5), idempotencyKey: "intent-1", signer: s, now: h.now });
 
@@ -236,10 +242,31 @@ describe("placing a trade", () => {
     const expired = rig({ transaction: { encoding: "solana-tx-base64", payload: bytesToBase64(pantaBuy()), expiresAt: 999 } });
     await expect(trade(expired)).rejects.toMatchObject({ kind: "expired" });
     const declined = rig();
-    await expect(trade(declined, { address: signer.address, sign: async () => { throw new Error("user rejected"); } })).rejects.toBeInstanceOf(TradeError);
+    await expect(trade(declined, checkedSigner(signer.address, async () => { throw new Error("user rejected"); }))).rejects.toMatchObject({ kind: "declined" });
     const rewritten = rig();
-    await expect(trade(rewritten, { address: signer.address, sign: async () => sign(pantaBuy({ amount: 1n })) })).rejects.toMatchObject({ kind: "mismatch" });
+    await expect(trade(rewritten, checkedSigner(signer.address, async () => sign(pantaBuy({ amount: 1n }))))).rejects.toMatchObject({ kind: "unsafe" });
     for (const h of [other, amount, expired, declined, rewritten]) expect(h.submitted).toHaveLength(0);
+  });
+
+  test("the figures shown must agree with the checked amount", async () => {
+    for (const review of [{ amountUsdc: "6.000000" }, { amountBaseUnits: "6000000" }, { expectedShares: "4.5" }, { expectedShares: "0" }, { feeUsdc: "5" }, { feeUsdc: "x" }]) {
+      const h = rig({}, 1_000, bytesToBase64(pantaBuy()), review);
+      expect({ review, kind: await trade(h).then(() => "placed", (e) => (e as TradeError).kind) }).toEqual({ review, kind: "mismatch" });
+      expect(h.submitted).toHaveLength(0);
+    }
+  });
+
+  test("a signer checks its own copy before its wallet sees it, whoever calls it", async () => {
+    const raw: Uint8Array[] = [];
+    const s = checkedSigner(owner.publicKey.toBase58(), async (b) => { raw.push(b); return sign(b); });
+    const bytes = pantaBuy();
+    await expect(s.sign(pantaBuy({ extra: [SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: stranger.publicKey, lamports: 1 })] }), reviewedBuy)).rejects.toBeInstanceOf(UnsafeTransaction);
+    await expect(s.sign(bytes, { ...reviewedBuy, owner: stranger.publicKey.toBase58() })).rejects.toBeInstanceOf(UnsafeTransaction);
+    expect(raw).toHaveLength(0);
+    const signed = await s.sign(bytes, reviewedBuy);
+    expect(raw).toHaveLength(1);
+    expect(raw[0]).not.toBe(bytes); // a copy: the checked bytes are the signed bytes
+    expect(signedOnlyInSlot(bytes, signed)).toBe(true);
   });
 
   test("whole dollars only", () => {

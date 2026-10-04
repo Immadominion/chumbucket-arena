@@ -98,7 +98,7 @@ export function perShare(costBaseUnits: string, shares: string): string | null {
 }
 
 export interface PantaPositionsDeps {
-  ledger: Pick<PantaTradingLedger, "listForUser">;
+  ledger: Pick<PantaTradingLedger, "listForUser" | "listAllForUser">;
   claims: Pick<PantaClaimStore, "listForUser"> | null;
   markets: {
     getMarket(marketId: string): VenueMarket | undefined;
@@ -115,9 +115,17 @@ export class PantaPositionsService {
   constructor(private readonly deps: PantaPositionsDeps) {}
   private now() { return this.deps.now?.() ?? Date.now(); }
 
-  async positions(userId: string): Promise<PantaPositionsPage> {
+  /**
+   * `all`: every signed order, not the newest 200 — for a reader that must not
+   * miss an old position (account deletion). Throws when the ledger cannot
+   * read them all.
+   */
+  async positions(userId: string, opts: { all?: boolean } = {}): Promise<PantaPositionsPage> {
     const now = this.now();
-    const rows = (await this.deps.ledger.listForUser(userId)).filter(r =>
+    const ledger = this.deps.ledger;
+    if (opts.all && !ledger.listAllForUser) throw new Error("this ledger cannot read every order");
+    const listed = opts.all ? await ledger.listAllForUser!(userId) : await ledger.listForUser(userId);
+    const rows = listed.filter(r =>
       r.prepared && r.signature && (r.state !== "FAILED" || now - Date.parse(r.updated_at) < FAILED_VISIBLE_MS));
     const claims = this.deps.claims ? await this.deps.claims.listForUser(userId) : [];
     const wallets = [...new Set(rows.filter(r => r.state === "FILLED").map(r => r.wallet_address))];

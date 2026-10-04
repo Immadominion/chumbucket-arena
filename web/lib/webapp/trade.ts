@@ -16,7 +16,7 @@
  * Pure: no DOM, so the BFF repo's bun tests can import it.
  */
 
-import { checkPantaBuy, UnsafeTransaction } from "./pantaBuyCheck";
+import { checkPantaBuy, UnsafeTransaction, type ReviewedBuy } from "./pantaBuyCheck";
 import type { FundingState, Side } from "./types";
 import { base64ToBytes, bytesToBase64, signedOnlyInSlot } from "./solanaTx";
 
@@ -43,10 +43,34 @@ export interface TradeOrder {
   updatedAt: number;
 }
 
-/** Who signs: an address and a function that returns the full signed bytes. */
+/**
+ * Who signs. `sign` must check the bytes are exactly `buy` before any wallet
+ * sees them: build every signer with [checkedSigner], never by hand.
+ */
 export interface TradeSigner {
   address: string;
-  sign(unsigned: Uint8Array): Promise<Uint8Array>;
+  sign(unsigned: Uint8Array, buy: ReviewedBuy): Promise<Uint8Array>;
+}
+
+/**
+ * A signer that checks before it signs, on its own copy of the bytes: the
+ * copy that was checked is the copy the wallet signs, whatever the caller
+ * does with its array meanwhile. `signRaw` is the wallet itself (the
+ * Chumbucket wallet or a browser wallet) and is never reached for anything
+ * but the reviewed buy.
+ */
+export function checkedSigner(address: string, signRaw: (bytes: Uint8Array) => Promise<Uint8Array>): TradeSigner {
+  return {
+    address,
+    async sign(unsigned, buy) {
+      if (buy.owner !== address) throw new UnsafeTransaction("owner");
+      const copy = unsigned.slice();
+      await checkPantaBuy(copy, buy);
+      const signed = await signRaw(copy);
+      if (!signedOnlyInSlot(copy, signed, 0)) throw new UnsafeTransaction("signed something else");
+      return signed;
+    },
+  };
 }
 
 export interface TradeApi {
@@ -76,6 +100,13 @@ export function usdToBaseUnits(usd: number): string {
 /** The BFF's answer is final: a confirmed fill, or a failure the chain proved. */
 export const isFinal = (order: Pick<TradeOrder, "fundingState">): boolean =>
   order.fundingState === "FILLED" || order.fundingState === "FAILED";
+
+/** A decimal string as integer millionths ("5.01" → 5010000n); null if it isn't one. */
+export function micros(decimal: string): bigint | null {
+  const m = /^(0|[1-9][0-9]{0,15})(?:\.([0-9]{1,18}))?$/.exec(decimal);
+  if (!m) return null;
+  return BigInt(m[1]!) * 1_000_000n + BigInt((m[2] ?? "").padEnd(6, "0").slice(0, 6));
+}
 
 /** "12.5" → "$12.50". Money only ever reads as dollars. */
 export function dollars(decimal: string): string {
@@ -132,13 +163,31 @@ export async function reviewTrade(args: {
   if (order.transaction.expiresAt <= now()) throw new TradeError("expired");
   const unsigned = base64ToBytes(order.transaction.payload);
   const call = { venueMarketId: args.venueMarketId, side: args.side };
+  // The transaction spends exactly args.amountBaseUnits (checked here)...
   await checked(unsigned, args.signer.address, call, args.amountBaseUnits);
+  // ...so the figures shown must agree with it: what you pay is that amount,
+  // the fee comes out of it, and what you get if right is at least what is
+  // left after the fee (a share never costs more than the dollar it pays).
+  const amount = BigInt(args.amountBaseUnits);
+  const fee = micros(review.feeUsdc);
+  const shares = micros(review.expectedShares);
+  if (
+    review.amountBaseUnits !== args.amountBaseUnits ||
+    micros(review.amountUsdc) !== amount ||
+    fee === null ||
+    fee >= amount ||
+    shares === null ||
+    shares <= 0n ||
+    shares < amount - fee
+  ) {
+    throw new TradeError("mismatch");
+  }
   return {
     prepared,
     unsigned,
     signer: args.signer,
     call,
-    pay: dollars(review.amountUsdc),
+    pay: dollars((Number(amount) / 1_000_000).toString()),
     win: `~${dollars(review.expectedShares)}`,
     fee: dollars(review.feeUsdc),
   };
@@ -158,13 +207,13 @@ export async function confirmTrade(args: { api: TradeApi; reviewed: ReviewedTrad
   const now = args.now ?? Date.now;
   const { prepared, unsigned, signer, call } = args.reviewed;
   if (prepared.order.transaction.expiresAt <= now()) throw new TradeError("expired");
-  // Checked again right before any wallet sees it.
-  await checked(unsigned, signer.address, call, prepared.order.amountBaseUnits);
+  // The signer checks these exact bytes against the buy before its wallet sees them.
+  const buy: ReviewedBuy = { owner: signer.address, venueMarketId: call.venueMarketId, side: call.side, amountBaseUnits: prepared.order.amountBaseUnits };
   let signed: Uint8Array;
   try {
-    signed = await signer.sign(unsigned);
-  } catch {
-    throw new TradeError("declined");
+    signed = await signer.sign(unsigned, buy);
+  } catch (e) {
+    throw new TradeError(e instanceof UnsafeTransaction ? "unsafe" : "declined");
   }
   if (!signedOnlyInSlot(unsigned, signed, 0)) throw new TradeError("mismatch");
   if (prepared.order.transaction.expiresAt <= now()) throw new TradeError("expired");

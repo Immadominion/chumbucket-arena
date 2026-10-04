@@ -38,11 +38,15 @@ export interface PantaTradingLedger extends PantaTradingStore {
   submitted(limit: number): Promise<PantaTradeSession[]>;
   /** The person's approvals that reached a wallet signature (SUBMITTED, FILLED, FAILED). */
   listForUser(userId: string, limit?: number): Promise<PantaTradeSession[]>;
+  /** Every one of them, oldest first, paged; throws past a hard cap rather than truncate. */
+  listAllForUser?(userId: string): Promise<PantaTradeSession[]>;
   /** The person's newest signed approval for one of their calls, any wallet. */
   latestForCall(userId: string, callId: string): Promise<PantaTradeSession | null>;
   /** Confirmed fills changed at or after `since` (ISO), oldest first: call id and time only. */
   filledSince(since: string | null, limit: number): Promise<{ call_id: string; updated_at: string }[]>;
 }
+/** listAllForUser's ceiling: 50 pages of 200. */
+const ALL_ROWS_CAP = 10_000;
 const columns = "id,user_id,call_id,market_id,wallet_address,venue_market_id,side,amount_base_units::text,max_slippage_bps,idempotency_key,request_fingerprint,state,provider_order_id,prepared,signed_transaction,signature,fill_evidence,created_at,updated_at";
 export class SupabasePantaTradingStore implements PantaTradingLedger {
   private readonly pg: Pgrest;
@@ -85,6 +89,20 @@ export class SupabasePantaTradingStore implements PantaTradingLedger {
       user_id: `eq.${userId}`, state: "in.(SUBMITTED,FILLED,FAILED)", signature: "not.is.null",
       select: columns, order: "created_at.desc", limit: String(Math.max(1, Math.min(200, limit))),
     }));
+  }
+  async listAllForUser(userId: string) {
+    const page = 200;
+    const rows: PantaTradeSession[] = [];
+    for (let offset = 0; offset < ALL_ROWS_CAP; offset += page) {
+      const batch = await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({
+        user_id: `eq.${userId}`, state: "in.(SUBMITTED,FILLED,FAILED)", signature: "not.is.null",
+        select: columns, order: "created_at.asc,id.asc", limit: String(page), offset: String(offset),
+      }));
+      rows.push(...batch);
+      if (batch.length < page) return rows;
+    }
+    // Never a silent truncation: a reader that must see everything refuses.
+    throw new Error("panta_trade_sessions: more rows than one read may hold");
   }
   async latestForCall(userId: string, callId: string) {
     return (await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({

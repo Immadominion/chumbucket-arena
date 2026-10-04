@@ -779,10 +779,19 @@ describe("web app rules", () => {
     const signers = files.filter(({ text }) => /signTransaction\(/.test(text)).map(({ file }) => file.split("/").pop());
     expect(signers.sort()).toEqual(["ChumbucketWalletPrivy.tsx", "TradeSheet.tsx", "chumbucketWallet.tsx", "wallets.ts"]);
     const trade = readCode(join(WEB, "lib/webapp/trade.ts"));
-    expect(trade.indexOf("await checked(unsigned")).toBeLessThan(trade.indexOf("signed = await signer.sign(unsigned)"));
+    expect(trade.indexOf("await checkPantaBuy(copy, buy)")).toBeGreaterThan(0);
+    expect(trade.indexOf("await checkPantaBuy(copy, buy)")).toBeLessThan(trade.indexOf("await signRaw(copy)"));
     const sheet = readCode(join(WEB, "components/webapp/TradeSheet.tsx"));
     expect(sheet).not.toMatch(/placeTrade|avgPrice/);
     expect(sheet).toContain("reviewTrade(");
+    // Every signer checks inside itself; none is written by hand.
+    for (const file of ["components/webapp/TradeSheet.tsx", "components/webapp/chumbucketWallet.tsx"]) {
+      const code = readCode(join(WEB, file));
+      expect({ file, checked: code.includes("checkedSigner(") }).toEqual({ file, checked: true });
+      expect({ file, handRolled: /async sign\(|sign: \(/.test(code) }).toEqual({ file, handRolled: false });
+    }
+    // A closed sheet keeps no review.
+    expect(sheet).toMatch(/if \(open\) return;\s*setReviewed\(null\);/);
   });
 
   test("signing out, or another account, logs Privy out before it is unloaded", () => {
