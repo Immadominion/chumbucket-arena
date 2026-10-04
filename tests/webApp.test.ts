@@ -305,17 +305,25 @@ describe("web app procedures", () => {
 // ── formatting ───────────────────────────────────────────────────────────────
 
 describe("web app formatting", () => {
-  test("a Panta price shows as a percent only while fresh, per side; otherwise a quiet null (never 'stale')", () => {
-    expect(livePercent(price(), "YES", NOW)).toBe("62%");
-    expect(livePercent(price(), "NO", NOW)).toBe("43%");
-    expect(livePercent(price({ yesPrice: "1.2" }), "YES", NOW)).toBeNull(); // not a 0..1 price
+  test("a Panta price shows as percents that add up, only while fresh; otherwise a quiet null (never 'stale')", () => {
+    // Independent USDC prices (0.62 + 0.43 > 1): YES = yes / (yes + no), NO = 100 − YES.
+    expect(livePercent(price(), "YES", NOW)).toBe("59%");
+    expect(livePercent(price(), "NO", NOW)).toBe("41%");
+    expect(livePercent(price({ yesPrice: "1.25", noPrice: "0.35" }), "YES", NOW)).toBe("78%");
+    expect(livePercent(price({ yesPrice: "1.25", noPrice: "0.35" }), "NO", NOW)).toBe("22%");
+    expect(livePercent(price({ yesPrice: "0.625", noPrice: "0.375" }), "YES", NOW)).toBe("63%");
+    expect(livePercent(price({ yesPrice: "0.625", noPrice: "0.375" }), "NO", NOW)).toBe("37%");
     expect(livePercent(price({ observedAt: NOW - 11 * 60_000 }), "YES", NOW)).toBeNull();
+    // One side missing: the other reads alone; above a whole share, alone, is null.
     expect(livePercent(price({ noPrice: null }), "NO", NOW)).toBeNull();
+    expect(livePercent(price({ noPrice: null }), "YES", NOW)).toBe("62%");
+    expect(livePercent(price({ yesPrice: "1.2", noPrice: null }), "YES", NOW)).toBeNull();
     expect(livePercent(null, "YES", NOW)).toBeNull();
   });
 
   test("the percent a call was made at is the call's own side", () => {
-    expect(calledAt({ side: "NO", entryPrice: price({ noPrice: "0.47" }) })).toBe("47%");
+    expect(calledAt({ side: "NO", entryPrice: price({ yesPrice: "0.53", noPrice: "0.47" }) })).toBe("47%");
+    expect(calledAt({ side: "NO", entryPrice: price() })).toBe("41%");
     expect(calledAt({ side: "YES", entryPrice: null })).toBeNull();
   });
 
@@ -803,7 +811,7 @@ describe("web app rules", () => {
     }
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
     // The CTA is a call, carrying the Free mark; the toast says free.
-    expect(market).toMatch(/Call \{sideLabel\(market, pick\)\}\s*<FreeChip \/>/);
+    expect(market).toMatch(/<span className="wa-btn-label">Call \{sideLabel\(market, pick\)\}<\/span>\s*<FreeChip \/>/);
     expect(market).toContain('toast(`Called ${sideLabel(market, entry.call.side)}${callMark(entry) === "free" ? " · Free" : ""}`)');
     expect(market).toContain("You called {sideLabel(market, viewerCall.call.side)}");
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
@@ -819,11 +827,35 @@ describe("web app rules", () => {
     expect(css).toMatch(/\.wa-btn--ink \{[^}]*min-height: 56px[^}]*background: var\(--wa-ink\)/);
     // The lock bar, the response sheet and the rail's "Make a call" are free calls.
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
-    expect(market).toMatch(/className="wa-btn wa-btn--ink"[\s\S]*?Call \{sideLabel\(market, pick\)\}\s*<FreeChip \/>/);
+    expect(market).toMatch(/className="wa-btn wa-btn--ink"[\s\S]*?Call \{sideLabel\(market, pick\)\}<\/span>\s*<FreeChip \/>/);
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
-    expect(respond).toMatch(/className="wa-btn wa-btn--ink wa-btn--block"[\s\S]*?<FreeChip \/>/);
+    expect(respond).toMatch(/className="wa-btn wa-btn--ink wa-btn--block"[\s\S]*?<span className="wa-btn-label">\{cta\}<\/span>\s*<FreeChip \/>/);
     expect(respond).not.toContain("wa-btn--primary");
     expect(readCode(join(WEB, "components/webapp/Shell.tsx"))).toMatch(/wa-btn--ink wa-railcta" aria-label="Make a call"/);
+    // A dare is free too: neutral ink, never the pink of money.
+    expect(css).toMatch(/\.wa-respond-btn--dare \{[^}]*color: var\(--wa-ink\)/);
+    expect(css).not.toMatch(/\.wa-respond-btn--dare \{[^}]*pink/);
+    expect(readCode(join(WEB, "components/webapp/screens/ActivityScreen.tsx"))).toContain('dare: { bg: "var(--wa-line)", fg: "var(--wa-ink)" }');
+  });
+
+  test("the free call's button never pushes a 320px page sideways", () => {
+    const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
+    // It may shrink (min-width 0), its label ellipsises, the Free chip keeps its size…
+    expect(css).toMatch(/\.wa-btn--ink \{\s*min-width: 0;/);
+    expect(css).toMatch(/\.wa-btn-label \{[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
+    expect(css).toMatch(/\.wa-btn \.wa-chip--free \{\s*flex: none;/);
+    // …and below 360px the chip is its gift alone (the words stay for screen readers).
+    expect(css).toMatch(/@media \(max-width: 359px\) \{[\s\S]*?\.wa-btn \.wa-chip--free > span\[aria-hidden\] \{\s*display: none;/);
+  });
+
+  test("Panta's compact mark sits beside the market's trade, never as a sentence", () => {
+    const ui = readCode(join(WEB, "components/webapp/ui.tsx"));
+    expect(ui).toMatch(/export function PantaMark\(\)[\s\S]*?wa-pantamark[\s\S]*?on Panta[\s\S]*?>Panta</);
+    const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
+    expect(market).toMatch(/Trade\s*<PantaMark \/>/);
+    for (const screen of ["cards.tsx", "screens/CallScreen.tsx", "screens/HomeScreen.tsx", "screens/MarketsScreen.tsx", "screens/PersonScreen.tsx"]) {
+      expect({ screen, mark: readCode(join(WEB, "components/webapp", screen)).includes("PantaMark") }).toEqual({ screen, mark: false });
+    }
   });
 
   test("a settled, closed or SOL-quoted market offers no trade, and shows your result", () => {

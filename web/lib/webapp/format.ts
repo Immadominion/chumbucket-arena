@@ -4,24 +4,25 @@
  * that depends on time takes `now`), so it is tested in the BFF repo.
  */
 
-import { callMark, entryPercent, percentLabel } from "../callsBff";
+import { callMark, entryPercent, pairPercent, percentLabel, sidePercent } from "../callsBff";
 import type { Call, CallFeedEntry, CallOutcome, Market, PublicRecord, SharePrice, Side } from "./types";
 
-export { callMark, entryPercent, percentLabel };
+export { callMark, entryPercent, pairPercent, percentLabel, sidePercent };
 
 /** A Panta price is only shown while it is this fresh (the BFF's own limit). */
 export const PRICE_MAX_AGE_MS = 10 * 60_000;
 
 /**
- * One side's live percent ("62%"), the same for a USDC and a SOL-quoted market
- * (see percentLabel). Null when it should not be shown: no snapshot, a missing
+ * One side's live percent, weighed against the other so the two add up
+ * (see pairPercent): 0.62 / 0.43 reads 59% / 41%, the same for a USDC and a
+ * SOL-quoted market. Null when it should not be shown: no snapshot, a missing
  * side, or a snapshot older than the BFF would call on. Screens show a quiet
  * "—" for null; they never say the price is stale.
  */
 export function livePercent(snapshot: SharePrice | null | undefined, side: Side, now: number): string | null {
   if (!snapshot) return null;
   if (snapshot.observedAt > now + 60_000 || now - snapshot.observedAt > PRICE_MAX_AGE_MS) return null;
-  return percentLabel(side === "YES" ? snapshot.yesPrice : snapshot.noPrice);
+  return sidePercent(snapshot, side);
 }
 
 /** The percent a call was made at, for its own side ("62%"), or null. */

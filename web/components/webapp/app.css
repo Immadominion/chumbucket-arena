@@ -602,6 +602,14 @@
   padding: 0;
 }
 /* Free is a ghost: outline only, so it never reads as money. */
+/* Panta's compact mark beside a trade: the wordmark, quiet. */
+.wa-pantamark {
+  font-family: var(--wa-display);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--wa-muted);
+}
 .wa-chip--free {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--wa-line-strong);
@@ -1027,6 +1035,33 @@
 .wa-lockbar-row .wa-btn--ink {
   flex: 1;
 }
+/* A free call's button never pushes the page sideways: it may shrink (a long
+   outcome label ellipsises), the Free chip keeps its size, and on a narrow
+   phone the chip is its gift alone (its words stay for screen readers). */
+.wa-btn--ink {
+  min-width: 0;
+}
+.wa-btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-btn .wa-chip--free {
+  flex: none;
+}
+@media (max-width: 359px) {
+  .wa-lockbar-row .wa-btn--ink {
+    padding: 0 12px;
+    gap: 6px;
+  }
+  .wa-btn .wa-chip--free {
+    padding: 0 6px;
+  }
+  .wa-btn .wa-chip--free > span[aria-hidden] {
+    display: none;
+  }
+}
 .wa-lockbar textarea {
   width: 100%;
   margin-bottom: 8px;
@@ -1236,9 +1271,14 @@
   background: var(--wa-no-bg);
   color: var(--wa-no-ink);
 }
+/* A dare is free: neutral ink, never the pink of money. */
 .wa-respond-btn--dare {
-  background: var(--wa-pink-wash);
-  color: var(--wa-pink-ink);
+  background: var(--wa-surface);
+  box-shadow: inset 0 0 0 1.5px var(--wa-line-strong);
+  color: var(--wa-ink);
+}
+.wa-respond-btn--dare .wa-respond-ico {
+  background: var(--wa-no-bg);
 }
 
 .wa-counts {

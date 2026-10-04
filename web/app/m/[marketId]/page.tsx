@@ -13,7 +13,7 @@ import { ExternalIcon, PublicShell, Unavailable } from "@/components/public/Publ
 import {
   NotFound,
   getMarket,
-  percentLabel,
+  pairPercent,
   sideLabel,
   statusCopy,
   venueUrl,
@@ -65,9 +65,8 @@ export default async function MarketPage({ params }: { params: Promise<Params> }
 
 function MarketBody({ detail }: { detail: MarketDetail }) {
   const { market, sharePrice } = detail;
-  // Both quote assets read as a percent (percentLabel), never in a unit.
-  const yes = percentLabel(sharePrice?.yesPrice);
-  const no = percentLabel(sharePrice?.noPrice);
+  // Both sides as percents that add up (pairPercent), never in a unit.
+  const { yes, no } = pairPercent(sharePrice?.yesPrice, sharePrice?.noPrice);
   const venue = venueUrl(market);
   const open = market.status === "OPEN";
   const closes = whenLabel(market.closesAt);

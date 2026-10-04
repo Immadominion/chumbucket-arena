@@ -28,7 +28,7 @@ function person(id: string, over: Partial<Person> = {}): Person {
   return { id, handle: id, displayName: `Person ${id}`, avatarUrl: null, settledCalls: 0, correctCalls: 0, ...over };
 }
 
-function entry(id: string, over: { author?: Person; outcome?: "PENDING" | "CORRECT" | "INCORRECT" | "VOID"; thesis?: string | null; price?: string | null } = {}): CallFeedEntry {
+function entry(id: string, over: { author?: Person; outcome?: "PENDING" | "CORRECT" | "INCORRECT" | "VOID"; thesis?: string | null; price?: string | null; no?: string } = {}): CallFeedEntry {
   const outcome = over.outcome ?? "PENDING";
   return {
     call: {
@@ -41,7 +41,7 @@ function entry(id: string, over: { author?: Person; outcome?: "PENDING" | "CORRE
       entryPrice:
         over.price === null
           ? null
-          : { venue: "panta", currency: "USDC", unit: "share", yesPrice: over.price ?? "0.5", noPrice: "0.52", observedAt: OCT_2, attribution: null },
+          : { venue: "panta", currency: "USDC", unit: "share", yesPrice: over.price ?? "0.5", noPrice: over.no ?? "0.5", observedAt: OCT_2, attribution: null },
       visibility: "public",
       createdAt: OCT_2,
       lockedAt: OCT_2,
@@ -131,7 +131,7 @@ describe("landing social proof", () => {
 
   test("never 'free' once money is involved, and never cents", () => {
     const author = person("dev", { displayName: "Dominion" });
-    const funded = { ...entry("f", { author, price: "0.625" }), funding: { state: "FILLED", venue: "panta" } };
+    const funded = { ...entry("f", { author, price: "0.625", no: "0.375" }), funding: { state: "FILLED", venue: "panta" } };
     expect(callSentence(funded)).toBe(`Dominion (@dev) made a funded call: Yes at 63% on ${DAY}. Panta hasn’t settled it yet.`);
     const submitted = entry("s", { author });
     submitted.call.fundingState = "SUBMITTED";

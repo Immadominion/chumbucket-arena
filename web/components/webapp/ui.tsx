@@ -80,6 +80,21 @@ export function FundedChip({ amount }: { amount?: string | null }) {
   );
 }
 
+/**
+ * Panta's attribution as a compact mark, not a sentence: the wordmark, beside
+ * the trade it attributes (Panta's terms, §6). Never on calls, cards or lists.
+ * No Panta logo ships in this repo, so the mark is text; beside "Trade" a
+ * screen reader hears "Trade on Panta".
+ */
+export function PantaMark() {
+  return (
+    <span className="wa-pantamark">
+      <span className="wa-sr">on Panta</span>
+      <span aria-hidden>Panta</span>
+    </span>
+  );
+}
+
 /** Free, funded, or nothing for a state in between (see callMark). */
 export function CallMarkChip({ entry }: { entry: Pick<CallFeedEntry, "call" | "funding"> }) {
   const mark = callMark(entry);
