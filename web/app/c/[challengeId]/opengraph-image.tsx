@@ -1,4 +1,4 @@
-import { callMark, entryPercent, getCall, outcomeCopy, sideLabel, whenLabel } from "@/lib/callsBff";
+import { callMark, entryPercent, fundedLabel, getCall, outcomeCopy, sideLabel, whenLabel } from "@/lib/callsBff";
 import { OG_SIZE, ogCard } from "@/lib/ogCard";
 
 export const runtime = "nodejs";
@@ -23,6 +23,7 @@ export default async function Image({ params }: { params: Promise<Params> | Para
       pill: { text: sideLabel(market, call.side), side: call.side },
       trailing: pct ? `at ${pct}` : null,
       mark: callMark(entry),
+      markLabel: fundedLabel(entry),
       body: market.question,
       stamp:
         outcome.tone === "won"

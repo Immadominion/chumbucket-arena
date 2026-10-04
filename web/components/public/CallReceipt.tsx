@@ -9,6 +9,7 @@ import {
   avatarSrc,
   callMark,
   entryPercent,
+  fundedLabel,
   outcomeCopy,
   recordLabel,
   sideLabel,
@@ -18,10 +19,11 @@ import {
 } from "@/lib/callsBff";
 import { Avatar, ExternalIcon, FreeMark, FundedMark, SidePill } from "./PublicShell";
 
-/** Free, funded, or nothing for a state in between (see callMark). */
+/** Free, funded ("$5 on YES" when the amount is known), or nothing for a state in between (see callMark). */
 function CallMark({ entry }: { entry: CallFeedEntry }) {
   const mark = callMark(entry);
-  return mark === "free" ? <FreeMark /> : mark === "funded" ? <FundedMark /> : null;
+  const stamp = mark === "funded" ? fundedLabel(entry) : null;
+  return mark === "free" ? <FreeMark /> : mark !== "funded" ? null : stamp ? <FundedMark label={stamp} /> : <FundedMark />;
 }
 
 export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry; headingLevel?: 1 | 2 }) {

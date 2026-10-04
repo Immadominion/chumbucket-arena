@@ -25,6 +25,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { checkGaslessSwap as serverSwapCheck, type ExpectedSwap as ServerExpectedSwap } from "../src/solTopUp/verify.ts";
 import { METIS, OWNER, RFQ } from "./fixtures/jupiterGasless.ts";
+import { fundedLabel } from "../web/lib/callsBff.ts";
 import { checkPantaClaim, type ReviewedClaim } from "../web/lib/webapp/claimCheck.ts";
 import {
   activityRow,
@@ -587,6 +588,18 @@ describe("a call with money: never funded before the BFF says so", () => {
     expect(pendingMark(entry({ money: { state: "PENDING", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", expired: false });
     expect(pendingMark(entry({ money: { state: "EXPIRED", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", expired: true });
     expect(pendingMark(entry())).toBeNull();
+  });
+
+  test("the public receipt and its link card say $5 on YES for a fill with its amount, else Funded", () => {
+    const outcomes = [{ side: "YES" as const, label: "Yes" }, { side: "NO" as const, label: "No" }];
+    expect(fundedLabel({ funding: { state: "FILLED", venue: "panta", amountBaseUnits: "5000000", side: "YES" }, market: { outcomes } })).toBe("$5 on YES");
+    expect(fundedLabel({ funding: { venue: "panta", amountBaseUnits: "9205000", side: "NO" }, market: { outcomes: [{ side: "NO", label: "Celtics" }] } })).toBe("$9.20 on Celtics");
+    expect(fundedLabel({ funding: { state: "FILLED", venue: "panta" } })).toBeNull();
+    expect(fundedLabel({ funding: { state: "SUBMITTED", venue: "panta", amountBaseUnits: "5000000", side: "YES" } })).toBeNull();
+    expect(fundedLabel({ funding: null })).toBeNull();
+    const receipt = readFileSync(join(WEB, "components/public/CallReceipt.tsx"), "utf8");
+    expect(receipt).toContain("<FundedMark label={stamp} />");
+    expect(readFileSync(join(WEB, "app/c/[challengeId]/opengraph-image.tsx"), "utf8")).toContain("markLabel: fundedLabel(entry)");
   });
 });
 

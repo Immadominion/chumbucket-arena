@@ -65,6 +65,8 @@ export interface OgCardInput {
   trailing?: string | null;
   /** The call's money mark after the trailing text: a ghost "Free" chip, or solid pink "Funded". */
   mark?: "free" | "funded" | null;
+  /** A funded mark's own words when the amount is known: "$5 on YES". */
+  markLabel?: string | null;
   /** The market question or a person's record line. */
   body: string;
   /** Bottom-right stamp, e.g. "CORRECT". */
@@ -154,7 +156,7 @@ export async function ogCard(input: OgCardInput): Promise<ImageResponse> {
                     border: `3px solid ${input.mark === "free" ? MUTED : CORAL}`,
                   }}
                 >
-                  {input.mark === "free" ? "Free" : "Funded"}
+                  {input.mark === "free" ? "Free" : (input.markLabel ?? "Funded")}
                 </div>
               ) : null}
             </div>
