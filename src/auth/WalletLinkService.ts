@@ -92,12 +92,15 @@ export interface LinkWalletInput {
   signature: string;
   purpose?: WalletPurpose;
   /**
-   * How the person holds the key: "mwa" (a wallet app, the default) or
-   * "embedded" (a key the Chumbucket app made on the phone). A label only —
+   * How the person holds the key: "mwa" (a wallet app, the default),
+   * "embedded" (a key the Chumbucket app made on the phone) or "chumbucket"
+   * (the Chumbucket wallet, which follows the account). A label only —
    * ownership is proven by the signature either way.
    */
-  walletType?: "mwa" | "embedded";
+  walletType?: LinkWalletType;
 }
+
+export type LinkWalletType = "mwa" | "embedded" | "chumbucket";
 
 export interface LinkWalletResult {
   userId: string;
@@ -124,6 +127,12 @@ export interface WalletLinkDeps {
   makeNonce?: () => string;
   /** See `resolveWalletProfileCarry`. Default off. */
   walletProfileCarry?: boolean;
+  /**
+   * CHUMBUCKET_WALLET_ENABLED. The "chumbucket" label is refused while off:
+   * the database admits it only once 20261004130000 is applied, and the flag
+   * is turned on after that.
+   */
+  chumbucketWallet?: boolean;
 }
 
 export interface CreateProfileInput {
@@ -330,6 +339,7 @@ export class WalletLinkService {
     if (purpose !== "link_wallet" && purpose !== "transfer_wallet") failAuth("SIWS_PURPOSE_MISMATCH");
 
     if (!isSolanaAddress(input.address)) failAuth("SIWS_ADDRESS_MISMATCH", "not a Solana address");
+    if (input.walletType === "chumbucket" && this.deps.chumbucketWallet !== true) failAuth("WALLET_TYPE_UNAVAILABLE");
 
     // Static bindings + signature. Throws before any write.
     const fields = verifySiwsProof(input.message, input.signature, {

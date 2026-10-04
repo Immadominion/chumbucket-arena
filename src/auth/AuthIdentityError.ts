@@ -57,6 +57,8 @@ export type AuthIdentityErrorCode =
   | "WALLET_OWNED_BY_ANOTHER_USER"
   | "WALLET_REQUIRES_TRANSFER"
   | "WALLET_LINK_FAILED"
+  /** A wallet label this server does not accept yet (the Chumbucket wallet while its flag is off). */
+  | "WALLET_TYPE_UNAVAILABLE"
 
   // ── legacy identity claims ───────────────────────────────────────────────
   | "LEGACY_EVIDENCE_UNVERIFIED"
