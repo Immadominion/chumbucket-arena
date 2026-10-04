@@ -17,6 +17,8 @@ export const appPath = {
   call: (id: string) => `${APP_BASE}/c/${enc(id)}`,
   person: (handle: string) => `${APP_BASE}/u/${enc(bare(handle))}`,
   me: `${APP_BASE}/me`,
+  /** Settings → Sign-in methods, open on arrival: where a wallet is linked with its proof. */
+  signInMethods: `${APP_BASE}/me?settings=sign-in`,
   activity: `${APP_BASE}/activity`,
   friends: `${APP_BASE}/friends`,
   leaderboard: `${APP_BASE}/leaderboard`,

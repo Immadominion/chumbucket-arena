@@ -199,7 +199,7 @@ export function TradeSheet({
               <Icon name="wallet" size={16} />
               <span>{problem.text}</span>
               {problem.link ? (
-                <a href={appPath.me} style={{ marginLeft: "auto", fontWeight: 600 }}>
+                <a href={appPath.signInMethods} style={{ marginLeft: "auto", fontWeight: 600 }}>
                   Link
                 </a>
               ) : null}

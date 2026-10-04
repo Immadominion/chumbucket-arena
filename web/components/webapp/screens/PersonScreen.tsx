@@ -27,13 +27,17 @@ export function MeScreen() {
   return <PersonScreen personRef={viewer.handle ?? viewer.userId} mine />;
 }
 
-/** Back from linking X or Google (`/app/me?signin=x`): Settings opens where it left off. */
+/**
+ * Back from linking X or Google (`/app/me?signin=x`): Settings opens where it
+ * left off. Sent to link a wallet (`appPath.signInMethods`): it opens there too.
+ */
 function useSettingsReturn(mine: boolean): boolean {
   const [back] = useState(() => {
     if (!mine || typeof window === "undefined") return false;
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("signin")) return false;
+    if (!url.searchParams.has("signin") && url.searchParams.get("settings") !== "sign-in") return false;
     url.searchParams.delete("signin");
+    url.searchParams.delete("settings");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     return true;
   });

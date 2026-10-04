@@ -610,6 +610,9 @@ describe("web app paths", () => {
     expect(appPath.call("c 1")).toBe("/app/c/c%201");
     expect(appPath.person("@ada")).toBe("/app/u/ada");
     expect(appPath.market("m1")).toBe("/app/m/m1");
+    // A wallet the BFF refuses as unlinked is linked in Settings → Sign-in methods.
+    expect(appPath.signInMethods).toBe("/app/me?settings=sign-in");
+    expect(safeReturnPath(appPath.signInMethods)).toBe(appPath.signInMethods);
     expect(publicPath.receipt("c1")).toBe("/c/c1");
     expect(publicPath.profile("@ada")).toBe("/u/ada");
   });
