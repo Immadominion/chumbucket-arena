@@ -47,6 +47,9 @@ export type WriteScope = "ip" | "session" | "user";
  */
 export const READ_ONLY_MUTATIONS: ReadonlySet<string> = new Set([
   "auth.whoami",
+  // Settings → Sign-in methods: the list, and what a link would do
+  "auth.signInMethods",
+  "auth.previewSignInLink",
   // add a friend: "is this them?" — a lookup, with its own per-person limit
   // (src/trust/config.ts "people.find")
   "people.find",

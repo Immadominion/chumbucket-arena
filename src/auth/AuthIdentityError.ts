@@ -73,7 +73,25 @@ export type AuthIdentityErrorCode =
   /** The signed-in wallet already has an account; it is carried, never duplicated. */
   | "WALLET_HAS_PROFILE"
   /** The account already has a @username; claiming one never renames it. */
-  | "HANDLE_ALREADY_SET";
+  | "HANDLE_ALREADY_SET"
+
+  // ── one account, many sign-ins ──
+  /** Linking sign-ins is switched off on this server (ACCOUNT_LINKING_ENABLED). */
+  | "ACCOUNT_LINKING_DISABLED"
+  /** Folding another account in is switched off (ACCOUNT_FOLD_ENABLED). */
+  | "ACCOUNT_FOLD_DISABLED"
+  /** The link ticket is unknown, used, superseded or expired. */
+  | "LINK_TICKET_INVALID"
+  /** The other side signed in with a different method than the link asked for. */
+  | "LINK_METHOD_MISMATCH"
+  | "LINK_RATE_LIMITED"
+  /** The other account has funded activity or money; it is never folded. */
+  | "ACCOUNT_HAS_MONEY"
+  /** The other account was already folded, or was deleted. */
+  | "ACCOUNT_NOT_FOLDABLE"
+  /** The sign-in you are using, or the account's own first one, can't be unlinked. */
+  | "SIGN_IN_IN_USE"
+  | "SIGN_IN_NOT_FOUND";
 
 export class AuthIdentityError extends Error {
   readonly code: AuthIdentityErrorCode;
@@ -132,6 +150,26 @@ export function codeForStoreReason(
       return "LEGACY_CLAIMED_BY_ANOTHER_USER";
     case "unverified_evidence":
       return "LEGACY_EVIDENCE_UNVERIFIED";
+    case "linking_disabled":
+      return "ACCOUNT_LINKING_DISABLED";
+    case "fold_disabled":
+      return "ACCOUNT_FOLD_DISABLED";
+    case "ticket_unknown":
+    case "ticket_used":
+    case "ticket_expired":
+      return "LINK_TICKET_INVALID";
+    case "method_mismatch":
+      return "LINK_METHOD_MISMATCH";
+    case "has_money":
+      return "ACCOUNT_HAS_MONEY";
+    case "already_folded":
+    case "same_account":
+      return "ACCOUNT_NOT_FOLDABLE";
+    case "current_sign_in":
+    case "primary_sign_in":
+      return "SIGN_IN_IN_USE";
+    case "not_found":
+      return "SIGN_IN_NOT_FOUND";
     default:
       return fallback;
   }

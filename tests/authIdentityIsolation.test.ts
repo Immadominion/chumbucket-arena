@@ -126,7 +126,7 @@ async function trpcFailure(fn: () => Promise<unknown>): Promise<{ code: string; 
 }
 
 describe("authRouter — surface", () => {
-  test("exposes eleven procedures, including gated existing-profile proof/claim", async () => {
+  test("exposes its procedures, including gated existing-profile proof/claim and sign-in links", async () => {
     const names = Object.keys(
       (authRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
     ).sort();
@@ -143,8 +143,15 @@ describe("authRouter — surface", () => {
     // deleteAccount / exportData (argued for, src/api/trust.ts): mutations
     // keyed on the verified Supabase session only. They act on, and return,
     // nothing but the caller's own account.
+    // signInMethods / unlinkSignIn (argued for, src/auth/AccountLinkService.ts):
+    // the caller's OWN sign-ins, resolved from the verified session; strict
+    // inputs name no account. startSignInLink / previewSignInLink /
+    // completeSignInLink: a single-use ticket the caller's account issues
+    // itself, completed only by a second verified session (the other side);
+    // the preview names the two accounts' public handles and nothing else.
     expect(names).toEqual(
-      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus", "claimUsername", "deleteAccount", "exportData"].sort(),
+      ["claimLegacyIdentity", "completeProfile", "identityStatus", "linkWallet", "requestWalletNonce", "whoami", "requestExistingAccountProof", "claimExistingAccount", "usernameStatus", "claimUsername", "deleteAccount", "exportData",
+        "signInMethods", "unlinkSignIn", "startSignInLink", "previewSignInLink", "completeSignInLink"].sort(),
     );
   });
 
