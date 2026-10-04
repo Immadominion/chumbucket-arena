@@ -56,10 +56,10 @@ provider's). Expected, actionable outcomes are NOT errors: they come back as a
 |---|---|
 | `UNAUTHORIZED` | signed out, or the session is invalid |
 | `FORBIDDEN` | the session is not linked to an account yet |
-| `PRECONDITION_FAILED` | `MONEY_CALLS_ENABLED` off; Panta trading paused/unconfigured; market not taking calls; the money call is not in a state that allows this action |
+| `PRECONDITION_FAILED` | `MONEY_CALLS_ENABLED` off; Panta trading paused/unconfigured; market not taking calls; a market our trade path cannot buy on (SOL-quoted: "This market takes free calls only."); the money call is not in a state that allows this action; a call or transfer review that timed out |
 | `NOT_FOUND` | no such money call / transfer / market / call **on your account** (someone else's reads as not found) |
 | `CONFLICT` | an idempotency key reused with different details; an order is still going through |
-| `BAD_REQUEST` | malformed input; amount outside the limits; your own call on Back/Fade |
+| `BAD_REQUEST` | malformed input; amount outside the limits; your own call on Back/Fade; a wallet approval that does not match the reviewed transfer |
 | `UNPROCESSABLE_CONTENT` | the chosen wallet is not linked to the account (`WALLET_NOT_LINKED`: lead with "link this wallet") |
 | `TOO_MANY_REQUESTS` | per-account rate limit |
 | `SERVICE_UNAVAILABLE` / `BAD_GATEWAY` | the database, Panta or the RPC could not answer; nothing was signed or charged |
@@ -160,7 +160,8 @@ output:
 - `kind: "back"` takes the target's side, `"fade"` the opposite side (Tail /
   Fade in the UI). Your own call, an already-answered call, a call you cannot
   see, or a market that is closed/at its cut-off are refused exactly like
-  `calls.respond` / `calls.create` refuse them.
+  `calls.respond` / `calls.create` refuse them. A market Panta's USDC buy
+  cannot trade (SOL-quoted) is refused before anything is created.
 - **Checks before anything is created, in order:** gas, then funds. Nothing is
   written for `NEEDS_FUNDS` or `NEEDS_GAS`.
   - `NEEDS_GAS`: the wallet's SOL cannot pay one Panta buy (fee + the
@@ -277,9 +278,9 @@ offer "finish, keep free or discard" instead of leaving a ghost.
 ```ts
 input:  z.object({}).strict().optional()
 output: {
-  wallet: { address: string; walletType: string } | null;   // the trading wallet
-  balance: { usdcBaseUnits: string; lamports: string; slot: number } | null; // null: no wallet
-  gas: { needsTopUp: boolean; topUp: { amountBaseUnits: string } | null };
+  wallet: { address: string; walletType: string } | null;   // the trading wallet; null: no wallet yet
+  balance: { usdcBaseUnits: string; lamports: string; slot: number } | null; // null only with no wallet
+  gas: { needsTopUp: boolean; topUp: { amountBaseUnits: string } | null } | null; // null: no wallet, or fees could not be checked just now
 }
 ```
 The header pill shows `balance.usdcBaseUnits` as dollars (`$12.19`). Real
@@ -308,7 +309,8 @@ interface ActivityItem {
 ```
 Newest first. Sources: trades (`panta_trade_sessions` that reached a signature:
 `SUBMITTED` pending, `FILLED` done, `FAILED` failed), win claims
-(`panta_claim_sessions`, payout proven on chain), cash outs and wallet top-ups
+(`panta_claim_sessions`: done shows the payout proven on chain; pending or
+failed shows the winning shares at $1 from Panta's reviewed claim), cash outs and wallet top-ups
 (`wallet_transfers`), and USDC that arrived in the trading wallet from anywhere
 else (card via Crossmint, "Send USDC") read from mainnet. When the RPC cannot
 answer, chain-only deposits are left out; ledger items always show.
@@ -367,7 +369,12 @@ retried submit re-sends the identical bytes only); `CONFIRMED` only when the
 chain shows the exact reviewed message landed with exactly `amountBaseUnits`
 USDC leaving `from` and arriving at `to`'s USDC account; `FAILED` only when the
 chain says it failed or its blockhash expired without it landing. The quote
-lives 60 s.
+lives 60 s; replaying the same `idempotencyKey` after that answers
+`PRECONDITION_FAILED` ("This review expired. Nothing was sent. Start again."),
+so start again with a new key. Errors on submit: `BAD_REQUEST` (the approval
+is not the owner's signature over exactly the reviewed message, or a different
+approval than one already stored), `PRECONDITION_FAILED` (the review expired,
+or the transfer already failed), `NOT_FOUND` (not your transfer).
 
 **The transaction (what every signer must check before signing).** One v0
 transaction, no address lookup tables, signatures empty, exactly one signer:
@@ -476,7 +483,9 @@ proposer's **own** proven wallets:
 - a reviewer who is not the proposer: `FORBIDDEN` "Only the person who
   proposed this market can publish it." Reviewers still approve or reject.
 - a wallet that is not the proposer's: `FORBIDDEN` "Link this wallet to your
-  account first".
+  account first" (checked on `preparePublish` and again before the signed
+  create is committed); links that cannot be read: `BAD_GATEWAY`, never
+  assumed.
 - `ProposalView.canPublish` is true only for the proposer.
 Off, the existing behaviour (proposer or reviewer, any wallet) is unchanged.
 
@@ -522,3 +531,8 @@ apply before setting `MONEY_CALLS_ENABLED=true`:
   and wallet top-ups; the trade ledger's discipline).
 With the flag on and `money_calls` unreadable, the calls feed fails closed
 rather than show a pending call publicly.
+
+Background work: the money sweeper (expiry, FUNDED repair, settling
+`SUBMITTED` transfers) runs inside the Panta reconciler's pass
+(`PANTA_RECONCILER_ENABLED`, on whenever Panta is configured for reads). Each
+person's own `callStatus` / `transferStatus` poll runs the same transitions.
