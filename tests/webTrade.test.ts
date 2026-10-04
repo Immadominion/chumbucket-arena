@@ -1,12 +1,24 @@
 /**
- * The web app's Panta buy (web/lib/webapp/trade.ts, solanaTx.ts): the
- * browser only checks that a wallet signed exactly the transaction the BFF
- * built, in its own slot, then hands the bytes back to the BFF. Test doubles
- * stand in for the BFF and the wallet; the transactions are real v0 bytes.
+ * The web app's Panta buy (web/lib/webapp/trade.ts, pantaBuyCheck.ts,
+ * solanaTx.ts): before any wallet signs, the browser checks the BFF's bytes
+ * are exactly the reviewed buy; after, that the wallet signed only its own
+ * slot. Test doubles stand in for the BFF and the wallet; the transactions
+ * are real v0 bytes in the BFF's shape.
  */
 
 import { describe, expect, test } from "bun:test";
-import { Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import {
+  AddressLookupTableAccount,
+  ComputeBudgetProgram,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
+import { createHash, randomBytes } from "node:crypto";
+import { checkPantaBuy, isOnCurve, UnsafeTransaction, usdcAccountOf } from "../web/lib/webapp/pantaBuyCheck.ts";
 import {
   base64ToBytes,
   bytesToBase64,
@@ -15,7 +27,17 @@ import {
   signedOnlyInSlot,
   withSignature,
 } from "../web/lib/webapp/solanaTx.ts";
-import { isFinal, placeTrade, TradeError, usdToBaseUnits, type PreparedTrade, type TradeApi, type TradeOrder } from "../web/lib/webapp/trade.ts";
+import {
+  confirmTrade,
+  isFinal,
+  placeTrade,
+  reviewTrade,
+  TradeError,
+  usdToBaseUnits,
+  type PreparedTrade,
+  type TradeApi,
+  type TradeOrder,
+} from "../web/lib/webapp/trade.ts";
 import { sign as nodeSign } from "node:crypto";
 import { isLinkChallenge, LINK_DOMAIN, LINK_URI, linkChumbucketWallet, type WalletLinkApi } from "../web/lib/webapp/chumbucketLink.ts";
 import { WalletLinkService } from "../src/auth/WalletLinkService.ts";
@@ -70,9 +92,91 @@ describe("solana transaction bytes", () => {
   });
 });
 
+// ── a real Panta primary buy, as the BFF's PantaExecution builds it ──
+const PANTA = "6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp";
+const USDC = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const ATA = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const MEMO = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+const market = new PublicKey(new Uint8Array(32).fill(3)).toBase58();
+const pda = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+const usdcAta = (who: PublicKey) => PublicKey.findProgramAddressSync([who.toBuffer(), TOKEN.toBuffer(), USDC.toBuffer()], ATA)[0];
+
+interface BuyOpts {
+  side?: "YES" | "NO";
+  amount?: bigint;
+  units?: number;
+  payer?: PublicKey;
+  tokenAccount?: PublicKey;
+  extra?: TransactionInstruction[];
+  memo?: boolean;
+  lookup?: boolean;
+}
+function pantaBuy(o: BuyOpts = {}): Uint8Array {
+  const who = owner.publicKey;
+  const ata = o.tokenAccount ?? usdcAta(who);
+  const m = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
+  const data = Buffer.alloc(17);
+  createHash("sha256").update("global:primary_order_usdc").digest().copy(data, 0, 0, 8);
+  data[8] = (o.side ?? "YES") === "YES" ? 0 : 1;
+  data.writeBigUInt64LE(o.amount ?? 5_000_000n, 9);
+  const instructions = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: o.units ?? 300_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }),
+    new TransactionInstruction({ programId: ATA, data: Buffer.from([1]), keys: [m(who, true, true), m(ata, true), m(who), m(USDC), m(SystemProgram.programId), m(TOKEN)] }),
+    new TransactionInstruction({ programId: new PublicKey(PANTA), data, keys: [m(who, true, true), m(new PublicKey(market), true), m(pda(5)), m(pda(6)), m(pda(7), true), m(pda(8), true), m(USDC), m(ata, true), m(pda(10), true), m(TOKEN), m(ATA), m(SystemProgram.programId)] }),
+    ...(o.extra ?? []),
+    ...(o.memo === false ? [] : [new TransactionInstruction({ programId: MEMO, data: Buffer.from("panta:v1:usr_synthetic:qt_1:ord_1"), keys: [m(who, false, true)] })]),
+  ];
+  const lookups = o.lookup
+    ? [new AddressLookupTableAccount({ key: pda(20), state: { deactivationSlot: BigInt("18446744073709551615"), lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, addresses: [pda(5), pda(6)] } })]
+    : [];
+  const message = new TransactionMessage({ payerKey: o.payer ?? who, recentBlockhash: blockhash, instructions }).compileToV0Message(lookups);
+  return new VersionedTransaction(message).serialize();
+}
+const reviewedBuy = { owner: owner.publicKey.toBase58(), venueMarketId: market, side: "YES" as const, amountBaseUnits: "5000000" };
+
+describe("the browser's own check before any wallet signs", () => {
+  test("exactly the reviewed buy passes", async () => {
+    await checkPantaBuy(pantaBuy(), reviewedBuy);
+    await checkPantaBuy(pantaBuy({ side: "NO" }), { ...reviewedBuy, side: "NO" });
+  });
+
+  test("a USDC transfer, an extra instruction, the wrong side or amount, a foreign fee payer: refused", async () => {
+    const thief = stranger.publicKey;
+    const cases: Array<[string, Uint8Array]> = [
+      ["usdc transfer", pantaBuy({ extra: [createTransferInstructionLike(usdcAta(owner.publicKey), usdcAta(thief), owner.publicKey, 5_000_000n)] })],
+      ["sol transfer", pantaBuy({ extra: [SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: thief, lamports: 1 })] })],
+      ["wrong side", pantaBuy({ side: "NO" })],
+      ["wrong amount", pantaBuy({ amount: 9_000_000n })],
+      ["foreign fee payer", pantaBuy({ payer: thief })],
+      ["not the owner's USDC account", pantaBuy({ tokenAccount: usdcAta(thief) })],
+      ["compute units over the cap", pantaBuy({ units: 1_400_001 })],
+      ["no attribution memo", pantaBuy({ memo: false })],
+      ["address lookup table", pantaBuy({ lookup: true })],
+    ];
+    for (const [name, tx] of cases) {
+      expect({ name, refused: await checkPantaBuy(tx, reviewedBuy).then(() => false, (e) => e instanceof UnsafeTransaction) }).toEqual({ name, refused: true });
+    }
+    // Another market is another buy.
+    await expect(checkPantaBuy(pantaBuy(), { ...reviewedBuy, venueMarketId: thief.toBase58() })).rejects.toBeInstanceOf(UnsafeTransaction);
+    // A signed transaction is not a review.
+    await expect(checkPantaBuy(sign(pantaBuy()), reviewedBuy)).rejects.toBeInstanceOf(UnsafeTransaction);
+  });
+
+  test("program addresses and the curve check agree with @solana/web3.js", async () => {
+    for (let i = 0; i < 40; i++) {
+      const who = Keypair.generate().publicKey;
+      expect(await usdcAccountOf(who.toBase58())).toBe(usdcAta(who).toBase58());
+      const bytes = new Uint8Array(randomBytes(32));
+      expect(isOnCurve(bytes)).toBe(PublicKey.isOnCurve(bytes));
+      expect(isOnCurve(who.toBytes())).toBe(true);
+    }
+  });
+});
+
 describe("placing a trade", () => {
-  function rig(over: Partial<PreparedTrade["order"]> = {}, now = 1_000) {
-    const payload = bytesToBase64(unsignedTx());
+  function rig(over: Partial<PreparedTrade["order"]> = {}, now = 1_000, payload = bytesToBase64(pantaBuy())) {
     const submitted: Array<{ orderId: string; signedTransaction: string }> = [];
     const prepared: Array<Record<string, unknown>> = [];
     const api: TradeApi = {
@@ -81,7 +185,7 @@ describe("placing a trade", () => {
         return {
           order: { orderId: "ord_1", owner: input.wallet, side: "YES", amountBaseUnits: input.amountBaseUnits, fundingState: "QUOTED",
             transaction: { encoding: "solana-tx-base64", payload, expiresAt: now + 60_000 }, expiresAt: now + 60_000, ...over },
-          review: { amountUsdc: "5.000000", amountBaseUnits: input.amountBaseUnits, avgPrice: "0.5", feeUsdc: "0.01", expectedShares: "9.9" },
+          review: { amountUsdc: "5.000000", amountBaseUnits: input.amountBaseUnits, avgPrice: "0.5", feeUsdc: "0.01", expectedShares: "9.2" },
         };
       },
       async submitTrade(orderId, signedTransaction) {
@@ -91,31 +195,50 @@ describe("placing a trade", () => {
     };
     return { api, submitted, prepared, payload, now: () => now };
   }
-  const signer = { address: owner.publicKey.toBase58(), sign: async (b: Uint8Array) => sign(b) };
+  const signs: Uint8Array[] = [];
+  const signer = { address: owner.publicKey.toBase58(), sign: async (b: Uint8Array) => { signs.push(b); return sign(b); } };
+  const trade = (h: ReturnType<typeof rig>, s = signer) =>
+    placeTrade({ api: h.api, callId, venueMarketId: market, side: "YES", amountBaseUnits: usdToBaseUnits(5), idempotencyKey: "intent-1", signer: s, now: h.now });
 
-  test("prepare for this wallet, sign the exact bytes, submit them: SUBMITTED, never funded", async () => {
+  test("review shows dollars only, then the exact bytes are signed and submitted: SUBMITTED, never funded", async () => {
     const h = rig();
-    const order = await placeTrade({ api: h.api, callId, amountBaseUnits: usdToBaseUnits(5), idempotencyKey: "intent-1", signer, now: h.now });
+    const reviewed = await reviewTrade({ api: h.api, callId, venueMarketId: market, side: "YES", amountBaseUnits: "5000000", idempotencyKey: "intent-1", signer, now: h.now });
+    expect([reviewed.pay, reviewed.win, reviewed.fee]).toEqual(["$5.00", "~$9.20", "$0.01"]);
+    expect(h.submitted).toHaveLength(0);
+    const order = await confirmTrade({ api: h.api, reviewed, now: h.now });
     expect(order.fundingState).toBe("SUBMITTED");
     expect(isFinal(order)).toBe(false);
     expect(h.prepared).toEqual([{ callId, wallet: signer.address, amountBaseUnits: "5000000", idempotencyKey: "intent-1", maxSlippageBps: 100 }]);
-    expect(h.submitted).toHaveLength(1);
     expect(signedOnlyInSlot(base64ToBytes(h.payload), base64ToBytes(h.submitted[0]!.signedTransaction))).toBe(true);
+  });
+
+  test("a malicious payload never reaches a wallet, let alone submit", async () => {
+    signs.length = 0;
+    const thief = stranger.publicKey;
+    for (const tx of [
+      pantaBuy({ extra: [SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: thief, lamports: 1 })] }),
+      pantaBuy({ amount: 50_000_000n }),
+      pantaBuy({ side: "NO" }),
+      pantaBuy({ payer: thief }),
+    ]) {
+      const h = rig({}, 1_000, bytesToBase64(tx));
+      await expect(trade(h)).rejects.toMatchObject({ kind: "unsafe" });
+      expect(h.submitted).toHaveLength(0);
+    }
+    expect(signs).toHaveLength(0);
   });
 
   test("a quote for another wallet or amount, an expired quote, a refusal or a rewrite never reaches submit", async () => {
     const other = rig({ owner: stranger.publicKey.toBase58() });
-    await expect(placeTrade({ api: other.api, callId, amountBaseUnits: "5000000", idempotencyKey: "k", signer, now: other.now })).rejects.toMatchObject({ kind: "mismatch" });
+    await expect(trade(other)).rejects.toMatchObject({ kind: "mismatch" });
     const amount = rig({ amountBaseUnits: "6000000" });
-    await expect(placeTrade({ api: amount.api, callId, amountBaseUnits: "5000000", idempotencyKey: "k", signer, now: amount.now })).rejects.toMatchObject({ kind: "mismatch" });
-    const expired = rig({ transaction: { encoding: "solana-tx-base64", payload: bytesToBase64(unsignedTx()), expiresAt: 999 } });
-    await expect(placeTrade({ api: expired.api, callId, amountBaseUnits: "5000000", idempotencyKey: "k", signer, now: expired.now })).rejects.toMatchObject({ kind: "expired" });
+    await expect(trade(amount)).rejects.toMatchObject({ kind: "mismatch" });
+    const expired = rig({ transaction: { encoding: "solana-tx-base64", payload: bytesToBase64(pantaBuy()), expiresAt: 999 } });
+    await expect(trade(expired)).rejects.toMatchObject({ kind: "expired" });
     const declined = rig();
-    await expect(placeTrade({ api: declined.api, callId, amountBaseUnits: "5000000", idempotencyKey: "k", now: declined.now,
-      signer: { address: signer.address, sign: async () => { throw new Error("user rejected"); } } })).rejects.toBeInstanceOf(TradeError);
+    await expect(trade(declined, { address: signer.address, sign: async () => { throw new Error("user rejected"); } })).rejects.toBeInstanceOf(TradeError);
     const rewritten = rig();
-    await expect(placeTrade({ api: rewritten.api, callId, amountBaseUnits: "5000000", idempotencyKey: "k", now: rewritten.now,
-      signer: { address: signer.address, sign: async () => sign(unsignedTx(owner.publicKey, 99)) } })).rejects.toMatchObject({ kind: "mismatch" });
+    await expect(trade(rewritten, { address: signer.address, sign: async () => sign(pantaBuy({ amount: 1n })) })).rejects.toMatchObject({ kind: "mismatch" });
     for (const h of [other, amount, expired, declined, rewritten]) expect(h.submitted).toHaveLength(0);
   });
 
@@ -125,6 +248,16 @@ describe("placing a trade", () => {
     expect(() => usdToBaseUnits(2.5)).toThrow();
   });
 });
+
+/** An SPL Token `Transfer` (instruction 3) from one token account to another. */
+function createTransferInstructionLike(from: PublicKey, to: PublicKey, authority: PublicKey, amount: bigint): TransactionInstruction {
+  const data = Buffer.alloc(9);
+  data[0] = 3;
+  data.writeBigUInt64LE(amount, 1);
+  return new TransactionInstruction({ programId: TOKEN, data, keys: [
+    { pubkey: from, isSigner: false, isWritable: true }, { pubkey: to, isSigner: false, isWritable: true }, { pubkey: authority, isSigner: true, isWritable: false },
+  ] });
+}
 
 describe("linking the Chumbucket wallet from the browser", () => {
   // The web helper against the BFF's real WalletLinkService (in-memory store).
