@@ -366,27 +366,27 @@ export class TrustService {
     if (prior?.authDeletedAt) {
       return { status: "deleted", userId: prior.userId, alreadyDeleted: true, completedAt: prior.authDeletedAt };
     }
-    // Every check another part of the product needs first (cash out, …), on
-    // the account about to go: the one the session resolved, or — the session
-    // resolver found none and this is no retry — the one the database would
-    // delete for this sign-in. A guard refuses by throwing; nothing has been
-    // written yet.
-    let account = input.userId;
-    if (!account && !prior && this.deps.store.accountForAuthUser) {
+    // The account the database will delete — asked of the database itself,
+    // so a sign-in the BFF cannot resolve (linking switched off) is never a
+    // way round the guards. delete_account_v2 refuses any other answer.
+    let target = input.userId;
+    if (!target) {
       try {
-        account = await this.deps.store.accountForAuthUser(input.authUserId);
+        target = await this.deps.store.deletionTarget(input.authUserId);
       } catch {
         throw new TrustError("TRUST_DELETION_FAILED", "We couldn't reach your account. Nothing was changed. Try again.");
       }
     }
-    if (account) {
+    // Every check another part of the product needs first (cash out, …).
+    // A guard refuses by throwing; nothing has been written yet.
+    if (target) {
       for (const guard of this.deps.deletionGuards) {
-        await guard({ userId: account, authUserId: input.authUserId });
+        await guard({ userId: target, authUserId: input.authUserId });
       }
     }
     const outcome = await this.deps.store.deleteAccount(
       // The account the guards cleared, so the database deletes no other.
-      { userId: account ?? prior?.userId ?? null, authUserId: input.authUserId },
+      { userId: target ?? prior?.userId ?? null, authUserId: input.authUserId },
       this.now(),
     );
     if (!outcome.ok) {

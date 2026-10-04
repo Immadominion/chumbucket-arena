@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createHash, randomInt } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -156,23 +157,34 @@ const LATER = String.raw`
     publisher_id uuid NOT NULL REFERENCES public.users(id), wallet_address text);
   CREATE TABLE public.prediction_positions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
-  CREATE TABLE public.claims(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- claims, as production has it (4 Oct 2026).
+  CREATE TABLE public.claims(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), amount_base_units numeric(30,0),
+    claim_tx_signature text, claimed_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+    network text NOT NULL DEFAULT 'devnet', position_id uuid, status text NOT NULL DEFAULT 'PENDING',
     user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
-  -- The legacy SOL escrow (database_migrations/001_complete_schema.sql).
-  CREATE TABLE public.challenges(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    creator_id uuid REFERENCES public.users(id), participant_id uuid REFERENCES public.users(id),
-    witness_id uuid REFERENCES public.users(id), winner_id text, creator_wallet_address text,
-    member1_address text, member2_address text);
-  CREATE TABLE public.challenge_participants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    challenge_id uuid REFERENCES public.challenges(id), wallet_address text NOT NULL);
-  CREATE TABLE public.challenge_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    challenge_id uuid REFERENCES public.challenges(id), from_address text, to_address text);
+  GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+`;
+
+/** The legacy SOL escrow as production has it (4 Oct 2026): challenges only
+ *  — no challenge_participants, no challenge_transactions, no witness_address. */
+const LIVE_ESCROW = String.raw`
+  CREATE TABLE public.challenges(
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    amount numeric(20,9), amount_in_sol numeric(20,9), blockchain_id text, completed_at timestamptz,
+    created_at timestamptz DEFAULT now(), creator_id uuid REFERENCES public.users(id), creator_privy_id text,
+    creator_wallet_address text, description text, escrow_address text, expires_at timestamptz,
+    fee_transaction_signature text, member1_address text, member2_address text, metadata jsonb,
+    multisig_address text, network text, participant_email text, participant_id uuid REFERENCES public.users(id),
+    participant_privy_id text, platform_fee numeric(20,9), platform_fee_sol numeric(20,9), resolution_tx text,
+    status text NOT NULL DEFAULT 'pending', title text, transaction_signature text, updated_at timestamptz DEFAULT now(),
+    vault_address text, winner_amount numeric(20,9), winner_amount_sol numeric(20,9), winner_id text,
+    winner_privy_id text, witness_display_name text, witness_id uuid REFERENCES public.users(id));
   GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 `;
 
 test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
   "account_sign_ins: link, wallet sign-in, unlink, fold and deletion, with every refusal, service-role only",
-  () => {
+  async () => {
     const dir = migrationsDir();
     const root = mkdtempSync(join(tmpdir(), "chum-account-sign-ins-"));
     const data = join(root, "isolated-db");
@@ -211,6 +223,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         "20261002120000_lock_profile_identity_columns.sql",
       ]) apply(file);
       sql(LATER);
+      sql(LIVE_ESCROW);
       apply("20261002180000_trust_safety_and_account.sql");
 
       // Refuses to install before find-person.
@@ -219,7 +232,16 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(early.err).toContain("requires 20261003200000_find_person_identities.sql");
       apply("20261003200000_find_person_identities.sql");
       apply(MIGRATION);
+      // An earlier draft's leftovers are corrected by a re-run.
+      sql(`ALTER TABLE public.account_link_audit DROP CONSTRAINT account_link_audit_action_check;
+           ALTER TABLE public.account_link_audit ADD CONSTRAINT account_link_audit_action_check
+             CHECK (action IN ('sign_in_linked', 'sign_in_unlinked', 'wallet_unlinked', 'folded'));
+           CREATE FUNCTION public.complete_account_link_v1(TEXT, UUID, BOOLEAN, BOOLEAN)
+             RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;`);
       apply(MIGRATION); // re-runnable
+      expect(sql(`SELECT to_regprocedure('public.complete_account_link_v1(text,uuid,boolean,boolean)') IS NULL`)).toBe("t");
+      expect(sql(`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'account_link_audit_action_check'`))
+        .toContain("account_deleted");
 
       // ── people ──
       const web3 = (auth: string, wallet: string) =>
@@ -274,7 +296,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            INSERT INTO public.push_tokens(token, user_id, platform) VALUES ('${"t".repeat(24)}', '${DOMINION}', 'ios');
            INSERT INTO public.linked_identities(user_id, provider, provider_subject, provider_username)
              VALUES ('${DOMINION}', 'x', 'legacy-x-dominion', 'ownerx');
-           INSERT INTO public.challenges(creator_id) VALUES ('${ESCROW}');`);
+           INSERT INTO public.challenges(title, creator_id, status) VALUES ('t', '${ESCROW}', 'funded');`);
 
       const resolve = (auth: string) => json(`public.resolve_auth_user_v1('${auth}')`).user_id ?? null;
       expect(resolve(A.dev)).toBe(DEV);
@@ -374,9 +396,52 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(resolve(A.money)).toBe(MONEY);
       const money = (user: string) => sql(`SELECT coalesce(public.account_money_activity_v1('${user}'), 'none')`);
       expect(money(ESCROW)).toBe("escrow_challenge");
-      sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at) VALUES ('${ESCROW_W}', '${W.escrow}', 1, now());
-           INSERT INTO public.challenge_participants(wallet_address) VALUES ('${W.escrow}');`);
-      expect(money(ESCROW_W)).toBe("escrow_participant");
+      // Only while its escrow may still hold SOL: settled ones don't count;
+      // any status the app doesn't call settled does.
+      for (const [status, counts] of [["completed", false], ["failed", false], ["CANCELLED", false],
+        ["expired", true], ["accepted", true], ["something_new", true]] as const) {
+        sql(`UPDATE public.challenges SET status = '${status}' WHERE creator_id = '${ESCROW}'`);
+        expect(money(ESCROW)).toBe(counts ? "escrow_challenge" : "none");
+      }
+      // By Privy id, by email (any case) and by wallet, as the legacy escrow keyed people.
+      sql(`UPDATE public.users SET privy_id = 'did:privy:plain-old' WHERE id = '${PLAIN}'`);
+      expect(money(PLAIN)).toBe("none");
+      for (const set of ["winner_privy_id = 'did:privy:plain-old'", "participant_email = 'PLAIN@example.com'",
+        "member2_address = 'did:privy:plain-old'"]) {
+        sql(`INSERT INTO public.challenges(title, status) VALUES ('probe', 'pending');
+             UPDATE public.challenges SET ${set} WHERE title = 'probe';`);
+        expect(money(PLAIN)).toBe("escrow_challenge");
+        sql(`DELETE FROM public.challenges WHERE title = 'probe'`);
+      }
+      sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at)
+             VALUES ('${ESCROW_W}', '${W.escrow}', 1, now());
+           INSERT INTO public.challenges(title, member1_address, status) VALUES ('w', '${W.escrow}', 'active');`);
+      expect(money(ESCROW_W)).toBe("escrow_challenge");
+      sql(`UPDATE public.users SET privy_id = NULL WHERE id = '${PLAIN}'`);
+      // Production has no challenge_participants, challenge_transactions or
+      // witness_address: their absence refuses nothing…
+      expect(money(PLAIN)).toBe("none");
+      // …but when they appear they are checked.
+      sql(`ALTER TABLE public.challenges ADD COLUMN witness_address text;
+           CREATE TABLE public.challenge_participants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_privy_id text);
+           INSERT INTO public.challenges(title, witness_address, status) VALUES ('x', '${W.escrow}', 'pending');`);
+      sql(`DELETE FROM public.challenges WHERE title = 'w'`);
+      expect(money(ESCROW_W)).toBe("escrow_challenge");
+      sql(`UPDATE public.users SET privy_id = 'did:privy:plain-old' WHERE id = '${PLAIN}';
+           INSERT INTO public.challenge_participants(user_privy_id) VALUES ('did:privy:plain-old');`);
+      expect(money(PLAIN)).toBe("escrow_participant");
+      sql(`DROP TABLE public.challenge_participants; ALTER TABLE public.challenges DROP COLUMN witness_address;
+           DELETE FROM public.challenges WHERE title = 'x'; UPDATE public.users SET privy_id = NULL WHERE id = '${PLAIN}';`);
+      expect(money(PLAIN)).toBe("none");
+      // A table or column production has that isn't there refuses (fail closed).
+      for (const [tbl, col] of [["challenges", "participant_email"], ["challenges", "status"], ["claims", "wallet_address"]]) {
+        sql(`ALTER TABLE public.${tbl} RENAME COLUMN ${col} TO ${col}_away`);
+        expect(money(PLAIN)).toBe("unverifiable");
+        sql(`ALTER TABLE public.${tbl} RENAME COLUMN ${col}_away TO ${col}`);
+      }
+      sql(`ALTER TABLE public.challenges RENAME TO challenges_away`);
+      expect(money(PLAIN)).toBe("unverifiable");
+      sql(`ALTER TABLE public.challenges_away RENAME TO challenges`);
       // The wallet workstream's app-held wallet type is money-bearing. Its label
       // is refused until its own migration widens the check.
       const chumbucketRow = `INSERT INTO public.linked_wallets(user_id, wallet_address, wallet_type, siws_proof_version, verified_at)
@@ -407,12 +472,12 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(sql(`SELECT (revoked_at IS NULL)::text FROM public.linked_wallets WHERE wallet_address = '${W.app}'`)).toBe("true");
       expect(money(APP)).toBe("app_wallet");
       expect(money(PLAIN)).toBe("none");
-      for (const tbl of ["claims", "challenge_transactions"]) {
-        sql(`ALTER TABLE public.${tbl} RENAME TO ${tbl}_away`);
-        expect(money(PLAIN)).toBe("unverifiable");
-        sql(`ALTER TABLE public.${tbl}_away RENAME TO ${tbl}`);
-      }
+      sql(`ALTER TABLE public.claims RENAME TO claims_away`);
+      expect(money(PLAIN)).toBe("unverifiable");
+      sql(`ALTER TABLE public.claims_away RENAME TO claims`);
       sql(`INSERT INTO public.claims(wallet_address) VALUES ('${W.wal2}')`);
+      expect(money(WAL2)).toBe("prediction_claim");
+      sql(`DELETE FROM public.claims; INSERT INTO public.claims(user_id, wallet_address) VALUES ('${WAL2}', 'elsewhere')`);
       expect(money(WAL2)).toBe("prediction_claim");
       sql(`DELETE FROM public.claims`);
 
@@ -520,8 +585,43 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       // An order in flight when its account is deleted still reconciles.
       sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${DEV}', 'SUBMITTED')`);
 
+      // ── locks, held by a second session ──
+      const hold = async (text: string) => {
+        const child = spawn(join(bin, "psql"), args, { stdio: ["pipe", "ignore", "ignore"] });
+        child.stdin.write(text);
+        child.stdin.end();
+        await new Promise((r) => setTimeout(r, 600));
+        return () => child.kill("SIGKILL");
+      };
+      // Profile creation takes the per-sign-in lock linking takes: they never both commit.
+      let release = await hold(`SELECT pg_advisory_lock(hashtextextended('account-sign-in:${A.stranger}', 0)); SELECT pg_sleep(5);`);
+      try {
+        const blocked = fails(`SET lock_timeout = '300ms'; SET ROLE service_role;
+          SELECT public.create_social_person_v2('${A.stranger}', 'Stranger', 'stranger_x', NULL);`);
+        expect(blocked.ok).toBe(false);
+        expect(blocked.err).toContain("lock timeout");
+      } finally {
+        release();
+      }
+      // A money session holds only FOR KEY SHARE: a fold (FOR UPDATE) waits for
+      // it, an ordinary profile edit does not.
+      release = await hold(`BEGIN; INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${XONLY}', 'PREPARING');
+        SELECT pg_sleep(5); ROLLBACK;`);
+      try {
+        expect(fails(`SET lock_timeout = '300ms'; UPDATE public.users SET bio = 'edited' WHERE id = '${XONLY}';`).ok).toBe(true);
+        const fold = fails(`SET lock_timeout = '300ms'; SELECT 1 FROM public.users WHERE id = '${XONLY}' FOR UPDATE;`);
+        expect(fold.ok).toBe(false);
+        expect(fold.err).toContain("lock timeout");
+      } finally {
+        release();
+      }
+
       // ── deletion: the whole person, from any sign-in ──
       expect(json(`public.delete_account_v2('${XONLY}', '${A.dominion}')`).reason).toBe("session_mismatch");
+      // A caller that could not say which account (and so checked none)
+      // deletes nothing, even with a sign-in that reaches one.
+      expect(json(`public.delete_account_v2(NULL, '${A.dominion}')`).reason).toBe("session_mismatch");
+      expect(resolve(A.dominion)).toBe(DEV);
       const deleted = json(`public.delete_account_v2('${DEV}', '${A.dominion}')`);
       expect(deleted).toMatchObject({ ok: true, outcome: "deleted", user_id: DEV, folded_user_ids: [DOMINION] });
       expect((deleted.auth_user_ids as string[]).sort()).toEqual([A.dev, A.dominion].sort());

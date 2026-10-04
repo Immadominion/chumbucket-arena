@@ -131,6 +131,12 @@ export interface TrustStore {
    */
   accountForAuthUser?(authUserId: string): Promise<string | null>;
   deletionFor(authUserId: string): Promise<AccountDeletion | null>;
+  /**
+   * The account the database will delete for this sign-in (its primary, or
+   * an additional sign-in's account), whatever the BFF's switches say — so
+   * the deletion guards always run on it. Null: none.
+   */
+  deletionTarget(authUserId: string): Promise<string | null>;
   markAuthDeleted(authUserId: string, at: number): Promise<void>;
 
   accountRecords(userId: string): Promise<AccountRecords>;
@@ -283,6 +289,10 @@ export class InMemoryTrustStore implements TrustStore {
 
   async deletionFor(authUserId: string): Promise<AccountDeletion | null> {
     return this.deletions.get(authUserId) ?? null;
+  }
+
+  async deletionTarget(_authUserId: string): Promise<string | null> {
+    return null;
   }
 
   async markAuthDeleted(authUserId: string, at: number): Promise<void> {

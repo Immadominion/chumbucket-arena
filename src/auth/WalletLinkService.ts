@@ -140,6 +140,11 @@ export interface WalletLinkDeps {
   chumbucketWallet?: boolean;
 }
 
+/** `carry`: this request is a sign-in, and may bind the session (see authenticateSession). */
+export interface ResolveOptions {
+  carry?: boolean;
+}
+
 export interface CreateProfileInput {
   accessToken: string;
   displayName: string;
@@ -174,13 +179,21 @@ export class WalletLinkService {
    * client: no credential, a bad credential, and a good credential attached to
    * an account that has never been linked to a canonical row.
    */
-  async authenticate(accessToken: string): Promise<AuthedIdentity> {
-    const { authUserId, userId } = await this.authenticateSession(accessToken);
+  async authenticate(accessToken: string, opts: ResolveOptions = {}): Promise<AuthedIdentity> {
+    const { authUserId, userId } = await this.authenticateSession(accessToken, opts);
     return { authUserId, userId };
   }
 
-  /** `authenticate`, plus the verified session it resolved (for Settings). */
-  async authenticateSession(accessToken: string): Promise<AuthedIdentity & { session: SupabaseSession }> {
+  /**
+   * `authenticate`, plus the verified session it resolved. Read-only unless
+   * `carry` is set: only sign-in itself (whoami, onboarding) may write — a
+   * linked wallet's first sign-in becoming an additional sign-in, or a legacy
+   * wallet profile carried over. Every other request only reads.
+   */
+  async authenticateSession(
+    accessToken: string,
+    opts: ResolveOptions = {},
+  ): Promise<AuthedIdentity & { session: SupabaseSession }> {
     if (!this.deps.store.enabled) failAuth("IDENTITY_NOT_CONFIGURED");
     const token = (accessToken ?? "").trim();
     if (!token) failAuth("AUTH_TOKEN_MISSING");
@@ -194,13 +207,13 @@ export class WalletLinkService {
     // A wallet linked to an account with a SIWS proof signs in to that account
     // on any device. The database re-checks the wallet against this session's
     // own Web3 identity, and trusts only a link its audit trail backs.
-    if (!userId && session.solanaWallet && this.deps.accountLinking === true && this.deps.accountLinks) {
+    if (!userId && opts.carry === true && session.solanaWallet && this.deps.accountLinking === true && this.deps.accountLinks) {
       const linked = await this.deps.accountLinks.resolveWalletSignIn(session.authUserId, session.solanaWallet);
       if (linked.ok && typeof linked.user_id === "string") userId = linked.user_id;
     }
     // A wallet sign-in reaches the account that wallet already has — once the
     // old client-writable wallet mappings are closed (see the runtime flag).
-    if (!userId && session.solanaWallet && this.deps.walletProfileCarry === true) {
+    if (!userId && opts.carry === true && session.solanaWallet && this.deps.walletProfileCarry === true) {
       const carried = await this.deps.store.bindWalletSession(session.authUserId, session.solanaWallet);
       if (carried.ok && typeof carried.user_id === "string") userId = carried.user_id;
     }
@@ -223,7 +236,7 @@ export class WalletLinkService {
     // A sign-in that already reaches an account — by any rule of the one
     // resolver, a linked wallet included — is that account: never a second.
     try {
-      const who = await this.authenticateSession(token);
+      const who = await this.authenticateSession(token, { carry: true });
       return { authUserId: who.authUserId, userId: who.userId };
     } catch (e) {
       if (!(e instanceof AuthIdentityError) || e.code !== "AUTH_USER_UNLINKED") throw e;
@@ -266,7 +279,8 @@ export class WalletLinkService {
    * other account, and a handle that is already set is never renamed.
    */
   async claimHandle(input: ClaimHandleInput): Promise<ClaimHandleResult> {
-    const identity = await this.authenticate(input.accessToken);
+    // Part of signing in (onboarding): may bind, like whoami.
+    const identity = await this.authenticate(input.accessToken, { carry: true });
     const result = await this.deps.store.claimOwnHandle(identity.authUserId, input.handle);
     if (result.ok) {
       if (result.user_id !== identity.userId || typeof result.handle !== "string") {

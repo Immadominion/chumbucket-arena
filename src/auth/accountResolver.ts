@@ -13,6 +13,10 @@
  *      the account that wallet was linked to with a SIWS proof;
  *   4. with WALLET_PROFILE_CARRY_ENABLED, the legacy profile at that wallet.
  *
+ * 3 and 4 write (they bind the sign-in), so they run only at sign-in —
+ * whoami and onboarding pass `carry`. Every other path (viewer, trading,
+ * deposits, market creation, deletion) is read-only: 1 and 2.
+ *
  * Nothing else may map a session to an account. The wallet workstream mints
  * Privy JWTs from `resolveAccount` (sub = the account id), so a linked wallet
  * can never become a second account anywhere.
@@ -51,9 +55,17 @@ export function accountService(config: AppConfig): WalletLinkService {
   });
 }
 
-/** Resolve or throw the identity code (AUTH_TOKEN_*, AUTH_USER_UNLINKED, …). */
-export async function resolveAccount(config: AppConfig, accessToken: string): Promise<ResolvedAccount> {
-  return accountService(config).authenticateSession(accessToken);
+/**
+ * Resolve or throw the identity code (AUTH_TOKEN_*, AUTH_USER_UNLINKED, …).
+ * Read-only; only sign-in (whoami, onboarding) passes `carry` to bind a
+ * linked or legacy wallet's sign-in (rules 3 and 4 above).
+ */
+export async function resolveAccount(
+  config: AppConfig,
+  accessToken: string,
+  opts: { carry?: boolean } = {},
+): Promise<ResolvedAccount> {
+  return accountService(config).authenticateSession(accessToken, opts);
 }
 
 /** Resolve, as an answer every caller can map to its own words. Never throws. */

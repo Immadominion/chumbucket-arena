@@ -353,6 +353,17 @@ export class SupabaseTrustStore implements TrustStore {
       : null;
   }
 
+  async deletionTarget(authUserId: string): Promise<string | null> {
+    try {
+      const res = await this.pg.rpc<{ ok?: unknown; user_id?: unknown }>("resolve_auth_user_v1", { p_auth_user_id: authUserId });
+      return res && res.ok === true && typeof res.user_id === "string" ? res.user_id : null;
+    } catch (err) {
+      // Before 20261004120000 there are no additional sign-ins to find.
+      if (isPgrestError(err) && err.status === 404) return null;
+      throw err;
+    }
+  }
+
   async markAuthDeleted(authUserId: string, at: number): Promise<void> {
     await this.pg.patch(
       "account_deletions",
