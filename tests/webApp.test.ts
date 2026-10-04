@@ -778,7 +778,7 @@ describe("web app rules", () => {
     // Every web signature of a trade goes through trade.ts, which checks the
     // bytes are exactly the reviewed buy before any wallet sees them.
     const signers = files.filter(({ text }) => /signTransaction\(/.test(text)).map(({ file }) => file.split("/").pop());
-    expect(signers.sort()).toEqual(["ChumbucketWalletPrivy.tsx", "TradeSheet.tsx", "chumbucketWallet.tsx", "wallets.ts"]);
+    expect(signers.sort()).toEqual(["ChumbucketWalletPrivy.tsx", "TradeSheet.tsx", "chumbucketWallet.tsx", "signers.ts", "wallets.ts"]);
     const trade = readCode(join(WEB, "lib/webapp/trade.ts"));
     expect(trade.indexOf("await checkPantaBuy(copy, buy)")).toBeGreaterThan(0);
     expect(trade.indexOf("await checkPantaBuy(copy, buy)")).toBeLessThan(trade.indexOf("await signRaw(copy)"));
@@ -786,7 +786,7 @@ describe("web app rules", () => {
     expect(sheet).not.toMatch(/placeTrade|avgPrice/);
     expect(sheet).toContain("reviewTrade(");
     // Every signer checks inside itself; none is written by hand.
-    for (const file of ["components/webapp/TradeSheet.tsx", "components/webapp/chumbucketWallet.tsx"]) {
+    for (const file of ["components/webapp/TradeSheet.tsx", "components/webapp/chumbucketWallet.tsx", "components/webapp/money/signers.ts"]) {
       const code = readCode(join(WEB, file));
       expect({ file, checked: code.includes("checkedSigner(") }).toEqual({ file, checked: true });
       expect({ file, handRolled: /async sign\(|sign: \(/.test(code) }).toEqual({ file, handRolled: false });
@@ -842,12 +842,14 @@ describe("web app rules", () => {
       expect({ screen, marked: /<CallMarkChip entry=/.test(readCode(join(WEB, "components/webapp", screen))) }).toEqual({ screen, marked: true });
     }
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
-    // The CTA is a call, carrying the Free mark; the toast says free.
-    expect(market).toMatch(/<span className="wa-btn-label">Call \{sideLabel\(market, pick\)\}<\/span>\s*<FreeChip \/>/);
+    // The CTA is a call: Free, it carries the Free mark (CallButton); the toast says free.
+    expect(market).toMatch(/<CallButton\s+label=\{callCta\("own", sideName\(market, pick\), amount\)\}\s+amount=\{amount\}/);
+    const button = readCode(join(WEB, "components/webapp/money/CallButton.tsx"));
+    expect(button).toMatch(/<span className="wa-btn-label">\{label\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
     expect(market).toContain('toast(`Called ${sideLabel(market, entry.call.side)}${callMark(entry) === "free" ? " · Free" : ""}`)');
     expect(market).toContain("You called {sideLabel(market, viewerCall.call.side)}");
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
-    expect(respond).toContain("<FreeChip />");
+    expect(respond).toContain("<CallButton");
     expect(respond).not.toMatch(/Locked once you tap/);
     const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
     expect(css).toMatch(/\.wa-chip--free \{[^}]*background: transparent/);
@@ -857,12 +859,18 @@ describe("web app rules", () => {
   test("pink is money: a free call's action is the strong ink button", () => {
     const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
     expect(css).toMatch(/\.wa-btn--ink \{[^}]*min-height: 56px[^}]*background: var\(--wa-ink\)/);
-    // The lock bar, the response sheet and the rail's "Make a call" are free calls.
+    // The lock bar and the response sheet end in CallButton: a free call is the
+    // ink button with the Free mark, and only an amount turns it pink.
+    const button = readCode(join(WEB, "components/webapp/money/CallButton.tsx"));
+    expect(button).toMatch(/amount \? "wa-btn wa-btn--primary" : "wa-btn wa-btn--ink"/);
+    expect(button).toMatch(/<span className="wa-btn-label">\{label\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
-    expect(market).toMatch(/className="wa-btn wa-btn--ink"[\s\S]*?Call \{sideLabel\(market, pick\)\}<\/span>\s*<FreeChip \/>/);
+    expect(market).toMatch(/<CallButton[\s\S]*?amount=\{amount\}/);
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
-    expect(respond).toMatch(/className="wa-btn wa-btn--ink wa-btn--block"[\s\S]*?<span className="wa-btn-label">\{cta\}<\/span>\s*<FreeChip \/>/);
+    // A dare never carries money.
+    expect(respond).toMatch(/<CallButton[\s\S]*?amount=\{kind === "challenge" \? null : amount\}/);
     expect(respond).not.toContain("wa-btn--primary");
+    // The rail's "Make a call" is a free call.
     expect(readCode(join(WEB, "components/webapp/Shell.tsx"))).toMatch(/wa-btn--ink wa-railcta" aria-label="Make a call"/);
     // A dare is free too: neutral ink, never the pink of money.
     expect(css).toMatch(/\.wa-respond-btn--dare \{[^}]*color: var\(--wa-ink\)/);

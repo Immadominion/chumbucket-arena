@@ -1,6 +1,6 @@
 "use client";
 
-/** Home: calls from people you follow, or from everyone. */
+/** Home: winnings to collect and your calls waiting on money, then calls from people you follow, or from everyone. */
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -10,6 +10,8 @@ import { appPath } from "@/lib/webapp/paths";
 import { CallCard } from "../cards";
 import { browserStorage } from "../data";
 import { Icon } from "../Icon";
+import { PendingCalls } from "../money/PendingCalls";
+import { WinningsCard } from "../money/Winnings";
 import { useFeed, useUnread } from "../queries";
 import { LoadMore, Segmented, SkeletonCards, StateScreen, TopBar } from "../ui";
 
@@ -36,6 +38,8 @@ export function HomeScreen() {
           {unread ? <span className="wa-badge">{unread > 99 ? "99+" : unread}</span> : null}
         </Link>
       </TopBar>
+      <WinningsCard />
+      <PendingCalls />
       <div style={{ marginBottom: 14 }}>
         <Segmented options={MODES} value={mode} onChange={setMode} label="Feed" />
       </div>

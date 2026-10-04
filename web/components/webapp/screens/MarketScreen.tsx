@@ -6,7 +6,9 @@
  * opens (the BFF sends it only then), and once Panta settles it your result
  * shows there too. A market that no longer takes calls shows no YES / NO and
  * offers no trade (its chip says closed or settled). The rules and the venue
- * sit behind one disclosure; trading is in the app.
+ * sit behind one disclosure. With calls with money on, the lock bar carries
+ * the amount row (`Free · $5 · $10 · $25 · +`) and a call with an amount runs
+ * the money flow; otherwise trading is in the app.
  */
 
 import { useMutation } from "@tanstack/react-query";
@@ -29,6 +31,7 @@ import {
   topicLabel,
   tradableMarket,
 } from "@/lib/webapp/format";
+import { callCta, sideName } from "@/lib/webapp/money";
 import { appPath, publicPath } from "@/lib/webapp/paths";
 import { retryAfterPriceRefresh } from "@/lib/webapp/prices";
 import type { CallOutcome, CallVisibility, MarketDetail, Side } from "@/lib/webapp/types";
@@ -39,8 +42,11 @@ import { TradeSheet } from "../TradeSheet";
 import { actionError, useNow, useToast } from "../data";
 import { Icon } from "../Icon";
 import { useAfterCall, useMarket } from "../queries";
+import { AmountRow, useAmount } from "../money/AmountRow";
+import { CallButton } from "../money/CallButton";
+import { useMoney } from "../money/moneyContext";
 import { useApi } from "../session";
-import { CallMarkChip, FreeChip, PantaMark, Sheet, Spinner, TopBar } from "../ui";
+import { CallMarkChip, PantaMark, Sheet, TopBar } from "../ui";
 import { screenError } from "./common";
 
 const MAX = 280;
@@ -95,6 +101,9 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
   const [visibility, setVisibility] = useState<CallVisibility>("public");
   const [trading, setTrading] = useState(false);
   const chumbucket = useChumbucketWallet();
+  const money = useMoney();
+  // Money only where Chumbucket can trade: a SOL-quoted market takes free calls.
+  const [amount, setAmount] = useAmount(open && tradableMarket(market));
   const left = closesIn(market.closesAt, now);
 
   useEffect(() => {
@@ -118,6 +127,23 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
     },
     onError: (e) => toast(actionError(e), "error"),
   });
+
+  /** Free: the call, as always. An amount: the money flow (deposit, review, fill) takes it from here. */
+  const callIt = () => {
+    if (!pick) return;
+    if (amount) {
+      money.startCall({
+        target: { kind: "own", marketId: market.id, side: pick },
+        intent: { amountBaseUnits: amount, side: pick, marketId: market.id },
+        label: sideName(market, pick),
+        thesis: thesis.trim() || null,
+        visibility,
+      });
+      return;
+    }
+    money.remember(null);
+    lock.mutate();
+  };
 
   const big = (side: Side) => {
     const pct = livePercent(sharePrice, side, now);
@@ -209,6 +235,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
 
         {pick ? (
           <div className="wa-lockbar">
+            <AmountRow value={amount} onChange={setAmount} available={tradableMarket(market)} disabled={lock.isPending} />
             {writing ? (
               <div className="wa-field">
                 <label htmlFor="wa-thesis" className="wa-sr">
@@ -251,17 +278,14 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
               >
                 <Icon name={visibility === "public" ? "globe" : "group-151"} size={22} />
               </button>
-              {/* A free call: the strong ink button, never pink (pink is money). */}
-              <button
-                type="button"
-                className="wa-btn wa-btn--ink"
-                disabled={lock.isPending || thesis.length > MAX}
-                onClick={() => lock.mutate()}
-              >
-                {lock.isPending ? <Spinner /> : null}
-                <span className="wa-btn-label">Call {sideLabel(market, pick)}</span>
-                <FreeChip />
-              </button>
+              {/* Free: the strong ink button with the Free mark. An amount: pink, with its dollars. */}
+              <CallButton
+                label={callCta("own", sideName(market, pick), amount)}
+                amount={amount}
+                busy={lock.isPending}
+                disabled={thesis.length > MAX}
+                onClick={callIt}
+              />
             </div>
           </div>
         ) : null}
@@ -292,7 +316,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
 
       {/* Trading is offered only while the market is open (a settled or closed market has nothing to trade),
           and only where Chumbucket can trade: a SOL-quoted Panta market takes free calls, never a trade. */}
-      {viewerCall && open && tradableMarket(market) ? (
+      {viewerCall && open && tradableMarket(market) && !money.enabled ? (
         <button type="button" className="wa-disclosure" style={{ width: "100%", textAlign: "left" }} onClick={() => setTrading(true)}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "0 16px", fontWeight: 600, width: "100%" }}>
             <Icon name="wallet" size={20} />

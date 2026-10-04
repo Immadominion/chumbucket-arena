@@ -27,6 +27,7 @@ import type { CallDetail, ResponseKind } from "@/lib/webapp/types";
 import { CallCard, useShare } from "../cards";
 import { actionError, useNow, useToast } from "../data";
 import { Icon } from "../Icon";
+import { WinningsCard } from "../money/Winnings";
 import { keys, useCallDetail } from "../queries";
 import { ResponseSheet } from "../ResponseSheet";
 import { useApi, useViewer } from "../session";
@@ -234,6 +235,7 @@ function CallBody({ detail }: { detail: CallDetail }) {
             </button>
           </div>
         ) : null}
+        {own && settled ? <WinningsCard callId={call.id} /> : null}
         {own && detail.updatesAvailable && !settled ? (
           <button type="button" className="wa-btn wa-btn--soft wa-btn--sm" style={{ marginTop: 16 }} onClick={() => setUpdating(true)}>
             <Icon name="edit" size={16} />
