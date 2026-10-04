@@ -27,6 +27,26 @@ import type {
   ThesisUpdate,
 } from "./types";
 import type { LinkMethod, LinkPreview, LinkTicket, SignInMethods } from "./linking";
+import type {
+  ActivityItem,
+  CardDeposit,
+  CardOrder,
+  ClaimPrepared,
+  ClaimView,
+  DepositOptions,
+  MoneyCallStatus,
+  MoneyCallView,
+  MoneyStatus,
+  MoneyWallet,
+  PrepareCallInput,
+  PrepareCallResult,
+  RetryResult,
+  TopUpOrder,
+  TopUpResult,
+  TransferPrepareResult,
+  TransferView,
+  Winnings,
+} from "./money";
 import type { PreparedTrade, TradeOrder } from "./trade";
 import { LINK_DOMAIN, LINK_URI } from "./chumbucketLink";
 
@@ -56,6 +76,11 @@ export interface WalletBalance {
   walletType: string;
   lamports: string;
   usdcBaseUnits: string;
+}
+
+/** Drops absent optional keys: every money input is strict, and an explicit undefined is still a key. */
+function present<T extends Record<string, unknown>>(input: T): T {
+  return Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) as T;
 }
 
 export function makeApi(call: Caller) {
@@ -117,6 +142,46 @@ export function makeApi(call: Caller) {
     submitTrade: (orderId: string, signedTransaction: string) => m<TradeOrder>("pantaTrading.submit", { orderId, signedTransaction }),
     tradeOrder: (orderId: string) => m<TradeOrder>("pantaTrading.order", { orderId }),
     callOrder: (callId: string) => m<{ order: TradeOrder | null }>("pantaTrading.callOrder", { callId }),
+    claimPrepare: (orderId: string, idempotencyKey: string) => m<ClaimPrepared>("pantaTrading.claimPrepare", { orderId, idempotencyKey }),
+    claimSubmit: (claimId: string, signedTransaction: string) => m<ClaimView>("pantaTrading.claimSubmit", { claimId, signedTransaction }),
+    claim: (claimId: string) => m<ClaimView>("pantaTrading.claim", { claimId }),
+    /** A gasless USDC → SOL swap for one of the account's own wallets (`wallet` only selects). */
+    topUpOrder: (wallet: string, amountBaseUnits: string) => m<TopUpOrder>("solTopUp.order", { wallet, amountBaseUnits }),
+    topUpExecute: (requestId: string, signedTransaction: string) => m<TopUpResult>("solTopUp.execute", { requestId, signedTransaction }),
+    /** Card / Apple Pay (Crossmint): the order and its checkout page. */
+    cardDeposit: (amountUsd: string, idempotencyKey: string) => m<CardDeposit>("deposits.create", { amountUsd, idempotencyKey }),
+    cardOrder: (orderId: string) => m<{ orderId: string } & CardOrder>("deposits.order", { orderId }),
+
+    // ── calls with money (docs/money-api.md; POST: private, session-keyed) ──
+    moneyStatus: () => m<MoneyStatus>("money.status", {}),
+    prepareCall: (input: PrepareCallInput) =>
+      m<PrepareCallResult>(
+        "money.prepareCall",
+        present({
+          ...(input.kind === "own" ? { kind: input.kind, marketId: input.marketId, side: input.side } : { kind: input.kind, targetCallId: input.targetCallId }),
+          amountBaseUnits: input.amountBaseUnits,
+          idempotencyKey: input.idempotencyKey,
+          thesis: input.thesis || undefined,
+          visibility: input.visibility,
+        }),
+      ),
+    moneyCallStatus: (callId: string) => m<MoneyCallStatus>("money.callStatus", { callId }),
+    retryCall: (callId: string) => m<RetryResult>("money.retry", { callId }),
+    keepFree: (callId: string) => m<{ moneyCall: MoneyCallView; call: CallFeedEntry }>("money.keepFree", { callId }),
+    discardCall: (callId: string) => m<{ moneyCall: MoneyCallView }>("money.discard", { callId }),
+    pendingCalls: () => m<{ calls: Array<{ moneyCall: MoneyCallView; call: CallFeedEntry }> }>("money.pending", {}),
+    moneyWallet: () => m<MoneyWallet>("money.wallet", {}),
+    moneyActivity: (limit = 20) => m<{ items: ActivityItem[] }>("money.activity", { limit }),
+    winnings: () => m<Winnings>("money.winnings", {}),
+    depositOptions: (amountBaseUnits?: string | null) =>
+      m<DepositOptions>("money.depositOptions", amountBaseUnits ? { amountBaseUnits } : {}),
+    cashOutPrepare: (input: { destination: string; amountBaseUnits: string; idempotencyKey: string }) =>
+      m<TransferPrepareResult>("money.cashOutPrepare", input),
+    depositFromWalletPrepare: (input: { fromWallet: string; amountBaseUnits: string; idempotencyKey: string }) =>
+      m<TransferPrepareResult>("money.depositFromWalletPrepare", input),
+    transferSubmit: (transferId: string, signedTransaction: string) =>
+      m<TransferView>("money.transferSubmit", { transferId, signedTransaction }),
+    transferStatus: (transferId: string) => m<TransferView>("money.transferStatus", { transferId }),
 
     // ── identity (the token is an input here, so these are POSTs) ──
     whoami: (supabaseAccessToken: string) => m<Whoami>("auth.whoami", { supabaseAccessToken }),
