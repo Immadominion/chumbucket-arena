@@ -57,6 +57,7 @@ const W = {
   linked: "L1nkedWa11etDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   revoked: "RevokedWa11etEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
   linkedToPlaceholder: "L1nkedP1aceho1derFFFFFFFFFFFFFFFFFFFFFFFFF",
+  unproven: "Unpr0venLinkedGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
 };
 
 /** Supabase's own auth.identities, and the identity tables as earlier
@@ -85,7 +86,8 @@ const BASE = String.raw`
   CREATE TABLE public.linked_wallets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     wallet_address text NOT NULL UNIQUE, wallet_type text NOT NULL DEFAULT 'mwa',
-    is_primary boolean NOT NULL DEFAULT false, revoked_at timestamptz);
+    is_primary boolean NOT NULL DEFAULT false, revoked_at timestamptz,
+    verified_at timestamptz);  -- 20260913121500: NULL = never proven
   CREATE TABLE IF NOT EXISTS public.linked_identities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -139,6 +141,14 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
 
       sql(BASE);
 
+      // Refuses, by name, a linked_identities without the columns it reads,
+      // rather than failing on a bare "column does not exist".
+      sql(`ALTER TABLE public.linked_identities RENAME COLUMN provider_avatar_url TO avatar_was;`);
+      const noAvatar = run("psql", [...args, "-f", migration]);
+      expect(noAvatar.ok).toBe(false);
+      expect(noAvatar.err).toContain("requires linked_identities.provider_username, provider_avatar_url");
+      sql(`ALTER TABLE public.linked_identities RENAME COLUMN avatar_was TO provider_avatar_url;`);
+
       // Refuses to install before the placeholder flag and deleted_at exist.
       const early = run("psql", [...args, "-f", migration]);
       expect(early.ok).toBe(false);
@@ -185,10 +195,12 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
           ('${U.both}', 'twitter', 'li-2', 'both_then',  NULL, NULL, '2026-07-01T00:00:00Z'),
           ('${U.plain}', 'google', 'li-3', 'plain_google', NULL, NULL, now());
 
-        INSERT INTO public.linked_wallets(user_id, wallet_address, revoked_at) VALUES
-          ('${U.linkedOwner}', '${W.linked}', NULL),
-          ('${U.linkedOwner}', '${W.revoked}', now()),
-          ('${U.placeholder}', '${W.linkedToPlaceholder}', NULL);
+        INSERT INTO public.linked_wallets(user_id, wallet_address, revoked_at, verified_at) VALUES
+          ('${U.linkedOwner}', '${W.linked}', NULL, now()),
+          ('${U.linkedOwner}', '${W.revoked}', now(), now()),
+          ('${U.placeholder}', '${W.linkedToPlaceholder}', NULL, now()),
+          -- a pre-pivot link nobody ever signed for: not proof of who holds it
+          ('${U.linkedOwner}', '${W.unproven}', NULL, NULL);
       `);
 
       sql(`\\i ${migration}`);
@@ -226,12 +238,12 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         "TABLE(user_id uuid, x_username text, x_avatar_url text, seen_at timestamp with time zone)",
       );
 
-      // Wallets: the real holder, via users then an unrevoked linked wallet.
+      // Wallets: the real holder, via users then an unrevoked, verified linked wallet.
       const wallet = (w: string) => svc(`SELECT coalesce(public.person_for_wallet_v1('${w}')::text, '<null>')`);
       expect(wallet(W.owner)).toBe(U.walletOwner);
       expect(wallet(`  ${W.owner} `)).toBe(U.walletOwner);
       expect(wallet(W.linked)).toBe(U.linkedOwner);
-      for (const w of [W.placeholder, W.deleted, W.revoked, W.linkedToPlaceholder, "Unkn0wnWa11et", ""]) {
+      for (const w of [W.placeholder, W.deleted, W.revoked, W.linkedToPlaceholder, W.unproven, "Unkn0wnWa11et", ""]) {
         expect(wallet(w), w).toBe("<null>");
       }
       expect(svc(`SELECT coalesce(public.person_for_wallet_v1(NULL)::text, '<null>')`)).toBe("<null>");
