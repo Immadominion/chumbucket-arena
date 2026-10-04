@@ -7,6 +7,7 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { avatarSrc } from "@/lib/callsBff";
@@ -303,15 +304,27 @@ export function TopBar({
   );
 }
 
+/** How many screens this visit has shown (the Shell counts them). */
+let screensSeen = 0;
+
+/** Count screens as the path changes, so Back knows whether there is one to go back to. */
+export function useCountScreens(path: string) {
+  useEffect(() => {
+    screensSeen += 1;
+  }, [path]);
+}
+
 function BackButton() {
+  const router = useRouter();
   return (
     <button
       type="button"
       className="wa-iconbtn"
       aria-label="Back"
       onClick={() => {
-        if (window.history.length > 1) window.history.back();
-        else window.location.assign("/app");
+        // Back within the app; a page opened straight from a link goes Home instead of leaving.
+        if (screensSeen > 1) window.history.back();
+        else router.push("/app");
       }}
     >
       <Icon name="arrow-left" size={22} />

@@ -103,9 +103,12 @@ export async function bffCall<T>(opts: BffCallOptions): Promise<T> {
   const doFetch = opts.fetchImpl ?? fetch;
   const headers: Record<string, string> = { accept: "application/json" };
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
-  const timeout = AbortSignal.timeout(opts.timeoutMs ?? 15_000);
+  // Older browsers lack AbortSignal.timeout/any: then the request simply has no deadline.
+  const timeout = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(opts.timeoutMs ?? 15_000) : undefined;
   const signal =
-    opts.signal && typeof AbortSignal.any === "function" ? AbortSignal.any([opts.signal, timeout]) : (opts.signal ?? timeout);
+    opts.signal && timeout && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([opts.signal, timeout])
+      : (opts.signal ?? timeout);
   let res: Response;
   try {
     if (opts.kind === "query") {
