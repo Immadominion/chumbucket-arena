@@ -86,12 +86,13 @@ function rig() {
   });
   const venue = new PantaVenue({apiKey:"pk_live_synthetic_trading_test",clock,fetchImpl:Object.assign(async () => new Response(JSON.stringify({marketId:market,category:"crypto",title:"Synthetic question?",description:"Synthetic rules",phase:"primary",status:"primary",resolved:false,startTime:Math.floor(clock.now()/1000)-3600,endTime:Math.floor(clock.now()/1000)+86400,resolutionTime:null,yesPrice:"1.2",noPrice:"0.3",onChain:{isActive:true,resolutionRule:"Synthetic rules"}})),{preconnect:fetch.preconnect})});
   // The account's proven wallets (linked_wallets), as the server reads them.
-  const linked=new Set([wallet]); const owners=new Set([user]); let linksDown=false; const linkReads:string[]=[];
-  const wallets={owns:async(userId:string,address:string)=>{linkReads.push(address);if(linksDown) throw new Error("synthetic read failure");return owners.has(userId)&&linked.has(address);}};
+  const linked=new Set([wallet]); const revoked=new Set<string>(); const owners=new Set([user]); let linksDown=false; const linkReads:string[]=[];
+  const wallets={status:async(userId:string,address:string):Promise<"active"|"revoked"|"other"|"none">=>{linkReads.push(address);if(linksDown) throw new Error("synthetic read failure");
+    if(revoked.has(address)) return "revoked"; if(!linked.has(address)) return "none"; return owners.has(userId)?"active":"other";}};
   const deps={store:ledger,execution,venue,wallets,maxAmountBaseUnits:"100000000",now:()=>clock.now(),onFilled:(row:PantaTradeSession)=>{filled.push(row.call_id);},chain:{failed:async()=>chainFailed,neverLanded:async()=>dropped,broadcast:async () => { broadcasts++; const row=[...ledger.rows.values()][0]!;expect(row.state).toBe("SUBMITTED");expect(row.signature).not.toBeNull();if(throwBroadcast) throw new Error("synthetic lost RPC reply");}}};
   const service = new PantaTradingService(deps);
   const input: PantaPrepareInput = {callId,wallet,amountBaseUnits:"1000000",idempotencyKey:"synthetic-intent-key",maxSlippageBps:100};
-  return {clock,ledger,service,input,operations,filled,linked,owners,linkReads,linksDown(){linksDown=true;},restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;},providerOutage(){providerDown=true;}};
+  return {clock,ledger,service,input,operations,filled,linked,revoked,owners,linkReads,linksDown(){linksDown=true;},restart:()=>new PantaTradingService(deps),get broadcasts(){return broadcasts;},confirm(){confirms=true;},rpcMissing(){rpcSuccess=false;},loseBroadcast(){throwBroadcast=true;},providerFailure(){providerFailed=true;},chainFailure(){chainFailed=true;},drop(){dropped=true;},providerOutage(){providerDown=true;}};
 }
 function signed(payload:string) {const tx=VersionedTransaction.deserialize(Buffer.from(payload,"base64"));tx.sign([owner]);return Buffer.from(tx.serialize()).toString("base64");}
 
@@ -126,7 +127,8 @@ test("a buy is only quoted for one of the account's own proven wallets, refused 
 test("the wallet a Sign-in-with-Solana session proves may sign; any other session wallet claim is still checked",async()=>{
   const h=rig();h.linked.clear();
   const prepared=await h.service.prepare(user,h.input,{signInWallet:wallet});
-  expect(prepared.order.owner).toBe(wallet);expect(h.linkReads).toEqual([]);
+  // The link is always read first: only "no link at all" lets the session vouch.
+  expect(prepared.order.owner).toBe(wallet);expect(h.linkReads).toEqual([wallet]);
   const stranger=Keypair.fromSeed(new Uint8Array(32).fill(22)).publicKey.toBase58();
   await expect(h.service.prepare(user,{...h.input,idempotencyKey:"other-session-key"},{signInWallet:stranger})).rejects.toMatchObject({code:"WALLET_NOT_LINKED",message:WALLET_NOT_LINKED_COPY});
 });
@@ -137,6 +139,26 @@ test("a revoked link stops even an exact replay, and unreadable links fail close
   h.linked.add(wallet);h.linksDown();
   await expect(h.service.prepare(user,h.input)).rejects.toMatchObject({code:"VENUE_UNAVAILABLE"});
   expect(h.operations).toEqual(["/primaryorderquote/","/primaryorderbuild/"]);
+});
+test("a revoked link outranks the sign-in session, and submit re-checks before anything is broadcast",async()=>{
+  const h=rig();
+  // The person unlinked the very wallet they signed in with: it may not sign.
+  h.linked.delete(wallet);h.revoked.add(wallet);
+  await expect(h.service.prepare(user,h.input,{signInWallet:wallet})).rejects.toMatchObject({code:"WALLET_NOT_LINKED"});
+  expect(h.operations).toEqual([]);
+  // Linked at prepare, revoked before submit: nothing reaches the chain.
+  const k=rig();const prepared=await k.service.prepare(user,k.input);
+  k.linked.delete(wallet);k.revoked.add(wallet);
+  await expect(k.service.submit(user,prepared.order.orderId,signed(prepared.order.transaction.payload))).rejects.toMatchObject({code:"WALLET_NOT_LINKED"});
+  expect(k.broadcasts).toBe(0);expect([...k.ledger.rows.values()][0]!.state).toBe("QUOTED");
+  // Unreadable at submit: refused, not assumed.
+  const u=rig();const quoted=await u.service.prepare(user,u.input);u.linksDown();
+  await expect(u.service.submit(user,quoted.order.orderId,signed(quoted.order.transaction.payload))).rejects.toMatchObject({code:"VENUE_UNAVAILABLE"});
+  expect(u.broadcasts).toBe(0);
+  // The sign-in wallet with no link row still submits through its session.
+  const s=rig();s.linked.clear();const viaSession=await s.service.prepare(user,s.input,{signInWallet:wallet});
+  await s.service.submit(user,viaSession.order.orderId,signed(viaSession.order.transaction.payload),{signInWallet:wallet});
+  expect(s.broadcasts).toBe(1);
 });
 test("idempotency conflict, wrong person, expired quote and excessive amount refuse without a second buy",async()=>{
   const h=rig();await h.service.prepare(user,h.input);
@@ -276,7 +298,8 @@ test("the router hands prepare only the issuer-verified sign-in wallet, so an un
   expect((await signedIn.prepare(h.input)).order.owner).toBe(wallet);
 });
 test("an additional sign-in's session reaches the same account through linking, and only that account's wallets sign",async()=>{
-  const h=rig();const cfg=loadConfig({PANTA_API_KEY:"pk_live_synthetic_router_test",PANTA_PARTNER_USER_ID:"usr_synthetic_partner",PANTA_PROGRAM_ID:PANTA_MAINNET_PROGRAM_ID,PANTA_SCHEMA_READY:"true",FUNDED_POSITIONS:"true",SUPABASE_URL:"https://synthetic.invalid",SUPABASE_SERVICE_ROLE_KEY:"synthetic-only",SOLANA_NETWORK:"mainnet-beta"});
+  // ACCOUNT_LINKING_ENABLED: with it off, resolution is exactly pre-linking (no additional sign-ins).
+  const h=rig();const cfg=loadConfig({PANTA_API_KEY:"pk_live_synthetic_router_test",PANTA_PARTNER_USER_ID:"usr_synthetic_partner",PANTA_PROGRAM_ID:PANTA_MAINNET_PROGRAM_ID,PANTA_SCHEMA_READY:"true",FUNDED_POSITIONS:"true",SUPABASE_URL:"https://synthetic.invalid",SUPABASE_SERVICE_ROLE_KEY:"synthetic-only",SOLANA_NETWORK:"mainnet-beta",ACCOUNT_LINKING_ENABLED:"true"});
   const app=await createApp({config:cfg});
   // The real store: a primary sign-in is a users row; any other asks resolve_auth_user_v1 (20261004120000).
   const primary:Record<string,string>={"auth-primary":user};const additional:Record<string,string>={"auth-x":user,"auth-other":other};
@@ -287,9 +310,9 @@ test("an additional sign-in's session reaches the same account through linking, 
     const auth=String((JSON.parse(String(init?.body)) as {p_auth_user_id:string}).p_auth_user_id);asked.push(auth);
     return new Response(JSON.stringify({ok:true,user_id:additional[auth]??null,via:additional[auth]?"additional":null}));
   },{preconnect:fetch.preconnect}) as typeof fetch;
-  const store=new SupabaseIdentityStore({supabaseUrl:"https://synthetic.invalid",serviceRoleKey:"synthetic-only",network:"mainnet-beta"},fetchImpl);
+  const store=new SupabaseIdentityStore({supabaseUrl:"https://synthetic.invalid",serviceRoleKey:"synthetic-only",network:"mainnet-beta"},fetchImpl,{additionalSignIns:true});
   const verifier=new FakeJwtVerifier().issue("x-session","auth-x").issue("other-session","auth-other").issue("nobody-session","auth-nobody");
-  primeAuthIdentityRuntime(cfg,{store,verifier,policy:resolveAuthIdentityPolicy(cfg)});setPantaTradingRuntime(cfg,h.service);
+  primeAuthIdentityRuntime(cfg,{store,verifier,policy:resolveAuthIdentityPolicy(cfg),accountLinking:true});setPantaTradingRuntime(cfg,h.service);
   const trust=buildTrustRuntime(cfg,{store:new InMemoryTrustStore(),authAdmin:new RecordingAuthUserAdmin()});setTrustRuntime(cfg,trust);
   await trust.service.acceptFundedTrading(user,trust.config.termsVersion);await trust.service.acceptFundedTrading(other,trust.config.termsVersion);
   // X linked to the account: its session trades from the account's linked wallet.

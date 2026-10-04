@@ -9,9 +9,13 @@
  * message is the line the person sees ("Cash out first", …); it must not
  * write anything.
  *
- * Add a guard by importing your module's check and appending it below. The
- * wallet workstream adds "cash out first" for app-held wallet balances.
+ * Add a guard by importing your module's check and appending it below. A
+ * guard is registered as a builder of the app's config (its readers come
+ * from that config); src/trust/runtime.ts builds the list once per app.
  */
+
+import type { AppConfig } from "../config.ts";
+import { cashOutFirst } from "../wallet/deletionGuard.ts";
 
 export interface DeletionSubject {
   /** The canonical account about to be deleted. */
@@ -22,4 +26,16 @@ export interface DeletionSubject {
 
 export type AccountDeletionGuard = (subject: DeletionSubject) => Promise<void>;
 
-export const accountDeletionGuards: AccountDeletionGuard[] = [];
+/** A registered guard: built for one app's config. */
+export type RegisteredDeletionGuard = (config: AppConfig) => AccountDeletionGuard;
+
+export const accountDeletionGuards: RegisteredDeletionGuard[] = [
+  // The wallet workstream: never strand money in the Chumbucket wallet
+  // ("Cash out first"); anything unreadable refuses.
+  cashOutFirst,
+];
+
+/** The registry, in order, built for this app. */
+export function deletionGuardsFor(config: AppConfig): AccountDeletionGuard[] {
+  return accountDeletionGuards.map((register) => register(config));
+}

@@ -311,6 +311,21 @@ export class SupabaseTrustStore implements TrustStore {
     throw new PgrestError("[trust] delete_account_v1 returned an unexpected shape");
   }
 
+  async accountForAuthUser(authUserId: string): Promise<string | null> {
+    // resolve_auth_user_v1 (20261004120000) is the rule delete_account_v2
+    // deletes by; before that migration, v1 only knows the primary sign-in,
+    // which the session resolver already found.
+    let res: { ok?: unknown; user_id?: unknown } | null | undefined;
+    try {
+      res = await this.pg.rpc<{ ok?: unknown; user_id?: unknown }>("resolve_auth_user_v1", { p_auth_user_id: authUserId });
+    } catch (err) {
+      if (isPgrestError(err) && err.status === 404) return null;
+      throw err;
+    }
+    if (!res || res.ok !== true) throw new PgrestError("[trust] resolve_auth_user_v1 returned an unexpected shape");
+    return typeof res.user_id === "string" && /^[0-9a-f-]{36}$/i.test(res.user_id) ? res.user_id : null;
+  }
+
   async deletionFor(authUserId: string): Promise<AccountDeletion | null> {
     const rows = await this.pg.select<{
       user_id: string | null;

@@ -14,7 +14,7 @@ import { resolveTrustConfig, type TrustConfig } from "./config.ts";
 import { WriteRateLimiter } from "./rateLimit.ts";
 import { InMemoryTrustStore, UnconfiguredAuthUserAdmin, type AuthUserAdmin, type TrustStore } from "./store.ts";
 import { GoTrueAuthUserAdmin, SupabaseTrustStore } from "./supabaseStore.ts";
-import type { AccountDeletionGuard } from "./deletionGuards.ts";
+import { deletionGuardsFor, type AccountDeletionGuard } from "./deletionGuards.ts";
 import { TrustService } from "./TrustService.ts";
 
 export interface TrustRuntime {
@@ -30,7 +30,7 @@ export interface BuildTrustRuntimeOverrides {
   store?: TrustStore;
   authAdmin?: AuthUserAdmin;
   now?: () => number;
-  /** Test seam; production uses src/trust/deletionGuards.ts. */
+  /** Test seam; production builds src/trust/deletionGuards.ts for this app. */
   deletionGuards?: readonly AccountDeletionGuard[];
 }
 
@@ -48,7 +48,8 @@ export function buildTrustRuntime(appConfig: AppConfig, overrides: BuildTrustRun
     limiter,
     calls: () => callsRuntimeFor(appConfig),
     now,
-    ...(overrides.deletionGuards ? { deletionGuards: overrides.deletionGuards } : {}),
+    // Every registered guard ("Cash out first", …) runs before a deletion.
+    deletionGuards: overrides.deletionGuards ?? deletionGuardsFor(appConfig),
   });
   if (social && !overrides.store) {
     console.log(

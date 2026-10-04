@@ -359,6 +359,8 @@ export class FakeIdentityStore implements IdentityStore {
       }
       existing.revokedAt = null;
       existing.proofVersion = input.proofVersion;
+      // 20261004130500: a Chumbucket re-proof relabels its wallet, one way.
+      if (input.walletType === "chumbucket") existing.walletType = "chumbucket";
       this.audit.push({
         action: "reaffirmed",
         address: input.walletAddress,

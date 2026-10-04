@@ -2,15 +2,20 @@
 
 /**
  * The Chumbucket wallet in the browser: the account's one wallet (a Privy
- * embedded Solana wallet, signed in with the same Supabase session), the
- * default way to pay for a trade. Behind NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED
- * and a Privy app id; without both, nothing here loads and `useChumbucketWallet`
- * answers "off".
+ * embedded Solana wallet), the default way to pay for a trade. Behind
+ * NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED and a Privy app id; without both,
+ * nothing here loads and `useChumbucketWallet` answers "off".
+ *
+ * One wallet per ACCOUNT: Privy is signed in with the BFF's own ten-minute
+ * token (`wallet.privyToken`, sub = the account), never with a Supabase
+ * token, so a wallet sign-in and an X sign-in of one account reach the same
+ * wallet. The token is fetched again before it expires.
  *
  * What the BFF knows comes first and costs nothing: `wallet.status` names the
  * account's linked Chumbucket wallet. Privy itself (its SDK and a session)
- * loads only on first need, as a sibling of the app rather than around it,
- * so it never re-mounts a screen and never runs for someone who never pays.
+ * loads only on first need, as a sibling of the app rather than around it.
+ * Signing out, or another account signing in, logs Privy out first, then
+ * unloads it.
  *
  * Privy is imported in exactly one file, `ChumbucketWalletPrivy.tsx`.
  */
@@ -27,11 +32,22 @@ const PRIVY_APP_ID = process.env.NEXT_PUBLIC_CHUMBUCKET_PRIVY_APP_ID ?? "";
 
 /** What the Privy bridge offers once it is signed in as this account. */
 export interface PrivyBridge {
-  /** Signed in as the current Supabase user; the embedded Solana wallet, if any. */
+  /** Signed in as the account; its embedded Solana wallet, if any. */
   ready(): Promise<string | null>;
   createWallet(): Promise<string>;
   signMessage(address: string, message: Uint8Array): Promise<Uint8Array>;
   signTransaction(address: string, transaction: Uint8Array): Promise<Uint8Array>;
+  /** Ends the Privy session on this browser. */
+  logout(): Promise<void>;
+}
+
+/** What the root hands the bridge: who it must be, and how to prove it. */
+export interface PrivyBridgeProps {
+  appId: string;
+  account: string;
+  /** The BFF's account token for Privy; undefined (never a throw) when there is none. */
+  getToken: () => Promise<string | undefined>;
+  register: (b: PrivyBridge) => void;
 }
 
 export interface ChumbucketWallet {
@@ -61,6 +77,8 @@ export function useChumbucketWallet(): ChumbucketWallet {
 const PrivyBridgeHost = dynamic(() => import("./ChumbucketWalletPrivy"), { ssr: false });
 
 const SETUP_COPY = "Your wallet isn’t reachable right now. Try again in a moment.";
+/** A token this close to expiry is fetched again. */
+const TOKEN_SKEW_MS = 60_000;
 
 export function ChumbucketWalletRoot({ children }: { children: React.ReactNode }) {
   if (!CHUMBUCKET_WALLET_ENABLED || !PRIVY_APP_ID) return <>{children}</>;
@@ -74,16 +92,32 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [wanted, setWanted] = useState(false);
+  /** The account the Privy bridge is mounted for; null = not loaded. */
+  const [hosted, setHosted] = useState<string | null>(null);
   const bridge = useRef<PrivyBridge | null>(null);
   const waiting = useRef<Array<(b: PrivyBridge) => void>>([]);
   const account = useRef<string | null>(null);
+  const token = useRef<{ account: string; token: string; expiresAt: number } | null>(null);
 
-  // A new account starts over: its own linked wallet, no shared bridge state.
+  // Signed out, or another account: log Privy out BEFORE unloading it, and
+  // forget the old account's token, wallet and waiters.
   useEffect(() => {
+    const previous = account.current;
     account.current = userId;
+    if (previous === userId) return;
     setAddress(null);
     setError(null);
+    token.current = null;
+    waiting.current = [];
+    const b = bridge.current;
+    bridge.current = null;
+    // Unload only the old account's bridge; a new account may have asked already.
+    const unload = () => setHosted((h) => (h === previous ? null : h));
+    if (b) void b.logout().catch(() => undefined).finally(unload);
+    else unload();
+  }, [userId]);
+
+  useEffect(() => {
     if (!userId) return;
     let alive = true;
     api
@@ -95,17 +129,32 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
     };
   }, [api, userId]);
 
+  const getToken = useCallback(async (): Promise<string | undefined> => {
+    const owner = account.current;
+    if (!owner) return undefined;
+    const held = token.current;
+    if (held && held.account === owner && held.expiresAt - TOKEN_SKEW_MS > Date.now()) return held.token;
+    try {
+      const minted = await api.privyToken();
+      if (account.current !== owner) return undefined;
+      token.current = { account: owner, ...minted };
+      return minted.token;
+    } catch {
+      return undefined;
+    }
+  }, [api]);
+
   const register = useCallback((b: PrivyBridge) => {
     bridge.current = b;
     for (const resolve of waiting.current.splice(0)) resolve(b);
   }, []);
 
   const getBridge = useCallback(
-    () =>
+    (owner: string) =>
       new Promise<PrivyBridge>((resolve, reject) => {
         if (bridge.current) return resolve(bridge.current);
         waiting.current.push(resolve);
-        setWanted(true);
+        setHosted(owner);
         setTimeout(() => reject(new Error("bridge timeout")), 30_000);
       }),
     [],
@@ -116,8 +165,8 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
       address: wallet,
       async sign(unsigned) {
         if (account.current !== owner) throw new Error("account changed");
-        const b = await getBridge();
-        if ((await b.ready()) !== wallet) throw new Error("wallet changed");
+        const b = await getBridge(owner);
+        if ((await b.ready()) !== wallet || account.current !== owner) throw new Error("wallet changed");
         return b.signTransaction(wallet, unsigned);
       },
     }),
@@ -130,13 +179,13 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError(null);
     try {
-      const b = await getBridge();
+      const b = await getBridge(owner);
       const wallet = (await b.ready()) ?? (await b.createWallet());
       if (account.current !== owner) throw new Error("account changed");
       if (address !== wallet) {
-        const token = await accessToken();
-        if (!token) throw new Error("signed out");
-        await linkChumbucketWallet({ api, token, address: wallet, signMessage: (m) => b.signMessage(wallet, m) });
+        const supabase = await accessToken();
+        if (!supabase) throw new Error("signed out");
+        await linkChumbucketWallet({ api, token: supabase, address: wallet, signMessage: (m) => b.signMessage(wallet, m) });
         if (account.current !== owner) throw new Error("account changed");
         setAddress(wallet);
       }
@@ -156,7 +205,8 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={value}>
       {children}
-      {wanted && userId ? <PrivyBridgeHost appId={PRIVY_APP_ID} register={register} /> : null}
+      {/* Mounted for one account only; unmounted after its logout. */}
+      {hosted ? <PrivyBridgeHost key={hosted} appId={PRIVY_APP_ID} account={hosted} getToken={getToken} register={register} /> : null}
     </Ctx.Provider>
   );
 }

@@ -110,6 +110,8 @@ export function makeApi(call: Caller) {
     // ── trading and the Chumbucket wallet (POST: private, session-keyed) ──
     walletStatus: () => m<WalletStatus>("wallet.status", {}),
     walletBalance: () => m<WalletBalance>("wallet.balance", {}),
+    /** The account's ten-minute token for Privy (sub = the account, not the sign-in). */
+    privyToken: () => m<{ token: string; expiresAt: number }>("wallet.privyToken", {}),
     prepareTrade: (input: { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number }) =>
       m<PreparedTrade>("pantaTrading.prepare", input),
     submitTrade: (orderId: string, signedTransaction: string) => m<TradeOrder>("pantaTrading.submit", { orderId, signedTransaction }),

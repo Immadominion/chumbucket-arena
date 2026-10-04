@@ -147,6 +147,18 @@ describe("linking the Chumbucket wallet", () => {
     expect(store.walletTypeOf(wallet.address)).toBe(CHUMBUCKET_WALLET_TYPE);
   });
 
+  test("a wallet first linked under another label is relabelled by its Chumbucket re-proof, one way", async () => {
+    const { store, service } = linker(true);
+    const wallet = makeWallet();
+    expect((await service.linkWallet({ accessToken: "tok-alice", address: wallet.address, ...(await proof(service, wallet)) })).outcome).toBe("linked");
+    expect(store.walletTypeOf(wallet.address)).toBe("mwa");
+    const again = await service.linkWallet({ accessToken: "tok-alice", address: wallet.address, ...(await proof(service, wallet)), walletType: CHUMBUCKET_WALLET_TYPE });
+    expect(again.outcome).toBe("reaffirmed");
+    expect(store.walletTypeOf(wallet.address)).toBe(CHUMBUCKET_WALLET_TYPE);
+    await service.linkWallet({ accessToken: "tok-alice", address: wallet.address, ...(await proof(service, wallet)), walletType: "mwa" });
+    expect(store.walletTypeOf(wallet.address)).toBe(CHUMBUCKET_WALLET_TYPE);
+  });
+
   test("off: the label is refused before the challenge is spent, and the wallet can still link as itself", async () => {
     const { store, service } = linker(false);
     const wallet = makeWallet();

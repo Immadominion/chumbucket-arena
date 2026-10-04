@@ -32,16 +32,17 @@ class WholePersonStore extends InMemoryTrustStore {
   }
 }
 
-async function scene(guards?: readonly AccountDeletionGuard[]) {
+async function scene(guards?: readonly AccountDeletionGuard[], store = new WholePersonStore()) {
   const h = harness({ people: [person("u-ann"), person("u-folded")], markets: [] });
   const app = await testApp();
   setCallsRuntime(app.config, h.rt);
-  const store = new WholePersonStore();
   const authAdmin = new RecordingAuthUserAdmin();
   setTrustRuntime(app.config, buildTrustRuntime(app.config, { store, authAdmin, ...(guards ? { deletionGuards: guards } : {}) }));
   // auth-ann-x is an additional sign-in of u-ann (a folded account's X).
   const identity = new FakeIdentityStore().addUser("auth-ann", "u-ann").addUser("auth-ann-x", "u-ann");
-  const verifier = new FakeJwtVerifier().issue("tok-ann", "auth-ann").issue("tok-ann-x", "auth-ann-x");
+  // auth-ann-old reaches u-ann only in the database (an additional sign-in
+  // with ACCOUNT_LINKING_ENABLED off): the session resolver finds no account.
+  const verifier = new FakeJwtVerifier().issue("tok-ann", "auth-ann").issue("tok-ann-x", "auth-ann-x").issue("tok-ann-old", "auth-ann-old");
   primeAuthIdentityRuntime(app.config, { store: identity, verifier, policy: resolveAuthIdentityPolicy(app.config) });
   return { h, store, authAdmin, account: (token: string) => authRouter.createCaller({ app, supabaseAccessToken: token }) };
 }
@@ -74,7 +75,7 @@ describe("deleting an account with many sign-ins", () => {
 
   test("the registry other workstreams add to is the default", async () => {
     expect(Array.isArray(accountDeletionGuards)).toBe(true);
-    accountDeletionGuards.push(async () => {
+    accountDeletionGuards.push(() => async () => {
       throw new TrustError("TRUST_DELETION_FAILED", "Not yet.");
     });
     try {
@@ -83,5 +84,34 @@ describe("deleting an account with many sign-ins", () => {
     } finally {
       accountDeletionGuards.pop();
     }
+  });
+
+  test("a sign-in only the database ties to the account still runs every guard on it", async () => {
+    class DatabaseKnows extends WholePersonStore {
+      down = false;
+      async accountForAuthUser(authUserId: string): Promise<string | null> {
+        if (this.down) throw new Error("synthetic");
+        return authUserId === "auth-ann-old" ? "u-ann" : null;
+      }
+    }
+    const seen: string[] = [];
+    const refuse: AccountDeletionGuard = async ({ userId, authUserId }) => {
+      seen.push(`${userId}/${authUserId}`);
+      throw new TrustError("TRUST_FUNDS_REMAIN", "Cash out first");
+    };
+    const s = await scene([refuse], new DatabaseKnows());
+    await expect(s.account("tok-ann-old").deleteAccount({ confirm: "DELETE" })).rejects.toMatchObject({ message: "Cash out first" });
+    expect(seen).toEqual(["u-ann/auth-ann-old"]);
+    expect(s.store.calls).toEqual([]);
+    // Unreadable: refused, nothing written.
+    const d = new DatabaseKnows();
+    d.down = true;
+    const u = await scene([async () => {}], d);
+    await expect(u.account("tok-ann-old").deleteAccount({ confirm: "DELETE" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(d.calls).toEqual([]);
+    // Cleared: the database deletes exactly the account the guards checked.
+    const ok = await scene([async () => {}], new DatabaseKnows());
+    await ok.account("tok-ann-old").deleteAccount({ confirm: "DELETE" });
+    expect(ok.store.calls).toEqual([{ userId: "u-ann", authUserId: "auth-ann-old" }]);
   });
 });

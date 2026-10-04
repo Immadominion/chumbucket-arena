@@ -774,6 +774,27 @@ describe("web app rules", () => {
     const wallets = readCode(join(WEB, "components/webapp/wallets.ts"));
     expect(wallets).toContain('"solana:signTransaction"');
     expect(wallets).toContain("signedOnlyInSlot(transaction, signed, 0)");
+    // Every web signature of a trade goes through trade.ts, which checks the
+    // bytes are exactly the reviewed buy before any wallet sees them.
+    const signers = files.filter(({ text }) => /signTransaction\(/.test(text)).map(({ file }) => file.split("/").pop());
+    expect(signers.sort()).toEqual(["ChumbucketWalletPrivy.tsx", "TradeSheet.tsx", "chumbucketWallet.tsx", "wallets.ts"]);
+    const trade = readCode(join(WEB, "lib/webapp/trade.ts"));
+    expect(trade.indexOf("await checked(unsigned")).toBeLessThan(trade.indexOf("signed = await signer.sign(unsigned)"));
+    const sheet = readCode(join(WEB, "components/webapp/TradeSheet.tsx"));
+    expect(sheet).not.toMatch(/placeTrade|avgPrice/);
+    expect(sheet).toContain("reviewTrade(");
+  });
+
+  test("signing out, or another account, logs Privy out before it is unloaded", () => {
+    const root = readCode(join(WEB, "components/webapp/chumbucketWallet.tsx"));
+    expect(root).toMatch(/if \(b\) void b\.logout\(\)\.catch\(\(\) => undefined\)\.finally\(unload\)/);
+    expect(root).toContain("setHosted((h) => (h === previous ? null : h))");
+    // Privy is signed in with the BFF's account token, never a Supabase token.
+    expect(root).toContain("api.privyToken()");
+    const privy = readCode(join(WEB, "components/webapp/ChumbucketWalletPrivy.tsx"));
+    expect(privy).toContain("getExternalJwt: getToken");
+    expect(privy).not.toMatch(/accessToken\(/);
+    expect(privy).toContain('a.customUserId === account');
   });
 
   test("the retired Arena pages are gone and their paths lead to the web app", () => {

@@ -19,6 +19,8 @@ export type TrustErrorCode =
   | "TRUST_CONFIRMATION_MISMATCH"
   | "TRUST_DELETION_FAILED"
   | "TRUST_DELETION_RETRY"
+  /** The Chumbucket wallet still holds money, or we could not tell. */
+  | "TRUST_FUNDS_REMAIN"
   | "TRUST_NOT_CONFIGURED"
   | "TRUST_STORE_UNAVAILABLE";
 

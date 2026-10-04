@@ -124,6 +124,12 @@ export interface TrustStore {
   acceptancesOf(userId: string): Promise<LegalAcceptance[]>;
 
   deleteAccount(input: { userId: string | null; authUserId: string }, at: number): Promise<DeleteAccountOutcome>;
+  /**
+   * The account the database would delete for this sign-in, when the session
+   * resolver found none (an additional sign-in with ACCOUNT_LINKING_ENABLED
+   * off), so the deletion guards still run on it. Throws when unreadable.
+   */
+  accountForAuthUser?(authUserId: string): Promise<string | null>;
   deletionFor(authUserId: string): Promise<AccountDeletion | null>;
   markAuthDeleted(authUserId: string, at: number): Promise<void>;
 

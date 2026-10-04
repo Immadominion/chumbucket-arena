@@ -15,7 +15,7 @@ import { toCall } from "../calls/types.ts";
 import type { InMemoryCallsStore } from "../calls/store.ts";
 import type { TrustConfig } from "./config.ts";
 import { assertCleanText } from "./contentFilter.ts";
-import { accountDeletionGuards, type AccountDeletionGuard } from "./deletionGuards.ts";
+import type { AccountDeletionGuard } from "./deletionGuards.ts";
 import { TrustError } from "./errors.ts";
 import type { WriteRateLimiter } from "./rateLimit.ts";
 import type {
@@ -70,8 +70,12 @@ export interface TrustServiceDeps {
   now?: () => number;
   /** How long a person's block/mute lists are reused before re-reading. */
   relationsTtlMs?: number;
-  /** Checks before a deletion (default: src/trust/deletionGuards.ts). */
-  deletionGuards?: readonly AccountDeletionGuard[];
+  /**
+   * Every check that must pass before a deletion, in order: the registry in
+   * src/trust/deletionGuards.ts, built for this app ("Cash out first", …).
+   * Required, so no construction can forget them.
+   */
+  deletionGuards: readonly AccountDeletionGuard[];
 }
 
 const DELETED_NAME = "Deleted account";
@@ -362,15 +366,27 @@ export class TrustService {
     if (prior?.authDeletedAt) {
       return { status: "deleted", userId: prior.userId, alreadyDeleted: true, completedAt: prior.authDeletedAt };
     }
-    // Every check another part of the product needs first (cash out, …).
-    // A guard refuses by throwing; nothing has been written yet.
-    if (input.userId) {
-      for (const guard of this.deps.deletionGuards ?? accountDeletionGuards) {
-        await guard({ userId: input.userId, authUserId: input.authUserId });
+    // Every check another part of the product needs first (cash out, …), on
+    // the account about to go: the one the session resolved, or — the session
+    // resolver found none and this is no retry — the one the database would
+    // delete for this sign-in. A guard refuses by throwing; nothing has been
+    // written yet.
+    let account = input.userId;
+    if (!account && !prior && this.deps.store.accountForAuthUser) {
+      try {
+        account = await this.deps.store.accountForAuthUser(input.authUserId);
+      } catch {
+        throw new TrustError("TRUST_DELETION_FAILED", "We couldn't reach your account. Nothing was changed. Try again.");
+      }
+    }
+    if (account) {
+      for (const guard of this.deps.deletionGuards) {
+        await guard({ userId: account, authUserId: input.authUserId });
       }
     }
     const outcome = await this.deps.store.deleteAccount(
-      { userId: input.userId ?? prior?.userId ?? null, authUserId: input.authUserId },
+      // The account the guards cleared, so the database deletes no other.
+      { userId: account ?? prior?.userId ?? null, authUserId: input.authUserId },
       this.now(),
     );
     if (!outcome.ok) {
