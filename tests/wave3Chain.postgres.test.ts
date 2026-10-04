@@ -55,6 +55,10 @@ const WAVE_CHAIN = [
   "20261002180000_trust_safety_and_account.sql",
 ];
 
+/** The newest migration production has applied, and the SOL widening after it. */
+const LAST_APPLIED_IN_PRODUCTION = "20261003200000_find_person_identities.sql";
+const SOL_QUOTED_PRICES = "20261004090000_panta_sol_quoted_prices.sql";
+
 /** The live legacy rights, before the identity pivot's own migrations ran. */
 const LIVE_LEGACY_PRE_PIVOT = String.raw`
   CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -186,6 +190,9 @@ test("migration versions are unique and the wave-3 chain sorts in the order it m
     files.indexOf("20261002170000_panta_claim_sessions.sql") + 1,
   );
   expect(WAVE_CHAIN.filter((f) => f.slice(0, 14) <= APPLIED_IN_PRODUCTION_THROUGH)).toHaveLength(5);
+  // SOL-quoted Panta prices (fleet/catalog-breadth) apply after the last
+  // migration already in production (find_person_identities).
+  expect(files.indexOf(SOL_QUOTED_PRICES)).toBeGreaterThan(files.indexOf(LAST_APPLIED_IN_PRODUCTION));
 });
 
 test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
@@ -228,6 +235,13 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         applied.push(file);
       }
       for (const f of WAVE_CHAIN) expect(applied).toContain(f);
+      // The SOL-quoted widening ran on the whole chain: Panta snapshots take
+      // SOL only with program-account (payload v2) evidence.
+      expect(applied).toContain(SOL_QUOTED_PRICES);
+      const constraint = (name: string) =>
+        sql(`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = '${name}'`);
+      expect(constraint("panta_snapshot_shape")).toContain("'SOL'");
+      expect(constraint("panta_snapshot_raw_evidence")).toContain("solana-account");
       for (const table of ["call_thesis_updates", "market_proposals", "panta_claim_sessions", "push_tokens",
         "content_reports", "user_blocks", "user_mutes", "account_deletions"]) {
         expect(sql(`SELECT to_regclass('public.${table}') IS NOT NULL`)).toBe("t");
