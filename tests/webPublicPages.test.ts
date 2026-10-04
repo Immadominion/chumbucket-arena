@@ -119,7 +119,8 @@ describe("presentation", () => {
       yesPrice: "0.671739755", noPrice: "0.328260245", observedAt: 1, attribution: "Powered by Panta" };
     expect(entryPercent({ side: "NO", entryPrice })).toBe("33%");
     expect(entryPercent({ side: "YES", entryPrice })).toBe("67%");
-    expect(entryPercent({ side: "YES", entryPrice: { ...entryPrice, currency: "USDC" } })).toBe("67%");
+    const usdcQuoted = { ...entryPrice, currency: "USDC" };
+    expect(entryPercent({ side: "YES", entryPrice: usdcQuoted })).toBe("67%");
     expect(entryPercent({ side: "YES", entryPrice: null })).toBeNull();
     expect(entryPercent({ side: "NO", entryPrice })).not.toMatch(/[$¢]|SOL|USDC/);
   });

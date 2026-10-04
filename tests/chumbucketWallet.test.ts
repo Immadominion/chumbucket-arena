@@ -68,6 +68,7 @@ describe("wallet router", () => {
       },
       balances,
       limiter: new DepositRateLimiter(),
+      admins: new Set(),
     });
     return {
       reads,
