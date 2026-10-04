@@ -25,7 +25,8 @@ Google or X; an account is the way in), Home (Following / Global), Markets
 (one search-and-filter row), a market with YES / NO and a free call in one
 tap, a call with Back / Fade / Dare, your profile and edit, other people,
 Activity, friends (add by @username, X handle or wallet, then follow) and
-the leaderboard. Trading and adding funds hand off to the Android app.
+the leaderboard. Calls with money (an amount on a call, the balance pill,
+deposits, cash out, Collect) follow the server's `money.status` switch.
 See `docs/web-app.md` for how it is built and what the owner must configure.
 
 Set `NEXT_PUBLIC_WEB_APP_URL=/app` and the landing's hero links to it.

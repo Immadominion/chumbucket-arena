@@ -22,7 +22,8 @@ copy. Everything lives under `/app` so a deploy can set
 | `components/webapp/screens/*` | One file per screen. |
 | `components/webapp/Icon.tsx` | The Basil icons the Android app ships (CC BY 4.0, credited in Settings). |
 | `components/webapp/app.css` | The design system, scoped under `.wa`. |
-| `lib/webapp/*` | Pure logic, tested in the BFF repo (`tests/webApp.test.ts`): the BFF transport, procedures, formatting, filters, SIWS message, cache, identity rules, paths. |
+| `components/webapp/money/*` | Calls with money: the amount row and call button, the call flow sheet, the deposit and wallet sheets, the balance pill, Collect, the owner's pending calls, and the signer lookup. |
+| `lib/webapp/*` | Pure logic, tested in the BFF repo (`tests/webApp*.test.ts`): the BFF transport, procedures, formatting, filters, SIWS message, cache, identity rules, paths, the money flows (`money.ts`, `moneyFlow.ts`) and the checks every signature passes first (`pantaBuyCheck.ts`, `transferCheck.ts`, `claimCheck.ts`, `swapCheck.ts`). |
 | `public/img/states/*.webp` | The app's Plankton / Karen state art (`assets/images/states`), 384px WebP. |
 
 ## How it talks to the BFF
@@ -63,11 +64,33 @@ Markets filters, Friends tab, leaderboard window) are remembered too.
 
 ## Money paths
 
-The web app signs nothing but the sign-in message. Trading on Panta and
-adding funds are in the Android app: a market you have called offers "Trade
-on Panta" while it is still open, which explains that trades use real USDC
-and can lose money and links to the app. A settled or closed market offers
-no trade.
+Calls with money follow the server's switch (`money.status`,
+`MONEY_CALLS_ENABLED`; docs/money-api.md in the BFF repo). Off, or on a BFF
+without `money.*`, none of this shows and every call is free.
+
+- **Amount row** on the market's lock bar and on Back / Fade:
+  `Free · $5 · $10 · $25 · +`, starting on the last amount used in this
+  browser, else the server's default, else $5. Free keeps the ink button and
+  the existing free call; an amount turns the button pink (`Call YES · $5`)
+  and starts the call flow. A SOL-quoted market offers Free only.
+- **Call flow** (`money.prepareCall`): the deposit sheet when funds are short
+  (the call continues once the balance covers it), a silent gasless top-up
+  when SOL is short, then a review in dollars (pay, get if right, fee), the
+  wallet's signature and `pantaTrading.submit`. Pending until the BFF says
+  FUNDED; a failed or abandoned call offers try again, keep it free, or drop
+  it. Home lists the owner's pending calls.
+- **Balance pill** in every screen's header opens the wallet sheet: add
+  funds, cash out to any Solana wallet, recent activity. **Collect** shows on
+  Home and on a won call.
+- **Signing**: the Chumbucket wallet or a browser wallet (Wallet Standard),
+  always through `checkedSigner` (`lib/webapp/trade.ts`), which checks the
+  exact bytes of a buy, a USDC transfer (contract §c), a claim or a gasless
+  swap before the wallet sees them. The browser never sends a transaction.
+- Receipts and cards say `$5 on YES` for a confirmed fill with its amount;
+  the owner's pending call carries a grey mark, never pink.
+
+With money off, a market you have called offers "Trade on Panta" while it is
+still open (the Chumbucket wallet, or the Android app).
 
 ## Owner actions before linking it
 
