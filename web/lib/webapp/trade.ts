@@ -16,7 +16,10 @@
  * Pure: no DOM, so the BFF repo's bun tests can import it.
  */
 
+import { checkPantaClaim, type ReviewedClaim } from "./claimCheck";
 import { checkPantaBuy, UnsafeTransaction, type ReviewedBuy } from "./pantaBuyCheck";
+import { checkGaslessSwap, type CheckedSwap, type ExpectedSwap } from "./swapCheck";
+import { checkUsdcTransfer, type ReviewedTransfer } from "./transferCheck";
 import type { FundingState, Side } from "./types";
 import { base64ToBytes, bytesToBase64, signedOnlyInSlot } from "./solanaTx";
 
@@ -44,12 +47,20 @@ export interface TradeOrder {
 }
 
 /**
- * Who signs. `sign` must check the bytes are exactly `buy` before any wallet
- * sees them: build every signer with [checkedSigner], never by hand.
+ * Who signs. Every method must check the bytes are exactly what the person
+ * reviewed before any wallet sees them: build every signer with
+ * [checkedSigner], never by hand.
  */
 export interface TradeSigner {
   address: string;
+  /** A Panta buy (`pantaBuyCheck.ts`). */
   sign(unsigned: Uint8Array, buy: ReviewedBuy): Promise<Uint8Array>;
+  /** A USDC cash out or wallet top-up (`transferCheck.ts`, contract §c). */
+  signTransfer(unsigned: Uint8Array, transfer: ReviewedTransfer): Promise<Uint8Array>;
+  /** A Panta win claim (`claimCheck.ts`). */
+  signClaim(unsigned: Uint8Array, claim: ReviewedClaim): Promise<Uint8Array>;
+  /** A gasless USDC → SOL swap, signed in the person's own slot (`swapCheck.ts`). */
+  signSwap(unsigned: Uint8Array, swap: ExpectedSwap): Promise<{ signed: Uint8Array; checked: CheckedSwap }>;
 }
 
 /**
@@ -57,9 +68,10 @@ export interface TradeSigner {
  * copy that was checked is the copy the wallet signs, whatever the caller
  * does with its array meanwhile. `signRaw` is the wallet itself (the
  * Chumbucket wallet or a browser wallet) and is never reached for anything
- * but the reviewed buy.
+ * but the reviewed buy, transfer, claim or swap; `slot` is the signature
+ * slot it must fill (0 but for a swap someone else pays for).
  */
-export function checkedSigner(address: string, signRaw: (bytes: Uint8Array) => Promise<Uint8Array>): TradeSigner {
+export function checkedSigner(address: string, signRaw: (bytes: Uint8Array, slot?: number) => Promise<Uint8Array>): TradeSigner {
   return {
     address,
     async sign(unsigned, buy) {
@@ -69,6 +81,30 @@ export function checkedSigner(address: string, signRaw: (bytes: Uint8Array) => P
       const signed = await signRaw(copy);
       if (!signedOnlyInSlot(copy, signed, 0)) throw new UnsafeTransaction("signed something else");
       return signed;
+    },
+    async signTransfer(unsigned, transfer) {
+      if (transfer.from !== address) throw new UnsafeTransaction("owner");
+      const copy = unsigned.slice();
+      await checkUsdcTransfer(copy, transfer);
+      const signed = await signRaw(copy, 0);
+      if (!signedOnlyInSlot(copy, signed, 0)) throw new UnsafeTransaction("signed something else");
+      return signed;
+    },
+    async signClaim(unsigned, claim) {
+      if (claim.owner !== address) throw new UnsafeTransaction("owner");
+      const copy = unsigned.slice();
+      await checkPantaClaim(copy, claim);
+      const signed = await signRaw(copy, 0);
+      if (!signedOnlyInSlot(copy, signed, 0)) throw new UnsafeTransaction("signed something else");
+      return signed;
+    },
+    async signSwap(unsigned, swap) {
+      if (swap.owner !== address) throw new UnsafeTransaction("owner");
+      const copy = unsigned.slice();
+      const checked = await checkGaslessSwap(copy, swap);
+      const signed = await signRaw(copy, checked.ownerSignatureIndex);
+      if (!signedOnlyInSlot(copy, signed, checked.ownerSignatureIndex)) throw new UnsafeTransaction("signed something else");
+      return { signed, checked };
     },
   };
 }
@@ -143,7 +179,6 @@ export async function reviewTrade(args: {
   signer: TradeSigner;
   now?: () => number;
 }): Promise<ReviewedTrade> {
-  const now = args.now ?? Date.now;
   const prepared = await args.api.prepareTrade({
     callId: args.callId,
     wallet: args.signer.address,
@@ -151,6 +186,24 @@ export async function reviewTrade(args: {
     idempotencyKey: args.idempotencyKey,
     maxSlippageBps: 100,
   });
+  return reviewPrepared({ ...args, prepared });
+}
+
+/**
+ * A quote the BFF already answered with (`pantaTrading.prepare`, or the
+ * READY answer of `money.prepareCall`), checked to be exactly this buy for
+ * this signer, with the figures the review shows.
+ */
+export async function reviewPrepared(args: {
+  prepared: PreparedTrade;
+  venueMarketId: string;
+  side: Side;
+  amountBaseUnits: string;
+  signer: TradeSigner;
+  now?: () => number;
+}): Promise<ReviewedTrade> {
+  const now = args.now ?? Date.now;
+  const { prepared } = args;
   const { order, review } = prepared;
   if (
     order.owner !== args.signer.address ||
@@ -203,7 +256,7 @@ async function checked(unsigned: Uint8Array, owner: string, call: ReviewedTrade[
 }
 
 /** Step two, after the person confirmed: sign exactly the reviewed bytes, submit. */
-export async function confirmTrade(args: { api: TradeApi; reviewed: ReviewedTrade; now?: () => number }): Promise<TradeOrder> {
+export async function confirmTrade(args: { api: Pick<TradeApi, "submitTrade">; reviewed: ReviewedTrade; now?: () => number }): Promise<TradeOrder> {
   const now = args.now ?? Date.now;
   const { prepared, unsigned, signer, call } = args.reviewed;
   if (prepared.order.transaction.expiresAt <= now()) throw new TradeError("expired");

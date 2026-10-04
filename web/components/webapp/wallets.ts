@@ -144,11 +144,14 @@ export async function signMessage(wallet: StandardWallet, account: WalletAccount
  * A wallet that changed the transaction (added an instruction, swapped the
  * fee payer, signed another slot) is refused here; the BFF would refuse it
  * anyway, but the person hears it from the wallet step, not as a failed trade.
+ * `slot` is the account's own signature slot: 0, but for a gasless swap whose
+ * fee someone else pays.
  */
 export async function signTransaction(
   wallet: StandardWallet,
   account: WalletAccount,
   transaction: Uint8Array,
+  slot = 0,
 ): Promise<Uint8Array> {
   const feature = wallet.features["solana:signTransaction"] as SignTransactionFeature | undefined;
   if (!feature) throw new WalletDeclined("no signTransaction");
@@ -159,6 +162,6 @@ export async function signTransaction(
     throw new WalletDeclined("sign refused");
   }
   const signed = out[0]?.signedTransaction;
-  if (!signed || !signedOnlyInSlot(transaction, signed, 0)) throw new WalletDeclined("unexpected transaction");
+  if (!signed || !signedOnlyInSlot(transaction, signed, slot)) throw new WalletDeclined("unexpected transaction");
   return signed;
 }

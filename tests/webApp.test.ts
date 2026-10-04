@@ -773,7 +773,8 @@ describe("web app rules", () => {
     // The one Wallet Standard signing path, and it checks the bytes it got back.
     const wallets = readCode(join(WEB, "components/webapp/wallets.ts"));
     expect(wallets).toContain('"solana:signTransaction"');
-    expect(wallets).toContain("signedOnlyInSlot(transaction, signed, 0)");
+    expect(wallets).toContain("signedOnlyInSlot(transaction, signed, slot)");
+    expect(wallets).toMatch(/transaction: Uint8Array,\s*slot = 0,/);
     // Every web signature of a trade goes through trade.ts, which checks the
     // bytes are exactly the reviewed buy before any wallet sees them.
     const signers = files.filter(({ text }) => /signTransaction\(/.test(text)).map(({ file }) => file.split("/").pop());
