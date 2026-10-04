@@ -5,11 +5,13 @@ import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
 import { pantaLifecycleFor, pantaTradingFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
+import type { PantaPrepareSession } from "../prediction/PantaTradingService.ts";
 import { VenueError, isVenueError } from "../prediction/errors.ts";
 import { trustRuntimeFor } from "../trust/runtime.ts";
 import { isTrustError } from "../trust/errors.ts";
 
-async function person(ctx: Context): Promise<string> {
+interface Person { userId: string; session: PantaPrepareSession; }
+async function person(ctx: Context): Promise<Person> {
   // In particular, ctx.wallet / x-wallet / DevAuth are not credentials here.
   const identity = authIdentityRuntimeFor(ctx.app.config);
   if (!ctx.supabaseAccessToken || !identity.store.enabled) throw new TRPCError({ code: "UNAUTHORIZED", message: "Link your existing account before trading" });
@@ -17,10 +19,11 @@ async function person(ctx: Context): Promise<string> {
   if (!session) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to your existing account" });
   const id = await identity.store.userIdForAuthUser(session.authUserId);
   if (!id) throw new TRPCError({ code: "FORBIDDEN", message: "Your existing profile has not been linked" });
-  return id;
+  // The issuer's own answer, never the client's: a Sign-in-with-Solana session's address.
+  return { userId: id, session: { signInWallet: session.solanaWallet ?? null } };
 }
-async function run<T>(ctx: Context, action: (userId: string) => Promise<T>): Promise<T> {
-  try { return await action(await person(ctx)); }
+async function run<T>(ctx: Context, action: (userId: string, who: Person) => Promise<T>): Promise<T> {
+  try { const who = await person(ctx); return await action(who.userId, who); }
   catch (error) {
     if (error instanceof TRPCError) throw error;
     if (isTrustError(error)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
@@ -44,10 +47,11 @@ export const pantaTradingRouter = router({
     callId: z.string().uuid(), wallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),
     amountBaseUnits: z.string().regex(/^[1-9][0-9]{0,15}$/), idempotencyKey: z.string().min(8).max(128),
     maxSlippageBps: z.number().int().min(0).max(500).default(100),
-  }).strict()).mutation(({ ctx, input }) => run(ctx, async userId => {
+  }).strict()).mutation(({ ctx, input }) => run(ctx, async (userId, who) => {
     // 18+ / jurisdiction / venue terms, recorded server-side before the first funded trade.
     await trustRuntimeFor(ctx.app.config).service.assertFundedTradingAccepted(userId);
-    return pantaTradingFor(ctx.app.config).prepare(userId, input);
+    // The signing wallet must be the account's own (see PantaTradingService.prepare).
+    return pantaTradingFor(ctx.app.config).prepare(userId, input, who.session);
   })),
   submit: publicProcedure.input(z.object({ orderId, signedTransaction: z.string().min(1).max(1644) }).strict())
     .mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config).submit(userId, input.orderId, input.signedTransaction))),

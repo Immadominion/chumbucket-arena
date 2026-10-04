@@ -16,6 +16,7 @@ import { PantaReconciler } from "./PantaReconciler.ts";
 import { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { callsRuntimeFor } from "../calls/runtime.ts";
 import { PantaTradingService } from "./PantaTradingService.ts";
+import { SupabaseAccountWallets } from "../wallet/accountWallets.ts";
 import { PgrestError } from "./pgrest.ts";
 import { VenueError } from "./errors.ts";
 
@@ -88,6 +89,8 @@ function buildLifecycle(config: AppConfig): PantaLifecycle {
       neverLanded: (sig, height) => settlement.neverLanded(sig, height) },
     venue: new PantaVenue({ apiKey: panta.apiKey, timeoutMs: panta.timeoutMs }),
     maxAmountBaseUnits: config.predictions!.maxAmountBaseUnits!,
+    // A buy is only ever quoted for one of the account's own proven wallets.
+    wallets: new SupabaseAccountWallets(config.social!),
     onFilled: row => { funding.markFilled(row.call_id, Date.parse(row.updated_at)); holdings.forget(row.wallet_address); },
   });
   const claims = claimStore && new PantaClaimService({
