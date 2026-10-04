@@ -307,10 +307,15 @@ offer "finish, keep free or discard" instead of leaving a ghost.
   minutes from creation until a first quote exists). It is never extended, by
   a retry or anything else: a call held open longer could wait to see where
   the price goes and fund only the winners.
-- A money call is traded only while `PENDING`, and only through `money.*`:
-  `pantaTrading.prepare` refuses any call whose money call has ended
-  ("This call's money window has closed. Make a new call."), and the database
-  refuses a new or newly signed trade for it.
+- A money call is traded only through `money.*`, only while `PENDING`, only
+  with its current attempt's quote, and only inside its window:
+  `pantaTrading.prepare` refuses every money call ("This call was made with an
+  amount. Fund it from the call itself."); `pantaTrading.submit` re-checks the
+  money call before anything is stored or broadcast ("This call's money
+  window has closed. Make a new call."); a later quote that would outlive the
+  window is refused (`CALL_EXPIRED`); and the database refuses a trade with
+  any other key, or one signed after `expiresAt`. A discard and a submit of
+  the same call serialize on the money call's row, so only one wins.
 - The sweeper (every reconciler pass) marks `FUNDED` any pending call whose
   order filled (and any expired one, in the last day, whose own last quote
   filled in time), and `EXPIRED` any past `expiresAt` (or whose market stopped
