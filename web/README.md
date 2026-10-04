@@ -1,8 +1,8 @@
 # Chumbucket Web (chumbucket.fun)
 
 The public site for Chumbucket, a people-first feed of calls on real Panta
-prediction markets, plus the older Arena web client. Next.js App Router, React,
-TypeScript and the shared Chumbucket visual language.
+prediction markets, and the signed-in web app at `/app`. Next.js App Router,
+React, TypeScript and the shared Chumbucket visual language.
 
 ## Landing page
 
@@ -13,9 +13,22 @@ its component and its `data-el` hook for motion work, and lists the assets
 still to replace.
 
 The public site (landing, share pages, legal pages) ships no Privy, tRPC or
-Supabase code: those providers are mounted only by the Arena routes
-(`components/AppProviders.tsx`), so the public pages run without that
-configuration.
+Supabase code, so the public pages run without that configuration. The web
+app (`/app`) loads Supabase Auth only; the legacy Arena client
+(`components/AppProviders.tsx`, Privy) is mounted only by old `/c/chg_…`
+challenge links.
+
+## Web app (`/app`)
+
+The calls product in the browser, matching the Android app: sign in (wallet,
+Google or X; an account is the way in), Home (Following / Global), Markets
+(one search-and-filter row), a market with YES / NO and a free call in one
+tap, a call with Back / Fade / Dare, your profile and edit, other people,
+Activity, friends (add by @username, X handle or wallet, then follow) and
+the leaderboard. Trading and adding funds hand off to the Android app.
+See `docs/web-app.md` for how it is built and what the owner must configure.
+
+Set `NEXT_PUBLIC_WEB_APP_URL=/app` and the landing's hero links to it.
 
 ## Share pages
 
@@ -37,15 +50,13 @@ With the app installed and App Links verified, Android opens `/c`, `/u` and
 `lib/assetLinks.ts` and `lib/ogCard.tsx`; tests are in the BFF repo at
 `tests/webPublicPages.test.ts`.
 
-## What judges can test
+## Retired Arena pages
 
-- Browse TxLINE-powered World Cup fixtures.
-- Connect a wallet.
-- Call HOME, DRAW, or AWAY in a pooled pot.
-- Create or accept a direct friend challenge.
-- Follow activity through Arena, results, wallet, friends, and claim states.
-- Open the proof page and independently simulate the saved TxLINE
-  `validate_stat` receipt against public Solana devnet RPC.
+The football-and-escrow Arena (`/arena`, `/matchday`, `/bet`, `/challenge`,
+`/caller`, `/predictions`, `/results`, `/send`, `/wallet`, `/settings`,
+`/friends`, `/signin`) is gone; `next.config.ts` redirects those paths to
+the web app. Old challenge links (`/c/chg_…`) still render through
+`/legacy-challenge`, and `/proof` keeps the saved TxLINE receipt.
 
 ## Run
 
@@ -61,17 +72,19 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder bun run build
 
 See `.env.example`. Important public settings are:
 
-- `NEXT_PUBLIC_BACKEND_URL`
-- `NEXT_PUBLIC_PRIVY_APP_ID`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `NEXT_PUBLIC_SOLANA_RPC_URL`
-- `NEXT_PUBLIC_CHUMBUCKET_PROGRAM_ID`
-- `NEXT_PUBLIC_CHUMBUCKET_USDC_MINT`
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`: the web app's
+  sign-in (the same Supabase project as the Android app)
+- `NEXT_PUBLIC_CALLS_BFF_URL`: the calls BFF the web app calls from the
+  browser (defaults to production)
+- `NEXT_PUBLIC_WEB_APP_URL`: `/app` once the web app should be linked from
+  the landing and the share pages
+- `NEXT_PUBLIC_ANDROID_INSTALL_URL`: where "Get the app" goes
+- `NEXT_PUBLIC_BACKEND_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`: legacy challenge
+  links only
 
-Privy is used only for the web wallet/session experience. The Flutter app uses
-Solana Mobile Wallet Adapter. Google and X may enrich a profile, but a wallet
-signature remains the authority for calls, follows, claims, and other writes.
+The web app, like the Android app, sends the person's Supabase session to
+the BFF as a bearer; the BFF verifies it and decides who is asking. No
+procedure takes a user id or a wallet as identity.
 
 ## Deployment
 

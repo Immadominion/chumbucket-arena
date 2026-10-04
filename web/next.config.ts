@@ -33,6 +33,28 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["@phosphor-icons/react", "@privy-io/react-auth"],
   },
+  // The retired football-and-escrow Arena: its pages are gone, and anyone
+  // holding an old link lands in the web app instead (/app). Temporary
+  // redirects, so a browser does not remember them forever. Legacy challenge
+  // links (/c/chg_…) still render, through the rewrite below.
+  async redirects() {
+    const toApp = (source: string, destination = "/app") => ({ source, destination, permanent: false });
+    return [
+      toApp("/signin"),
+      toApp("/arena"),
+      toApp("/matchday"),
+      toApp("/predictions"),
+      toApp("/results"),
+      toApp("/send"),
+      toApp("/bet"),
+      toApp("/bet/:matchId"),
+      toApp("/challenge/:matchId"),
+      toApp("/caller/:wallet"),
+      toApp("/friends", "/app/friends"),
+      toApp("/settings", "/app/me"),
+      toApp("/wallet", "/app/me"),
+    ];
+  },
   // Legacy Arena challenge links (/c/chg_…) render from their own route, so the
   // /c share page every new call link opens never ships the Arena client.
   async rewrites() {
