@@ -34,6 +34,10 @@ export interface SharePrice {
 export interface Market {
   id: string;
   venue: string;
+  /** The market's quote asset. Panta markets are USDC or SOL; null/absent on older servers (USDC only). */
+  quoteCurrency?: "USDC" | "SOL" | null;
+  /** Whether Chumbucket can trade it. A SOL-quoted market takes calls only. */
+  tradable?: boolean;
   venueMarketId: string | null;
   question: string;
   rulesText: string | null;
@@ -215,11 +219,30 @@ export function centsLabel(price: string | null | undefined): string | null {
   return `${Number.isInteger(cents) ? cents.toFixed(0) : cents.toFixed(1)}¢`;
 }
 
-/** The price a call was locked at, for its own side. */
+/**
+ * A per-share price in its market's own unit. USDC reads as cents
+ * (`centsLabel`); a SOL-quoted Panta market's price reads in SOL
+ * (`0.67 SOL`), never converted to dollars or cents.
+ */
+export function priceLabel(price: string | null | undefined, currency: string | null | undefined): string | null {
+  if (currency !== "SOL") return centsLabel(price);
+  if (price === null || price === undefined || price.trim() === "") return null;
+  const n = Number(price);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n > 0 && n < 0.005) return "<0.01 SOL";
+  return `${n.toFixed(2)} SOL`;
+}
+
+/** "USDC" or "SOL": the unit a share price is quoted in. */
+export function priceUnit(currency: string | null | undefined): "USDC" | "SOL" {
+  return currency === "SOL" ? "SOL" : "USDC";
+}
+
+/** The price a call was locked at, for its own side, in its own unit. */
 export function entryLabel(call: Call): string | null {
   const p = call.entryPrice;
   if (!p) return null;
-  return centsLabel(call.side === "YES" ? p.yesPrice : p.noPrice);
+  return priceLabel(call.side === "YES" ? p.yesPrice : p.noPrice, p.currency);
 }
 
 export function sideLabel(market: Market, side: Side): string {

@@ -12,7 +12,8 @@ import OpenInApp from "@/components/public/OpenInApp";
 import { ExternalIcon, PublicShell, Unavailable } from "@/components/public/PublicShell";
 import {
   NotFound,
-  centsLabel,
+  priceLabel,
+  priceUnit,
   getMarket,
   sideLabel,
   statusCopy,
@@ -65,8 +66,8 @@ export default async function MarketPage({ params }: { params: Promise<Params> }
 
 function MarketBody({ detail }: { detail: MarketDetail }) {
   const { market, sharePrice } = detail;
-  const yes = centsLabel(sharePrice?.yesPrice);
-  const no = centsLabel(sharePrice?.noPrice);
+  const yes = priceLabel(sharePrice?.yesPrice, sharePrice?.currency);
+  const no = priceLabel(sharePrice?.noPrice, sharePrice?.currency);
   const venue = venueUrl(market);
   const open = market.status === "OPEN";
   const closes = whenLabel(market.closesAt);
@@ -100,7 +101,7 @@ function MarketBody({ detail }: { detail: MarketDetail }) {
         </div>
         <p className="pub-muted pub-small">
           {yes || no
-            ? `Indicative price per share in USDC on Panta${priced ? `, as of ${priced}` : ""}.`
+            ? `Indicative price per share in ${priceUnit(sharePrice?.currency)} on Panta${priced ? `, as of ${priced}` : ""}.`
             : "No live price right now."}
         </p>
 

@@ -13,10 +13,13 @@ import {
   NotFound,
   Unavailable,
   centsLabel,
+  entryLabel,
   getCall,
   getPerson,
   isFreeCall,
   outcomeCopy,
+  priceLabel,
+  priceUnit,
   recordLabel,
   safeAvatar,
   venueUrl,
@@ -102,6 +105,21 @@ describe("presentation", () => {
     expect(centsLabel("")).toBeNull();
     expect(centsLabel("-1")).toBeNull();
     expect(centsLabel("abc")).toBeNull();
+  });
+
+  test("a SOL-quoted market's price reads in SOL, never as dollars or cents", () => {
+    expect(priceLabel("0.671739755", "SOL")).toBe("0.67 SOL");
+    expect(priceLabel("0.001", "SOL")).toBe("<0.01 SOL");
+    expect(priceLabel(null, "SOL")).toBeNull();
+    expect(priceLabel("-1", "SOL")).toBeNull();
+    expect(priceLabel("0.5", "USDC")).toBe("50¢");
+    expect(priceLabel("0.5", undefined)).toBe("50¢");
+    expect(priceUnit("SOL")).toBe("SOL");
+    expect(priceUnit(undefined)).toBe("USDC");
+    const call = { side: "NO", entryPrice: { venue: "panta", currency: "SOL", unit: "per_share",
+      yesPrice: "0.671739755", noPrice: "0.328260245", observedAt: 1, attribution: "Powered by Panta" } };
+    expect(entryLabel(call as never)).toBe("0.33 SOL");
+    expect(entryLabel(call as never)).not.toMatch(/[$¢]/);
   });
 
   test("outcomes and records", () => {
