@@ -107,7 +107,7 @@ describe("cash out validations", () => {
     ];
     for (const [label, destination, reason] of cases) {
       const out = await cashOut(r, destination, "10000000", `cash-out-${label.replace(/[^a-z]/g, "")}-key`);
-      expect({ label, out: out.status === "INVALID" ? out.reason : out.status }).toEqual({ label, out: reason });
+      expect({ label, out: out.status === "INVALID" ? out.reason as string : out.status as string }).toEqual({ label, out: reason });
     }
     expect(await cashOut(r, friend, "25000001", "cash-out-over-key-01")).toMatchObject({ status: "INVALID", reason: "OVER_BALANCE" });
     expect(await cashOut(r, friend, "0", "cash-out-zero-key-01")).toMatchObject({ status: "INVALID", reason: "AMOUNT" });
