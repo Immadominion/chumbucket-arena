@@ -27,6 +27,7 @@ import type {
 import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
 import type { CallRecordCounts, RecordDisplay } from "../notifications/types.ts";
 import type { CallFunding } from "../prediction/PantaFunding.ts";
+import type { MoneyCallOwnerView } from "../money/visibility.ts";
 
 export type { CallOutcome, FundingState, MarketSnapshot, Resolution, Side, VenueMarket };
 export type { CallRecordCounts, RecordDisplay };
@@ -172,6 +173,12 @@ export interface CallFeedEntry {
    * provenance, so free-call accuracy is unaffected.
    */
   funding?: CallFunding | null;
+  /**
+   * MONEY_CALLS_ENABLED only, and only on the OWNER's own view: a call made
+   * with an amount whose money has not landed (PENDING) or never did
+   * (EXPIRED). Nobody else is ever sent the call at all (docs/money-api.md).
+   */
+  money?: MoneyCallOwnerView;
 }
 
 export interface CallFeedPage {
@@ -290,6 +297,8 @@ export interface LeaderboardRow {
   rank: number | null;
   person: Omit<PersonCard, "record" | "viewerIsFollowing">;
   record: PublicRecord;
+  /** MONEY_CALLS_ENABLED only: the person's public calls backed by a confirmed fill. Never a rank by money. */
+  fundedCalls?: number;
 }
 
 export interface Leaderboard {

@@ -98,6 +98,14 @@ export interface PeopleDirectoryDeps {
   clock: Clock;
   /** New calls close this long before the market does (M14); top calls follow it. Default 0. */
   callCutoffMs?: number;
+  /**
+   * MONEY_CALLS_ENABLED only (docs/money-api.md). A call whose money has not
+   * landed (PENDING) or never did (EXPIRED) is on no public surface and no
+   * record; it was never public.
+   */
+  isPrivate?: (callId: string) => boolean;
+  /** MONEY_CALLS_ENABLED only: a call backed by a confirmed fill. Funded calls rank first on call lists. */
+  isFunded?: (callId: string) => boolean;
 }
 
 /**
@@ -119,13 +127,20 @@ export class PeopleDirectory {
   private readonly markets: VenueMarketReader;
   private readonly clock: Clock;
   private readonly callCutoffMs: number;
+  private readonly isPrivate: (callId: string) => boolean;
+  private readonly isFunded: ((callId: string) => boolean) | undefined;
 
   constructor(deps: PeopleDirectoryDeps) {
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock;
     this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
+    this.isPrivate = deps.isPrivate ?? (() => false);
+    this.isFunded = deps.isFunded;
   }
+
+  /** Rule 1's scope, minus calls that were never public (a pending or expired money call). */
+  private onRecord = (call: CallRecord): boolean => countsTowardsPublicRecord(call) && !this.isPrivate(call.id);
 
   // ── the one record ────────────────────────────────────────────────────────
 
@@ -163,7 +178,7 @@ export class PeopleDirectory {
   }
 
   private fold(acc: ReturnType<typeof emptyTally>, call: CallRecord, since: number | null): void {
-    if (!countsTowardsPublicRecord(call)) return;
+    if (!this.onRecord(call)) return;
     const result = this.store.getResult(call.id);
     const outcome = result?.outcome ?? "PENDING";
     if (since !== null) {
@@ -196,6 +211,7 @@ export class PeopleDirectory {
     const since = span === null ? null : now - span;
 
     const records = this.recordsByAuthor(since);
+    const funded = this.fundedCallsByAuthor(since);
     const rows: (LeaderboardRow & { score: number })[] = [];
     for (const [userId, record] of records) {
       if (record.counts.decided === 0) continue;
@@ -206,6 +222,7 @@ export class PeopleDirectory {
         person: summaryOf(person),
         record,
         score: wilsonLowerBound(record.counts.correct, record.counts.decided),
+        ...(funded ? { fundedCalls: funded.get(userId) ?? 0 } : {}),
       });
     }
 
@@ -216,6 +233,8 @@ export class PeopleDirectory {
           b.score - a.score ||
           b.record.counts.decided - a.record.counts.decided ||
           b.record.counts.correct - a.record.counts.correct ||
+          // MONEY_CALLS_ENABLED: an exact tie goes to the person with more funded calls.
+          (b.fundedCalls ?? 0) - (a.fundedCalls ?? 0) ||
           a.person.handle.localeCompare(b.person.handle),
       )
       .map((r, i) => ({ ...stripScore(r), rank: i + 1 }));
@@ -238,6 +257,7 @@ export class PeopleDirectory {
         rank: null,
         person: summaryOf(me),
         record: records.get(me.id) ?? recordFrom(emptyTally()),
+        ...(funded ? { fundedCalls: funded.get(me.id) ?? 0 } : {}),
       };
       viewer = { ...base, decidedToRank: Math.max(0, MIN_DECIDED_FOR_ACCURACY - base.record.counts.decided) };
     }
@@ -253,6 +273,23 @@ export class PeopleDirectory {
       rule: LEADERBOARD_RULE,
       servedAt: now,
     };
+  }
+
+  /**
+   * MONEY_CALLS_ENABLED only: each author's public calls backed by a
+   * confirmed fill (locked inside the window). Null with money calls off, so
+   * a row keeps its exact earlier shape.
+   */
+  private fundedCallsByAuthor(since: number | null): Map<string, number> | null {
+    const isFunded = this.isFunded;
+    if (!isFunded) return null;
+    const out = new Map<string, number>();
+    for (const call of this.store.listCalls()) {
+      if (call.visibility !== "public" || call.hiddenAt !== null || this.isPrivate(call.id) || !isFunded(call.id)) continue;
+      if (since !== null && call.lockedAt < since) continue;
+      out.set(call.userId, (out.get(call.userId) ?? 0) + 1);
+    }
+    return out;
   }
 
   // ── search ────────────────────────────────────────────────────────────────
@@ -333,9 +370,10 @@ export class PeopleDirectory {
       else responsesByTarget.set(r.targetCallId, [r]);
     }
 
+    const isFunded = this.isFunded;
     const candidates = this.store
       .liveCalls()
-      .filter((c) => c.visibility === "public" && c.userId !== viewerUserId && !hidden(c.userId))
+      .filter((c) => c.visibility === "public" && c.userId !== viewerUserId && !hidden(c.userId) && !this.isPrivate(c.id))
       .filter((c) => {
         const market = this.markets.getMarket(c.marketId);
         // Only calls the viewer can still answer: the same cut-off back/fade use.
@@ -356,6 +394,8 @@ export class PeopleDirectory {
       })
       .sort(
         (a, b) =>
+          // MONEY_CALLS_ENABLED: funded calls first.
+          (isFunded ? Number(isFunded(b.call.id)) - Number(isFunded(a.call.id)) : 0) ||
           b.volume - a.volume ||
           b.credibility - a.credibility ||
           b.call.lockedAt - a.call.lockedAt ||
@@ -458,7 +498,7 @@ export class PeopleDirectory {
     for (const row of board.building) add(row.person.id, "building");
     const recent = this.store
       .liveCalls()
-      .filter(countsTowardsPublicRecord)
+      .filter(this.onRecord)
       .sort((a, b) => b.lockedAt - a.lockedAt || b.id.localeCompare(a.id));
     for (const call of recent) add(call.userId, "recent");
 
@@ -470,7 +510,7 @@ export class PeopleDirectory {
   private latestLiveCalls(now: number): Map<string, LatestLiveCall> {
     const out = new Map<string, { call: CallRecord; at: number }>();
     for (const call of this.store.liveCalls()) {
-      if (!countsTowardsPublicRecord(call)) continue;
+      if (!this.onRecord(call)) continue;
       const market = this.markets.getMarket(call.marketId);
       // The same cut-off calls.create and back/fade use (M14): a "latest live
       // call" is one the viewer could still answer.
@@ -531,7 +571,8 @@ function recordFrom(acc: ReturnType<typeof emptyTally>): PublicRecord {
 }
 
 function stripScore(row: LeaderboardRow & { score?: number }): LeaderboardRow {
-  return { rank: row.rank, person: row.person, record: row.record };
+  return { rank: row.rank, person: row.person, record: row.record,
+    ...(row.fundedCalls !== undefined ? { fundedCalls: row.fundedCalls } : {}) };
 }
 
 export function normaliseQuery(raw: string): string {

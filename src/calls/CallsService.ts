@@ -27,6 +27,7 @@ import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { CallsError } from "./errors.ts";
 import { acceptsNewCalls, callsCloseAt, type VenueMarketReader } from "./markets.ts";
 import type { CallFunding, CallFundingReader } from "../prediction/PantaFunding.ts";
+import type { MoneyCallVisibility } from "../money/visibility.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
 import { PeopleDirectory, type PeopleViewOptions } from "./people.ts";
 import { accuracyOf, THESIS_UPDATE_MAX, type CallsStore } from "./store.ts";
@@ -79,7 +80,31 @@ export interface CallsServiceDeps {
   callCutoffMs?: number;
   /** Confirmed Panta fills, shown as the author's conviction. Never money. */
   funding?: CallFundingReader;
+  /**
+   * Present only with MONEY_CALLS_ENABLED (docs/money-api.md): calls made with
+   * an amount whose money has not landed are their owner's alone, funded
+   * entries carry their filled amount, and funded calls list first. Absent,
+   * every read is exactly what it was.
+   */
+  moneyCalls?: MoneyCallVisibility;
 }
+
+/** A call money will fund: the actor's own, or a Back (Tail) / Fade of someone else's. */
+export type FundedCallInput =
+  | { kind: "own"; marketId: string; side: Side }
+  | { kind: "back" | "fade"; targetCallId: string };
+
+/** A validated funded call, with the id its intent is recorded under BEFORE the call exists. */
+export interface FundedCallPlan {
+  callId: string;
+  kind: "own" | "back" | "fade";
+  marketId: string;
+  side: Side;
+  targetCallId: string | null;
+}
+
+/** The hidden reason of a money call that was never funded nor kept free. */
+export const MONEY_CALL_EXPIRED_REASON = "money_call_expired";
 
 const THESIS_MAX = 280;
 
@@ -96,22 +121,30 @@ export class CallsService {
   readonly people: PeopleDirectory;
   private readonly callCutoffMs: number;
   private readonly funding: CallFundingReader | undefined;
+  private readonly money: MoneyCallVisibility | undefined;
 
   constructor(deps: CallsServiceDeps) {
     this.allowPantaCalls = deps.allowPantaCalls === true;
     this.callCutoffMs = Math.max(0, deps.callCutoffMs ?? 0);
     this.funding = deps.funding;
+    this.money = deps.moneyCalls;
     this.store = deps.store;
     this.markets = deps.markets;
     this.clock = deps.clock ?? systemClock;
     this.receipts = deps.receipts;
     this.maxPageSize = deps.maxPageSize ?? 50;
     this.newId = deps.newId ?? ((kind) => `${kind}_${++this.seq}_${this.clock.now().toString(36)}`);
+    const money = this.money;
+    const funding = this.funding;
     this.people = new PeopleDirectory({
       store: this.store,
       markets: this.markets,
       clock: this.clock,
       callCutoffMs: this.callCutoffMs,
+      ...(money ? {
+        isPrivate: (callId: string) => money.isPrivate(callId),
+        isFunded: (callId: string) => (funding?.fundingOf(callId) ?? null) !== null,
+      } : {}),
     });
   }
 
@@ -200,7 +233,8 @@ export class CallsService {
       snapshot: market.venue === "panta" ? null : this.markets.latestSnapshot(market.id) ?? null,
       ...(market.venue === "panta" ? { sharePrice: this.markets.latestSharePrice?.(market.id) ?? null } : {}),
       viewerCall: viewerCall ? this.entryOf(viewerCall, viewerUserId) : null,
-      crowdSplit: viewerCall ? this.crowdSplitOf(market.id) : null,
+      // A pending money call is not on record yet, so it unlocks nothing.
+      crowdSplit: viewerCall && !this.isPrivate(viewerCall.id) ? this.crowdSplitOf(market.id) : null,
       callsCloseAt: callsCloseAt(market, this.callCutoffMs),
       callCutoffMs: this.callCutoffMs,
       servedAt: this.clock.now(),
@@ -295,7 +329,7 @@ export class CallsService {
       .callsByAuthor(person.id)
       .filter((c) => c.hiddenAt === null)
       .filter((c) => this.canSee(c, viewerUserId))
-      .sort(newestFirst);
+      .sort(this.money ? this.fundedFirst : newestFirst);
 
     return {
       person: this.decorate(person),
@@ -574,6 +608,8 @@ export class CallsService {
     thesis: string | null;
     visibility: CallVisibility;
     parentCallId: string | null;
+    /** A funded call's id, chosen before its money intent was recorded. */
+    id?: string;
   }): CallRecord {
     if (args.confidence !== null && !(args.confidence >= 0 && args.confidence <= 1)) {
       throw new CallsError("CALL_INVALID", "Confidence must be between 0 and 100%.");
@@ -589,7 +625,7 @@ export class CallsService {
     }
     const snapshot = args.market.venue === "panta" ? undefined : this.markets.latestSnapshot(args.market.id);
     const call = this.store.insertCall({
-      id: this.newId("call"),
+      id: args.id ?? this.newId("call"),
       userId: args.actorUserId,
       marketId: args.market.id,
       side: args.side,
@@ -635,6 +671,7 @@ export class CallsService {
     let yesCalls = 0;
     let noCalls = 0;
     for (const c of this.store.liveCallsOnMarket(marketId)) {
+      if (this.isPrivate(c.id)) continue;
       if (c.side === "YES") yesCalls++;
       else noCalls++;
     }
@@ -645,6 +682,8 @@ export class CallsService {
   canSee(call: CallRecord, viewerUserId: string | null): boolean {
     if (call.userId === viewerUserId) return true;
     if (call.hiddenAt !== null) return false;
+    // A call whose money has not landed is its owner's alone (docs/money-api.md).
+    if (this.isPrivate(call.id)) return false;
     if (call.visibility === "public") return true;
     if (!viewerUserId) return false;
     return this.store.isFollowing(viewerUserId, call.userId);
@@ -710,9 +749,169 @@ export class CallsService {
         ? this.store.liveCallByUserOnMarket(viewerUserId, call.marketId) !== undefined
         : false,
       // Present only on a call backed by a confirmed fill; a free call's
-      // entry keeps its exact shape.
-      ...funded(this.funding?.fundingOf(call.id) ?? null),
+      // entry keeps its exact shape. The filled amount and side only with
+      // money calls on, for "$5 on YES".
+      ...funded(this.funding?.fundingOf(call.id) ?? null, this.money !== undefined),
+      // The owner's own pending or expired money call. Nobody else sees the call.
+      ...(this.money && viewerUserId === call.userId ? ownMoney(this.money.ownerView(call.id)) : {}),
     };
+  }
+
+  // ── money calls (MONEY_CALLS_ENABLED; docs/money-api.md) ──────────────────
+
+  /** A pending or expired money call: owner-only, on no public surface. */
+  isPrivate(callId: string): boolean {
+    return this.money?.isPrivate(callId) === true;
+  }
+
+  /** Funded calls first, each group newest first. */
+  private readonly fundedFirst = (a: CallRecord, b: CallRecord): number => {
+    const fa = (this.funding?.fundingOf(a.id) ?? null) !== null;
+    const fb = (this.funding?.fundingOf(b.id) ?? null) !== null;
+    return Number(fb) - Number(fa) || newestFirst(a, b);
+  };
+
+  /**
+   * Validate a call money will fund, and choose its id. Writes nothing: the
+   * money intent is recorded under this id first, then `lockFundedCall`
+   * locks it. Refuses exactly what calls.create / calls.respond refuse, plus
+   * a Back/Fade the actor already made.
+   */
+  planFundedCall(input: FundedCallInput, actorUserId: string): FundedCallPlan {
+    return { ...this.validateFundedCall(input, actorUserId), callId: this.newId("call") };
+  }
+
+  /**
+   * Lock the planned call, the same way every call is locked (server-stamped
+   * price, immutable). A Back/Fade records no response yet: that waits for the
+   * call to become public (`publishFundedCall`), so a pending call is never
+   * counted on someone else's call either.
+   */
+  lockFundedCall(
+    plan: FundedCallPlan,
+    statement: { confidence: number | null; thesis: string | null; visibility: CallVisibility },
+    actorUserId: string,
+  ): CallFeedEntry {
+    const input: FundedCallInput = plan.kind === "own"
+      ? { kind: "own", marketId: plan.marketId, side: plan.side }
+      : { kind: plan.kind, targetCallId: plan.targetCallId! };
+    const now = this.validateFundedCall(input, actorUserId);
+    if (now.marketId !== plan.marketId || now.side !== plan.side) {
+      throw new CallsError("CALL_INVALID", "This call changed before it was made. Try again.");
+    }
+    const call = this.lockCall({
+      id: plan.callId,
+      actorUserId,
+      market: this.requireMarket(plan.marketId),
+      side: plan.side,
+      confidence: statement.confidence,
+      thesis: trimOrNull(statement.thesis, THESIS_MAX),
+      visibility: statement.visibility,
+      parentCallId: plan.targetCallId,
+    });
+    return this.entryOf(call, actorUserId);
+  }
+
+  /** A funded call just became public (FUNDED or kept FREE): a Back/Fade now counts on its target. Idempotent. */
+  publishFundedCall(callId: string): void {
+    const call = this.store.getCall(callId);
+    if (!call?.parentCallId) return;
+    const target = this.store.getCall(call.parentCallId);
+    if (!target || target.userId === call.userId) return;
+    const kind = call.side === target.side ? "back" : "fade";
+    if (this.store.responseBy(call.userId, target.id, kind)) return;
+    this.store.insertResponse({
+      id: this.newId("response"),
+      actorUserId: call.userId,
+      targetCallId: target.id,
+      kind,
+      resultingCallId: call.id,
+      note: null,
+      createdAt: this.clock.now(),
+    });
+  }
+
+  /** A money call that was never funded nor kept free: withdrawn, never deleted. Idempotent. */
+  withdrawFundedCall(callId: string): void {
+    const call = this.store.getCall(callId);
+    if (call && call.hiddenAt === null) this.store.hideCall(callId, MONEY_CALL_EXPIRED_REASON);
+  }
+
+  /**
+   * An expired money call that a confirmed fill funded after all (the venue
+   * wins): shown again, unless the person has since made another live call on
+   * that market (one live call per market).
+   */
+  restoreFundedCall(callId: string): void {
+    const call = this.store.getCall(callId);
+    if (!call || call.hiddenAt === null || call.hiddenReason !== MONEY_CALL_EXPIRED_REASON) return;
+    if (this.store.liveCallByUserOnMarket(call.userId, call.marketId)) return;
+    this.store.unhideCall(callId);
+  }
+
+  /** Whether a market still takes new calls right now (cut-off and venue result included). */
+  takesCalls(marketId: string): boolean {
+    const market = this.markets.getMarket(marketId);
+    return market !== undefined && acceptsNewCalls(market, this.clock.now(), this.callCutoffMs) &&
+      this.markets.getResolution(market.id) === undefined;
+  }
+
+  private validateFundedCall(input: FundedCallInput, actorUserId: string): Omit<FundedCallPlan, "callId"> {
+    if (input.kind === "own") {
+      const market = this.requireMarket(input.marketId);
+      this.assertCurrentVenue(market);
+      if (market.venue === "panta" && !this.allowPantaCalls) {
+        throw new CallsError("CALL_INVALID", "Panta market reads are available, but Panta calls and share-price receipts are not enabled yet.");
+      }
+      this.assertBeforeCutoff(market, "make a call");
+      if (!acceptsNewCalls(market, this.clock.now(), this.callCutoffMs) || this.markets.getResolution(market.id)) {
+        throw new CallsError(
+          "CALL_MARKET_CLOSED",
+          market.status === "OPEN"
+            ? "This market is outside its call window or already has a venue result."
+            : `This market is ${humanStatus(market.status)}, so it is not taking new calls.`,
+          { details: { marketId: market.id, status: market.status } },
+        );
+      }
+      this.assertNoLiveCall(actorUserId, market.id);
+      return { kind: "own", marketId: market.id, side: input.side, targetCallId: null };
+    }
+    const target = this.requireVisibleCall(input.targetCallId, actorUserId);
+    if (target.userId === actorUserId) {
+      throw new CallsError("RESPONSE_SELF", "You can't respond to your own call.", { details: { targetCallId: target.id } });
+    }
+    if (this.isPrivate(target.id)) {
+      throw new CallsError("CALL_NOT_VISIBLE", "We couldn't find that call.", { details: { callId: target.id } });
+    }
+    const market = this.requireMarket(target.marketId);
+    this.assertCurrentVenue(market);
+    if (market.venue === "panta" && !this.allowPantaCalls) {
+      throw new CallsError("CALL_INVALID", "Panta calls and share-price receipts are not enabled yet.");
+    }
+    this.assertBeforeCutoff(market, `${input.kind} this call`);
+    if (!acceptsNewCalls(market, this.clock.now(), this.callCutoffMs) || this.markets.getResolution(market.id)) {
+      throw new CallsError(
+        "CALL_MARKET_CLOSED",
+        `This market is not accepting new calls, so you can't ${input.kind} this call any more.`,
+        { details: { marketId: market.id, status: market.status } },
+      );
+    }
+    if (this.store.responseBy(actorUserId, target.id, input.kind)) {
+      throw new CallsError("RESPONSE_DUPLICATE", `you have already ${input.kind}ed this call`, {
+        details: { targetCallId: target.id, kind: input.kind },
+      });
+    }
+    this.assertNoLiveCall(actorUserId, market.id);
+    return { kind: input.kind, marketId: market.id, side: input.kind === "back" ? target.side : opposite(target.side), targetCallId: target.id };
+  }
+
+  private assertNoLiveCall(actorUserId: string, marketId: string): void {
+    const existing = this.store.liveCallByUserOnMarket(actorUserId, marketId);
+    if (existing) {
+      throw new CallsError("CALL_ALREADY_MADE", "you already have a live call on this market", {
+        details: { callId: existing.id, marketId },
+      });
+    }
   }
 }
 
@@ -720,7 +919,14 @@ export class CallsService {
 
 const opposite = (s: Side): Side => (s === "YES" ? "NO" : "YES");
 
-const funded = (funding: CallFunding | null): { funding?: CallFunding } => (funding ? { funding } : {});
+const funded = (funding: CallFunding | null, withAmount: boolean): { funding?: CallFunding } => {
+  if (!funding) return {};
+  if (withAmount) return { funding };
+  // Money calls off: exactly the earlier marker, no amount and no side.
+  return { funding: { state: funding.state, venue: funding.venue, fundedAt: funding.fundedAt } };
+};
+
+const ownMoney = (view: ReturnType<MoneyCallVisibility["ownerView"]>): { money?: NonNullable<typeof view> } => (view ? { money: view } : {});
 
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.trunc(n)));
 

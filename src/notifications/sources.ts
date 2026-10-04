@@ -33,12 +33,19 @@ export interface SocialGraphReader {
   isFollowing(followerUserId: string, followeeUserId: string): boolean;
 }
 
-/** Read Packet D's store as a `SocialGraphReader`. Public interface only. */
-export function callsStoreReader(store: CallsStore): SocialGraphReader {
+/**
+ * Read Packet D's store as a `SocialGraphReader`. Public interface only.
+ *
+ * `isPrivate` (MONEY_CALLS_ENABLED): a call made with an amount whose money
+ * has not landed, or never did, was never public, so nothing is derived from
+ * it: no "new call", no result, no record.
+ */
+export function callsStoreReader(store: CallsStore, isPrivate?: (callId: string) => boolean): SocialGraphReader {
+  const visible = (call: CallRecord | undefined): call is CallRecord => call !== undefined && !(isPrivate?.(call.id) ?? false);
   return {
-    listCalls: () => store.listCalls(),
-    getCall: (callId) => store.getCall(callId),
-    callsByAuthor: (userId) => store.callsByAuthor(userId),
+    listCalls: () => store.listCalls().filter(visible),
+    getCall: (callId) => { const call = store.getCall(callId); return visible(call) ? call : undefined; },
+    callsByAuthor: (userId) => store.callsByAuthor(userId).filter(visible),
     listResponses: () => store.listResponses(),
     getResult: (callId) => store.getResult(callId),
     getPerson: (userId) => store.getPerson(userId),

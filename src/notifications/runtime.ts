@@ -109,7 +109,9 @@ export function buildNotificationsRuntime(
     );
   }
 
-  const graph = overrides.graph ?? (calls ? callsStoreReader(calls.store) : emptySocialGraphReader);
+  const graph = overrides.graph ?? (calls
+    ? callsStoreReader(calls.store, calls.service.isPrivate.bind(calls.service))
+    : emptySocialGraphReader);
   const markets = overrides.markets ?? calls?.markets ?? emptyMarketReader;
   const viewer = overrides.viewer ?? calls.viewer;
 

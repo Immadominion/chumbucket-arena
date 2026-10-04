@@ -75,6 +75,14 @@ export interface AppConfig {
      *  verifies against this BFF's JWKS (src/wallet/privyJwt.ts). */
     privyJwt?: { privateKey: string; issuer: string };
   };
+  /**
+   * Chumbucket Money v1 (docs/money-api.md): calls with an amount, the wallet
+   * sheet, cash out, winnings, deposit options, proposer-only publishing. Off
+   * unless exactly MONEY_CALLS_ENABLED=true, and only after
+   * 20261004140000_money_calls.sql and 20261004140500_wallet_transfers.sql
+   * are applied. Off, every existing procedure answers exactly as before.
+   */
+  money?: { callsEnabled: boolean };
   /** Supabase social read model used by the mobile app and indexer. */
   social?: {
     supabaseUrl: string;
@@ -292,6 +300,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ? { privyJwt: { privateKey: env.PRIVY_JWT_PRIVATE_KEY, issuer: env.BFF_PUBLIC_URL } }
       : {}),
   };
+  cfg.money = { callsEnabled: env.MONEY_CALLS_ENABLED === "true" };
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     const network = (env.SOLANA_NETWORK ?? "devnet").toLowerCase();
     cfg.social = {

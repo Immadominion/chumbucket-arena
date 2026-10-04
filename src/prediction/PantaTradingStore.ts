@@ -42,8 +42,8 @@ export interface PantaTradingLedger extends PantaTradingStore {
   listAllForUser?(userId: string): Promise<PantaTradeSession[]>;
   /** The person's newest signed approval for one of their calls, any wallet. */
   latestForCall(userId: string, callId: string): Promise<PantaTradeSession | null>;
-  /** Confirmed fills changed at or after `since` (ISO), oldest first: call id and time only. */
-  filledSince(since: string | null, limit: number): Promise<{ call_id: string; updated_at: string }[]>;
+  /** Confirmed fills changed at or after `since` (ISO), oldest first: the row id, call, time, amount and side only. */
+  filledSince(since: string | null, limit: number): Promise<{ id?: string; call_id: string; updated_at: string; amount_base_units?: string; side?: Side }[]>;
 }
 /** listAllForUser's ceiling: 50 pages of 200. */
 const ALL_ROWS_CAP = 10_000;
@@ -111,9 +111,10 @@ export class SupabasePantaTradingStore implements PantaTradingLedger {
     })))[0] ?? null;
   }
   async filledSince(since: string | null, limit: number) {
-    const params = new URLSearchParams({ state: "eq.FILLED", select: "call_id,updated_at", order: "updated_at.asc",
+    const params = new URLSearchParams({ state: "eq.FILLED", select: "id,call_id,updated_at,amount_base_units::text,side", order: "updated_at.asc,id.asc",
       limit: String(Math.max(1, Math.min(1000, limit))) });
     if (since) params.set("updated_at", `gte.${since}`);
-    return this.pg.select<{ call_id: string; updated_at: string }>("panta_trade_sessions", params);
+    return (await this.pg.select<{ id: string; call_id: string; updated_at: string; amount_base_units: string; side: Side }>("panta_trade_sessions", params))
+      .map(row => ({ ...row, amount_base_units: String(row.amount_base_units) }));
   }
 }

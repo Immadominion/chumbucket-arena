@@ -36,6 +36,7 @@ import { predictionRuntimeFor, type PredictionRuntime } from "../prediction/runt
 import type { PersistenceDecision } from "../prediction/supabaseStore.ts";
 import { CallsService, type CallsIdKind } from "./CallsService.ts";
 import { pantaFundingIndexFor } from "../prediction/PantaFunding.ts";
+import { moneyCallIndexFor, moneyCallsEnabled, type MoneyCallIndex } from "../money/visibility.ts";
 import { noFriendsReader, SupabaseFriendsReader, type FriendsReader } from "./friends.ts";
 import { SupabasePersonIdentityReader } from "./identityReader.ts";
 import { directoryIdentityReader, type PersonIdentityReader } from "./personFinder.ts";
@@ -101,6 +102,8 @@ export interface BuildCallsRuntimeOverrides {
   fetchImpl?: FetchImpl;
   /** Read Postgres into the mirror as part of construction. Default: false. */
   hydrate?: boolean;
+  /** Money calls' visibility index (MONEY_CALLS_ENABLED). Tests pass one; else from the app config when the flag is on. */
+  moneyCalls?: MoneyCallIndex;
 }
 
 /**
@@ -173,8 +176,13 @@ export function buildCallsRuntime(
     walletToUserId: (wallet) => store.getPersonByWallet(wallet)?.id,
   });
 
+  // MONEY_CALLS_ENABLED: pending money calls are their owner's alone, and
+  // funded entries carry their amount (docs/money-api.md). Off: no index.
+  const moneyCalls = overrides.moneyCalls ?? (appConfig && moneyCallsEnabled(appConfig) ? moneyCallIndexFor(appConfig) : undefined);
+
   const service = new CallsService({
     allowPantaCalls: overrides.allowPantaCalls ?? (appConfig?.predictions?.pantaSchemaReady === true),
+    ...(moneyCalls ? { moneyCalls } : {}),
     store,
     markets,
     clock,
@@ -216,7 +224,7 @@ export function buildCallsRuntime(
 
   // Packet B's mirror is hydrated FIRST: the markets reader is read through it,
   // and a call's result derivation asks it for venue evidence.
-  const ready =
+  const callsReady =
     durable && overrides.hydrate === true
       ? (prediction?.ready ?? Promise.resolve()).then(() =>
           durable.hydrate().then(
@@ -225,6 +233,15 @@ export function buildCallsRuntime(
           ),
         )
       : (prediction?.ready ?? Promise.resolve());
+  // Which calls are still private is read before any read is served. A
+  // money_calls ledger that cannot be read fails closed: no feed rather than
+  // a pending call shown publicly.
+  const ready = moneyCalls && overrides.hydrate === true && !moneyCalls.hydrated
+    ? callsReady.then(() => moneyCalls.hydrate().then(
+        () => undefined,
+        () => { throw new VenueError("VENUE_UNAVAILABLE", "Money call ledger is unavailable; no feed without it", { venue: prediction?.config.venue }); },
+      ))
+    : callsReady;
   void ready.catch(() => undefined);
 
   // Friends live in the legacy social table; only a configured service-role
