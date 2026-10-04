@@ -34,6 +34,7 @@ import { accountRouter } from "./account.ts";
 import { trustRouter } from "./trust.ts";
 import { solTopUpRouter } from "./solTopUp.ts";
 import { walletRouter } from "./wallet.ts";
+import { moneyRouter } from "./money.ts";
 
 const TRIGGER = z.enum(["BIG_RESULT", "PROMOTION", "DEMOTION", "ON_DEMAND", "SEASON_REVIEW"]);
 const SIDE = z.enum(["HOME", "DRAW", "AWAY"]);
@@ -105,6 +106,10 @@ export const appRouter = router({
    *  account's proven wallets trades, and its real mainnet balance.
    *  wallet.status, .balance. */
   wallet: walletRouter,
+  /** Chumbucket Money v1 (behind MONEY_CALLS_ENABLED; docs/money-api.md):
+   *  calls with an amount, the wallet sheet, cash out, winnings, deposit
+   *  options and gas. */
+  money: moneyRouter,
 
   /** The signed-in person's own account: profile edits, friends by wallet,
    *  push tokens. Session-keyed only (B1/M1/M9/B3). */

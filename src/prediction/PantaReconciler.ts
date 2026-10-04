@@ -21,6 +21,7 @@ import type { PantaClaimSession, PantaClaimStore } from "./PantaClaimStore.ts";
 import type { PantaFundingIndex } from "./PantaFunding.ts";
 import type { PantaTradingService } from "./PantaTradingService.ts";
 import type { PantaTradeSession, PantaTradingLedger } from "./PantaTradingStore.ts";
+import type { MoneySweepReport } from "../money/hooks.ts";
 
 export interface PantaReconcileReport {
   checked: number;
@@ -31,6 +32,10 @@ export interface PantaReconcileReport {
   claimsConfirmed: number;
   claimsFailed: number;
   fundedCallsLoaded: number;
+  /** MONEY_CALLS_ENABLED: pending money calls funded / expired, wallet transfers settled this pass. */
+  moneyFunded: number;
+  moneyExpired: number;
+  transfersSettled: number;
   errors: string[];
 }
 
@@ -48,6 +53,8 @@ export class PantaReconciler {
     claimStore?: Pick<PantaClaimStore, "submitted"> | null;
     claims?: Pick<PantaClaimService, "reconcile"> | null;
     funding?: Pick<PantaFundingIndex, "refresh"> | null;
+    /** MONEY_CALLS_ENABLED: the money sweeper (src/money), run after the fills are known. */
+    money?: { sweep(): Promise<MoneySweepReport> } | null;
     clock?: Clock;
     /** Most rows verified per pass. Default 8. */
     maxPerPass?: number;
@@ -67,7 +74,7 @@ export class PantaReconciler {
   /** One bounded pass. Overlapping calls are ignored, not queued. */
   async runOnce(): Promise<PantaReconcileReport> {
     const report: PantaReconcileReport = { checked: 0, filled: 0, failed: 0, pending: 0, claimsChecked: 0,
-      claimsConfirmed: 0, claimsFailed: 0, fundedCallsLoaded: 0, errors: [] };
+      claimsConfirmed: 0, claimsFailed: 0, fundedCallsLoaded: 0, moneyFunded: 0, moneyExpired: 0, transfersSettled: 0, errors: [] };
     if (this.running) return report;
     this.running = true;
     try {
@@ -110,6 +117,15 @@ export class PantaReconciler {
       if (this.deps.funding) {
         try { report.fundedCallsLoaded = await this.deps.funding.refresh(); }
         catch (error) { report.errors.push(codeOf(error)); }
+      }
+      if (this.deps.money) {
+        try {
+          const swept = await this.deps.money.sweep();
+          report.moneyFunded = swept.funded;
+          report.moneyExpired = swept.expired;
+          report.transfersSettled = swept.transfersConfirmed + swept.transfersFailed;
+          report.errors.push(...swept.errors);
+        } catch { report.errors.push("MONEY_SWEEP_FAILED"); }
       }
       return report;
     } finally { this.running = false; }

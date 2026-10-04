@@ -50,7 +50,7 @@ import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
 import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
-import { isCallsError, type CallsErrorCode } from "../calls/errors.ts";
+import { isCallsError, type CallsError, type CallsErrorCode } from "../calls/errors.ts";
 import { noFriendsReader } from "../calls/friends.ts";
 import { FIND_QUERY_COPY, findPerson, parseFindQuery } from "../calls/personFinder.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
@@ -171,6 +171,11 @@ function call<T>(fn: () => Promise<T> | T, procedure?: string): Promise<T> {
   });
 }
 
+/** A CallsError as the transport error calls.* would send (money.* reuses the same refusals). */
+export function callsTrpcError(err: CallsError): TRPCError {
+  return new TRPCError({ code: CALLS_CODE_MAP[err.code], message: err.message, cause: err });
+}
+
 function logRefusal(procedure: string, code: string): void {
   console.warn("[calls] refused", JSON.stringify({ procedure, code }));
 }
@@ -187,7 +192,7 @@ export const LOCK_PRICE_REFRESH_MS = 4_000;
  * service stamp it. Bounded and best effort: a slow or failed read changes
  * nothing, and the service still refuses a lock it cannot price.
  */
-async function freshenPantaPrice(rt: CallsRuntime, marketId: string | null | undefined): Promise<void> {
+export async function freshenPantaPrice(rt: CallsRuntime, marketId: string | null | undefined): Promise<void> {
   const prediction = rt.prediction;
   if (!marketId || !prediction) return;
   const market = rt.markets.getMarket(marketId);

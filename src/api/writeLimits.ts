@@ -70,6 +70,17 @@ export const READ_ONLY_MUTATIONS: ReadonlySet<string> = new Set([
   // solTopUp.order stays charged (each is a Jupiter quote); execute is a write.
   "solTopUp.status",
   "solTopUp.plan",
+  // money (docs/money-api.md): availability, balance, activity, winnings,
+  // deposit options, a money call's or a transfer's live status. Each has its
+  // own per-account limit (src/api/money.ts).
+  "money.status",
+  "money.callStatus",
+  "money.pending",
+  "money.wallet",
+  "money.activity",
+  "money.transferStatus",
+  "money.winnings",
+  "money.depositOptions",
 ]);
 
 const num = (v: string | undefined, fallback: number): number => {

@@ -139,7 +139,8 @@ if (pantaTradingReadiness(app.config, true).enabled && process.env.PANTA_RECONCI
     try {
       const r = await reconciler.runOnce();
       heartbeats.success("pantaReconcile");
-      if (r.filled || r.failed || r.claimsConfirmed || r.claimsFailed || r.fundedCallsLoaded || r.errors.length) {
+      if (r.filled || r.failed || r.claimsConfirmed || r.claimsFailed || r.fundedCallsLoaded || r.moneyFunded || r.moneyExpired ||
+          r.transfersSettled || r.errors.length) {
         // Counts and venue error codes only: no wallet, signature or approval.
         console.log("[pantaReconcile]", JSON.stringify(r));
       }

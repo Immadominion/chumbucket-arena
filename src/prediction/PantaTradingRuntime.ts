@@ -19,6 +19,7 @@ import { PantaTradingService } from "./PantaTradingService.ts";
 import { SupabaseAccountWallets } from "../wallet/accountWallets.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import { PgrestError } from "./pgrest.ts";
+import { moneyHooksFor, notifyMoneyFill } from "../money/hooks.ts";
 import { VenueError } from "./errors.ts";
 
 /** Independently checked as the executable mainnet owner of a live Panta market. */
@@ -93,7 +94,12 @@ function buildLifecycle(config: AppConfig): PantaLifecycle {
     // A buy is only ever quoted for one of the account's own proven wallets,
     // and never for one that signs in to another account (linking).
     wallets: new SupabaseAccountWallets(config.social!, fetch, authIdentityRuntimeFor(config).accountLinks),
-    onFilled: row => { funding.markFilled(row.call_id, Date.parse(row.updated_at)); holdings.forget(row.wallet_address); },
+    onFilled: row => {
+      funding.markFilled(row.call_id, Date.parse(row.updated_at), { id: row.id, amountBaseUnits: String(row.amount_base_units), side: row.side });
+      holdings.forget(row.wallet_address);
+      // A pending money call becomes FUNDED (docs/money-api.md). No-op with money calls off.
+      notifyMoneyFill(config, row);
+    },
   });
   const claims = claimStore && new PantaClaimService({
     claims: claimStore, trades: ledger,
@@ -128,7 +134,15 @@ export function pantaTradingFor(config: AppConfig, forRead = false): PantaTradin
 export function pantaReconcilerFor(config: AppConfig, opts: { maxPerPass?: number } = {}): PantaReconciler {
   const life = pantaLifecycleFor(config, true);
   return new PantaReconciler({ ledger: life.ledger ?? { submitted: async () => [] }, trading: life.trading,
-    claimStore: life.claimStore, claims: life.claims, funding: life.funding, ...opts });
+    claimStore: life.claimStore, claims: life.claims, funding: life.funding,
+    // MONEY_CALLS_ENABLED: expire abandoned pending calls, repair FUNDED, settle transfers.
+    money: config.money?.callsEnabled === true ? {
+      sweep: async () => {
+        const hooks = moneyHooksFor(config);
+        return hooks ? hooks.sweep() : { funded: 0, expired: 0, transfersConfirmed: 0, transfersFailed: 0, errors: [] };
+      },
+    } : null,
+    ...opts });
 }
 /** Test seam, scoped to the exact AppConfig object. Never selected by env. */
 export function setPantaTradingRuntime(config: AppConfig, service: PantaTradingService): void { runtimes.set(config, service); lifecycles.delete(config); }
