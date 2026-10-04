@@ -260,6 +260,45 @@ describe("discovery, pricing and calls", () => {
     expect(() => new PantaChainCatalog({ rpcUrl: "http://insecure.invalid" })).toThrow("secure mainnet RPC");
   });
 
+  test("after a restart a SOL market is priced, read and evidenced before any listing classifies it", async () => {
+    // A fresh process: the mirror holds the row, the chain catalog knows nothing
+    // yet, and a lock's price re-read or a pricing pass reaches the venue first.
+    const h = rig();
+    const address = REAL.SOL_OPEN_HYPE.address;
+    const prices = await h.venue.getIndicativePrices(address);
+    expect(prices).toMatchObject({ marketId: HYPE, currency: "SOL", yesPrice: "0.671739755", noPrice: "0.328260245" });
+    const raw = h.venue.rawPayload(address)!;
+    expect(raw.payloadVersion).toBe(PANTA_CHAIN_PAYLOAD_VERSION);
+    expect(() => assertSharePriceEvidence(sharePriceFromIndicative(prices), raw, address)).not.toThrow();
+    expect(await h.venue.getOrderbook(address)).toMatchObject({ marketId: HYPE, bids: [], asks: [], snapshot: null });
+    // A USDC market the partner API serves never touches the chain.
+    h.rpc.asked.length = 0;
+    expect(await h.venue.getIndicativePrices(USDC_ID)).toMatchObject({ currency: "USDC", yesPrice: "0.52" });
+    expect(h.rpc.asked).toEqual([]);
+  });
+
+  test("a public read naming any address never downloads an account the program does not list", async () => {
+    // predictions.getMarket / indicativePrices take any well-formed address.
+    // The partner API answers 404 for it; the chain fallback must not then
+    // fetch whatever account lives there (a provider-billed, possibly huge
+    // read), report it, or remember it.
+    const h = rig();
+    const stranger = "Vote111111111111111111111111111111111111111";
+    h.accounts.set(stranger, { owner: "Stake11111111111111111111111111111111111111", data: Buffer.alloc(1_000_000, 1) });
+    for (let i = 0; i < 4; i++) {
+      await expect(h.venue.getMarket(stranger)).rejects.toMatchObject({ code: "VENUE_NOT_FOUND" });
+      await expect(h.venue.getIndicativePrices(stranger)).rejects.toMatchObject({ code: "VENUE_NOT_FOUND" });
+    }
+    const fullReads = h.rpc.asked.filter(a => a.method === "getAccountInfo" || a.method === "getMultipleAccounts");
+    expect(fullReads.flatMap(a => a.addresses)).not.toContain(stranger);
+    // One address-only listing answers every miss for 30s.
+    expect(h.rpc.asked.filter(a => a.method === "getProgramAccounts")).toHaveLength(1);
+    h.clock.advance(31_000);
+    await expect(h.venue.getMarket(stranger)).rejects.toMatchObject({ code: "VENUE_NOT_FOUND" });
+    expect(h.rpc.asked.filter(a => a.method === "getProgramAccounts")).toHaveLength(2);
+    expect(h.unserved).toEqual([]);
+  });
+
   test("one undecodable account is set aside and reported; every other market is still served", async () => {
     const h = rig();
     const broken = Buffer.from(bytes(REAL.SOL_OPEN_HYPE)); broken[broken.indexOf(Buffer.from("HYPE reach"))] = 0x58;

@@ -89,6 +89,9 @@ export class PantaChainCatalog {
   private readonly categoryTriedAt = new Map<string, number>();
   private listed: { at: number; reads: PantaChainRead[] } | undefined;
   private listing: Promise<PantaChainRead[]> | undefined;
+  /** Every address the program holds an Event account at, as last listed. */
+  private eventAddresses: { at: number; set: ReadonlySet<string> } | undefined;
+  private addressListing: Promise<ReadonlySet<string>> | undefined;
 
   constructor(private readonly config: PantaChainCatalogConfig) {
     const url = new URL(config.rpcUrl);
@@ -153,12 +156,18 @@ export class PantaChainCatalog {
   }
 
   /** One SOL market, freshly read (or reused within 15s). VENUE_NOT_FOUND when
-   *  the address is not a SOL-quoted Panta event. */
+   *  the address is not a SOL-quoted Panta event.
+   *
+   *  Public reads can name any address (predictions.getMarket falls back here
+   *  when the partner API does not know one). Only an address the program
+   *  lists as an Event account is ever read in full, so such a request cannot
+   *  make the BFF download an arbitrary account, log it, or grow its maps. */
   async readSolMarket(address: string): Promise<PantaChainRead> {
     const held = this.reads.get(address);
     if (held && this.clock.now() - held.fetchedAt < READ_REUSE_MS) return held;
     if (this.quoteOf(address) === "USDC") throw notSol();
     await this.assertMainnet();
+    if (this.quoteOf(address) !== "SOL" && !(await this.isProgramEvent(address))) throw notSol();
     const [account] = await this.readAccounts([address]);
     if (!account || this.classify(address, account.data) !== "SOL") throw notSol();
     await this.lookUpCategories([address]);
@@ -212,7 +221,21 @@ export class PantaChainCatalog {
     }]);
     const parsed = addressesSchema.safeParse(result);
     if (!parsed.success) throw rpcShape("program account list");
-    return [...new Set(parsed.data.map(row => row.pubkey))].sort();
+    const list = [...new Set(parsed.data.map(row => row.pubkey))].sort();
+    this.eventAddresses = { at: this.clock.now(), set: new Set(list) };
+    return list;
+  }
+
+  /** Whether the program holds an Event account at `address`, from the
+   *  address-only list (a few KB). A miss re-lists at most every
+   *  LIST_REUSE_MS, and concurrent misses share one listing. */
+  private async isProgramEvent(address: string): Promise<boolean> {
+    const held = this.eventAddresses;
+    if (held && (held.set.has(address) || this.clock.now() - held.at < LIST_REUSE_MS)) return held.set.has(address);
+    this.addressListing ??= this.programEventAddresses()
+      .then(() => this.eventAddresses!.set)
+      .finally(() => { this.addressListing = undefined; });
+    return (await this.addressListing).has(address);
   }
 
   private async readAccounts(addresses: string[]): Promise<{ address: string; owner: string; data: Uint8Array; slot: number }[]> {

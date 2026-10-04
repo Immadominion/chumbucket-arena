@@ -74,39 +74,46 @@ export class PantaCatalogVenue implements PredictionVenue, RawPayloadCapture, Re
   }
 
   async getMarket(venueMarketId: string): Promise<VenueMarket> {
-    if (this.chain.quoteOf(venueMarketId) === "SOL") {
-      return normalizePantaChainMarket(await this.chain.readSolMarket(venueMarketId), this.clock.now());
-    }
+    return this.liveOrChain(venueMarketId, () => this.live.getMarket(venueMarketId),
+      read => normalizePantaChainMarket(read, this.clock.now()));
+  }
+
+  async getIndicativePrices(venueMarketId: string): Promise<IndicativePrices> {
+    return this.liveOrChain(venueMarketId, () => this.live.getIndicativePrices(venueMarketId), read => {
+      const body = read.raw.body as { yesPrice: string | null; noPrice: string | null };
+      const market = normalizePantaChainMarket(read, this.clock.now());
+      return { marketId: market.id, venue: "panta", venueMarketId, currency: "SOL", unit: "per_share",
+        yesPrice: body.yesPrice, noPrice: body.noPrice, observedAt: read.fetchedAt, executable: false,
+        attribution: "Powered by Panta", demo: false };
+    });
+  }
+
+  async getOrderbook(venueMarketId: string): Promise<Orderbook> {
+    return this.liveOrChain(venueMarketId, () => this.live.getOrderbook(venueMarketId), read => ({
+      marketId: normalizePantaChainMarket(read, this.clock.now()).id, venue: "panta", venueMarketId,
+      bids: [], asks: [], snapshot: null, observedAt: read.fetchedAt, demo: false }));
+  }
+
+  /**
+   * A proven SOL market is read from the program. Anything else asks the
+   * partner API first. It does not serve SOL markets, so a miss there is only
+   * a miss if the program does not hold a SOL market at this address either:
+   * after a restart nothing is classified yet, and a lock's price re-read or
+   * the sync's pricing must not fail on a SOL market until the next listing.
+   */
+  private async liveOrChain<T>(venueMarketId: string, live: () => Promise<T>, chain: (read: PantaChainRead) => T): Promise<T> {
+    if (this.chain.quoteOf(venueMarketId) === "SOL") return chain(await this.chain.readSolMarket(venueMarketId));
     try {
-      return await this.live.getMarket(venueMarketId);
+      return await live();
     } catch (error) {
-      // The partner API does not serve SOL markets. A miss there is only a
-      // miss if the program does not hold a SOL market at this address either.
       if (!isVenueError(error) || error.code !== "VENUE_NOT_FOUND") throw error;
       try {
-        return normalizePantaChainMarket(await this.chain.readSolMarket(venueMarketId), this.clock.now());
+        return chain(await this.chain.readSolMarket(venueMarketId));
       } catch (chainError) {
         if (isVenueError(chainError) && chainError.code === "VENUE_NOT_FOUND") throw error;
         throw chainError;
       }
     }
-  }
-
-  async getIndicativePrices(venueMarketId: string): Promise<IndicativePrices> {
-    if (this.chain.quoteOf(venueMarketId) !== "SOL") return this.live.getIndicativePrices(venueMarketId);
-    const read = await this.chain.readSolMarket(venueMarketId);
-    const body = read.raw.body as { yesPrice: string | null; noPrice: string | null };
-    const market = normalizePantaChainMarket(read, this.clock.now());
-    return { marketId: market.id, venue: "panta", venueMarketId, currency: "SOL", unit: "per_share",
-      yesPrice: body.yesPrice, noPrice: body.noPrice, observedAt: read.fetchedAt, executable: false,
-      attribution: "Powered by Panta", demo: false };
-  }
-
-  async getOrderbook(venueMarketId: string): Promise<Orderbook> {
-    if (this.chain.quoteOf(venueMarketId) !== "SOL") return this.live.getOrderbook(venueMarketId);
-    const read = await this.chain.readSolMarket(venueMarketId);
-    return { marketId: normalizePantaChainMarket(read, this.clock.now()).id, venue: "panta", venueMarketId,
-      bids: [], asks: [], snapshot: null, observedAt: read.fetchedAt, demo: false };
   }
 
   rawPayload(venueMarketId: string): RawPayload | undefined {
