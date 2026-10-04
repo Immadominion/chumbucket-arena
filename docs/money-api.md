@@ -4,10 +4,11 @@ The server contract the web and mobile apps build against for calls with an
 amount, the wallet sheet, winnings, deposit options and gas. Spec:
 `fleet/money-v1.md` (the "money" section, product rules, UI laws, hard rules).
 
-Everything new is behind **`MONEY_CALLS_ENABLED`** (exact lowercase `true`;
-default off). Off, every existing procedure answers exactly as before, and every
-`money.*` procedure except `money.status` refuses with `PRECONDITION_FAILED`
-("Calls with money aren't available yet.").
+Everything new is behind **`MONEY_CALLS_ENABLED`** (exact lowercase `true`, or
+`admins` for the `TRUST_ADMIN_USER_IDS` accounts only; default off; see
+"Staged rollout" below). Off, every existing procedure answers exactly as
+before, and every `money.*` procedure except `money.status` refuses with
+`PRECONDITION_FAILED` ("Calls with money aren't available yet.").
 
 ## Rules this contract keeps
 
@@ -532,16 +533,45 @@ output: {
 }
 ```
 
+## Staged rollout: `admins`
+
+`MONEY_CALLS_ENABLED`, `CHUMBUCKET_WALLET_ENABLED`, `ACCOUNT_LINKING_ENABLED`
+and `ACCOUNT_FOLD_ENABLED` each take:
+
+| value | meaning |
+|---|---|
+| `true` | on for every account |
+| `admins` | on only for the accounts in `TRUST_ADMIN_USER_IDS` (canonical `public.users` ids), to QA real money in production first |
+| anything else (unset, `1`, `TRUE`, a typo) | off |
+
+With `admins` every decision is per account, made from the account the one
+resolver (`src/auth/accountResolver.ts`) gives for the session. An account
+that is not an admin, or a request with no resolvable account, gets exactly
+the flag-off behaviour, in what it is told and in what it may do:
+- what reports a flag answers per session: `money.status`, `wallet.status`,
+  `auth.signInMethods`, and `auth.identityStatus` (which reads the session
+  from the `Authorization` header when one is sent; without one it answers as
+  flag-off);
+- every route refuses exactly as when off (same tRPC code, same message),
+  checked per account on the server, never by a global switch;
+- calls show filled amounts, funded-first ordering and `fundedCalls` only to
+  viewers the rollout includes; other viewers read exactly the flag-off shapes.
+
+Server machinery that keeps admins' data correct for everyone runs whenever a
+switch is not off: pending money calls stay private to their owner for every
+viewer, and the fill hook and the money sweeper run.
+
 ## Server configuration
 
 | env | default | meaning |
 |---|---|---|
-| `MONEY_CALLS_ENABLED` | off | everything in this document |
+| `MONEY_CALLS_ENABLED` | off | everything in this document: `true` for everyone, `admins` for `TRUST_ADMIN_USER_IDS` only |
+| `TRUST_ADMIN_USER_IDS` (existing) | none | the accounts an `admins` rollout includes |
 | `FUNDED_POSITIONS`, Panta keys, `PANTA_SCHEMA_READY` (existing) | — | `prepareCall` / `retry` need Panta trading ready |
 | `PANTA_CLAIM_SCHEMA_READY` (existing) | off | winnings |
 | `SOL_TOPUP_ENABLED` (existing) | off | `topUp` suggestions |
 | `DEPOSITS_ENABLED`, `CROSSMINT_*` (existing) | off | the card option |
-| `CHUMBUCKET_WALLET_ENABLED` (existing) | off | the Chumbucket wallet as trading wallet |
+| `CHUMBUCKET_WALLET_ENABLED` (existing) | off | the Chumbucket wallet as trading wallet (`true` or `admins`) |
 
 Migrations (mobile repo, `supabase/migrations`, additive, re-runnable), to
 apply before setting `MONEY_CALLS_ENABLED=true`:

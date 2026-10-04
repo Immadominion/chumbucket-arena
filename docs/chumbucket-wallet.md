@@ -2,7 +2,12 @@
 
 One wallet per account (a Privy embedded Solana wallet), the default for
 trades on iPhone, Android and the web. Everything is behind
-`CHUMBUCKET_WALLET_ENABLED` (default off).
+`CHUMBUCKET_WALLET_ENABLED` (default off): `true` for every account, or
+`admins` for the `TRUST_ADMIN_USER_IDS` accounts only (to QA in production
+first). With `admins`, `wallet.status` answers per session (any other
+account, or no account, is told `{ enabled: false, account: null }`, exactly
+as when off), and `wallet.balance`, `wallet.privyToken` and a `chumbucket`
+wallet link refuse non-admins exactly as when off. Anything else is off.
 
 ## How sign-in works
 
@@ -81,7 +86,7 @@ something must be signed or the wallet is first set up, not at launch.
 
 | Where | Key | Value |
 |---|---|---|
-| Railway (BFF) | `CHUMBUCKET_WALLET_ENABLED` | `true`, only after migrations `20261004130000` and `20261004130500` are applied |
+| Railway (BFF) | `CHUMBUCKET_WALLET_ENABLED` | `admins` (QA) then `true`, only after migrations `20261004130000` and `20261004130500` are applied |
 | Railway (BFF) | `PRIVY_JWT_PRIVATE_KEY` | the key from step 1 (secret) |
 | Railway (BFF) | `BFF_PUBLIC_URL` | the BFF's public https base URL, e.g. `https://chumbucket-calls-bff-production.up.railway.app` |
 | Vercel (web) | `NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED` | `true` |
