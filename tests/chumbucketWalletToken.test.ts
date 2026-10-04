@@ -13,7 +13,7 @@ import { startServer } from "../src/api/server.ts";
 import { createApp } from "../src/app.ts";
 import { primeAuthIdentityRuntime, resolveAuthIdentityPolicy } from "../src/auth/AuthIdentityRuntime.ts";
 import { loadConfig } from "../src/config.ts";
-import { SessionDepositAccounts } from "../src/deposits/accounts.ts";
+import { SessionDepositAccounts, type DepositAccounts } from "../src/deposits/accounts.ts";
 import { primeDepositsRuntime } from "../src/deposits/runtime.ts";
 import { DepositRateLimiter } from "../src/deposits/service.ts";
 import { PRIVY_JWKS_PATH, PRIVY_JWT_AUDIENCE, PRIVY_JWT_TTL_SECONDS, PrivyJwtSigner } from "../src/wallet/privyJwt.ts";
@@ -90,7 +90,7 @@ describe("the account token", () => {
 });
 
 describe("wallet.privyToken and the JWKS route", () => {
-  async function rig(env: Record<string, string> = {}) {
+  async function rig(env: Record<string, string> = {}, accounts?: DepositAccounts) {
     const key = pem();
     const cfg = loadConfig({
       CHUMBUCKET_WALLET_ENABLED: "true",
@@ -109,7 +109,7 @@ describe("wallet.privyToken and the JWKS route", () => {
     primeDepositsRuntime(cfg, {
       readiness: { available: false, reason: { code: "PAUSED", message: "Paused" }, config: null },
       service: null,
-      accounts: new SessionDepositAccounts(cfg, { activeVerified: async () => [] }, { confirmedEmail: async () => null }),
+      accounts: accounts ?? new SessionDepositAccounts(cfg, { activeVerified: async () => [] }, { confirmedEmail: async () => null }),
       balances: null,
       limiter: new DepositRateLimiter(),
       admins: new Set(),
@@ -129,6 +129,17 @@ describe("wallet.privyToken and the JWKS route", () => {
     expect(extra.sub).toBe(ACCOUNT);
     expect(other.sub).toBe(OTHER);
     expect(primary.jti).not.toBe(extra.jti);
+  });
+
+  test("the sub is the account resolver's answer now, never a cached resolution", async () => {
+    // A deposits cache still holding another account (a sign-in unlinked or
+    // folded a moment ago) never names the token.
+    const stale: DepositAccounts = {
+      resolve: async () => ({ ok: true, person: { userId: OTHER, authUserId: "auth-other", wallets: [], email: null } }),
+    };
+    const r = await rig({}, stale);
+    expect(decode((await r.caller("primary").privyToken()).token).payload.sub).toBe(ACCOUNT);
+    await expect(r.caller("forged").privyToken()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
   test("off, or without a key: no token", async () => {

@@ -7,7 +7,8 @@
  *                   genesis-pinned like deposits.balance)
  *   wallet.privyToken  a ten-minute JWT whose `sub` is the ACCOUNT, which the
  *                   apps hand Privy (src/wallet/privyJwt.ts). Every sign-in of
- *                   one account gets the same `sub`, so the same wallet.
+ *                   one account gets the same `sub`, so the same wallet: the
+ *                   account comes from src/auth/accountResolver.ts, uncached.
  *
  * Each is rate limited per account.
  *
@@ -20,6 +21,7 @@
 import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
+import { resolveAccountOutcome } from "../auth/accountResolver.ts";
 import type { DepositPerson } from "../deposits/accounts.ts";
 import { DepositError, isDepositError, type DepositErrorCode } from "../deposits/errors.ts";
 import { depositsRuntimeFor, type DepositsRuntime } from "../deposits/runtime.ts";
@@ -38,14 +40,29 @@ const CODES: Partial<Record<DepositErrorCode, TRPC_ERROR_CODE_KEY>> = {
   BALANCE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
 };
 
+function unresolved(reason: "SIGNED_OUT" | "NOT_LINKED" | "UNAVAILABLE"): DepositError {
+  return reason === "SIGNED_OUT"
+    ? new DepositError("SIGNED_OUT", "Sign in to see your balance.")
+    : reason === "NOT_LINKED"
+      ? new DepositError("NOT_LINKED", "Finish setting up your account first.")
+      : new DepositError("UNAVAILABLE", "We couldn't confirm your account just now. Try again in a moment.");
+}
+
 async function person(ctx: Context, rt: DepositsRuntime): Promise<DepositPerson> {
   const resolved = await rt.accounts.resolve(ctx.supabaseAccessToken);
   if (resolved.ok) return resolved.person;
-  throw resolved.reason === "SIGNED_OUT"
-    ? new DepositError("SIGNED_OUT", "Sign in to see your balance.")
-    : resolved.reason === "NOT_LINKED"
-      ? new DepositError("NOT_LINKED", "Finish setting up your account first.")
-      : new DepositError("UNAVAILABLE", "We couldn't confirm your account just now. Try again in a moment.");
+  throw unresolved(resolved.reason);
+}
+
+/**
+ * The account id the Privy token names, from the one account resolver
+ * (src/auth/accountResolver.ts), never a cached answer: the token opens the
+ * account's wallet, so a sign-in unlinked or folded a moment ago gets none.
+ */
+async function account(ctx: Context): Promise<string> {
+  const resolved = await resolveAccountOutcome(ctx.app.config, ctx.supabaseAccessToken);
+  if (resolved.ok) return resolved.account.userId;
+  throw unresolved(resolved.reason);
 }
 
 /** Our copy only. Anything unexpected is a generic, causeless failure. */
@@ -111,10 +128,9 @@ export const walletRouter = router({
       }
       const signer = privyJwtSignerFor(ctx.app.config, ctx.app.config.chumbucketWallet?.privyJwt);
       if (!signer) throw new DepositError("UNAVAILABLE", "Your Chumbucket wallet isn't available yet.");
-      const rt = depositsRuntimeFor(ctx.app.config);
-      const who = await person(ctx, rt);
-      rt.limiter.take(who.userId, "privyToken");
-      return signer.mint(who.userId);
+      const userId = await account(ctx);
+      depositsRuntimeFor(ctx.app.config).limiter.take(userId, "privyToken");
+      return signer.mint(userId);
     }),
   ),
 });
