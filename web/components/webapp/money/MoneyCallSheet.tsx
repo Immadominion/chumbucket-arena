@@ -16,16 +16,18 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BffRejected } from "@/lib/webapp/bff";
 import { callCta, onSide, progressOf, usd, type MoneyCallView } from "@/lib/webapp/money";
 import { advanceCall, confirmCall, type CallIntent, type CallStep } from "@/lib/webapp/moneyFlow";
 import { TradeError } from "@/lib/webapp/trade";
-import type { CallFeedEntry, CallVisibility } from "@/lib/webapp/types";
+import { appPath } from "@/lib/webapp/paths";
+import type { CallFeedEntry, CallVisibility, MarketDetail } from "@/lib/webapp/types";
 import { useChumbucketWallet } from "../chumbucketWallet";
 import { useToast } from "../data";
 import { Icon } from "../Icon";
-import { useAfterCall } from "../queries";
+import { keys, useAfterCall } from "../queries";
 import { useApi } from "../session";
 import { FreeChip, PantaMark, Sheet, Spinner, StateScreen } from "../ui";
 import { DepositSheet } from "./DepositSheet";
@@ -52,6 +54,8 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
   const toast = useToast();
   const qc = useQueryClient();
   const afterCall = useAfterCall();
+  const router = useRouter();
+  const pathname = usePathname();
   const own = useChumbucketWallet();
   const signerFor = useSignerFor();
   const [hidden, setHidden] = useState(false);
@@ -98,6 +102,19 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
       onDone();
     },
     [afterCall, intent, onDone, refreshMoney, request.label, toast],
+  );
+
+  /**
+   * Keep free made a new call: the market shows it as yours, the old one's
+   * cached page goes, and a screen on the old call moves to the new one.
+   */
+  const replaced = useCallback(
+    (oldId: string, entry: CallFeedEntry) => {
+      qc.setQueryData<MarketDetail>(keys.market(entry.market.id), (old) => (old ? { ...old, viewerCall: entry } : old));
+      qc.removeQueries({ queryKey: keys.call(oldId) });
+      if (pathname === appPath.call(oldId)) router.replace(appPath.call(entry.call.id));
+    },
+    [pathname, qc, router],
   );
 
   /** Where the call stands now, from the BFF: pending, stuck (with a line), or finished. */
@@ -230,8 +247,10 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
     setView({ ...view, busy: choice });
     try {
       if (choice === "free") {
+        // A NEW free call at today's price replaces the pending one (or, had the buy filled after all, the funded call).
         const kept = await api.keepFree(moneyCall.callId);
-        finish("free", kept.call);
+        if (kept.call.call.id !== moneyCall.callId) replaced(moneyCall.callId, kept.call);
+        finish(kept.moneyCall.state === "FUNDED" ? "funded" : "free", kept.call);
       } else {
         await api.discardCall(moneyCall.callId);
         finish("dropped", null);

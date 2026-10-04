@@ -76,6 +76,7 @@ import { base64ToBytes, bytesToBase64, signedOnlyInSlot } from "../web/lib/webap
 import { checkGaslessSwap, type ExpectedSwap } from "../web/lib/webapp/swapCheck.ts";
 import { checkedSigner, TradeError, type TradeOrder } from "../web/lib/webapp/trade.ts";
 import { checkUsdcTransfer, type ReviewedTransfer } from "../web/lib/webapp/transferCheck.ts";
+import { chumbucketWalletOn, linkingOn, moneyOn } from "../web/lib/webapp/rollout.ts";
 import type { KeyValueStorage as KeyValueStorageLike } from "../web/lib/webapp/cache.ts";
 import type { CallFeedEntry } from "../web/lib/webapp/types.ts";
 
@@ -602,8 +603,10 @@ describe("a call with money: never funded before the BFF says so", () => {
     expect(fundedStamp(entry({ funding: { venue: "panta" } }), name)).toBeNull();
     expect(fundedStamp(entry({ funding: null }), name)).toBeNull();
     expect(fundedStamp(entry({ funding: { venue: "panta", amountBaseUnits: "5000000", side: "YES" }, money: { state: "PENDING", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }), name)).toBeNull();
-    expect(pendingMark(entry({ money: { state: "PENDING", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", expired: false });
-    expect(pendingMark(entry({ money: { state: "EXPIRED", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", expired: true });
+    expect(pendingMark(entry({ money: { state: "PENDING", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", state: "pending" });
+    expect(pendingMark(entry({ money: { state: "EXPIRED", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", state: "expired" });
+    // Kept free: the old call was replaced by a fresh free call; its owner sees it never went through.
+    expect(pendingMark(entry({ money: { state: "FREE", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }))).toEqual({ amount: "$5", state: "replaced" });
     expect(pendingMark(entry())).toBeNull();
   });
 
@@ -998,7 +1001,7 @@ describe("web app money rules", () => {
     expect(readCode(join(MONEY, "moneyContext.ts"))).toContain("api.moneyStatus()");
     const provider = readCode(join(MONEY, "MoneyProvider.tsx"));
     expect(provider).toContain("useMoneyStatus()");
-    expect(provider).toMatch(/enabled = status\.data\?\.enabled === true/);
+    expect(provider).toMatch(/const enabled = moneyOn\(status\.data\);/);
     // Off: none of the sheets is even mounted.
     expect(provider).toMatch(/\{enabled \? \(/);
     for (const f of ["AmountRow.tsx", "BalancePill.tsx", "Winnings.tsx", "PendingCalls.tsx"]) {
@@ -1058,5 +1061,63 @@ describe("web app money rules", () => {
     const money = readCode(join(WEB, "lib/webapp/money.ts"));
     expect(money).toMatch(/export function readLastAmount[\s\S]*?try \{[\s\S]*?\} catch \{/);
     expect(money).toMatch(/export function writeLastAmount[\s\S]*?try \{[\s\S]*?\} catch \{/);
+  });
+});
+
+describe("rollout: the server's answer for this account decides, never a build flag alone", () => {
+  // What a non-admin gets while MONEY_CALLS_ENABLED, CHUMBUCKET_WALLET_ENABLED,
+  // ACCOUNT_LINKING_ENABLED and ACCOUNT_FOLD_ENABLED are "admins".
+  const nonAdmin = {
+    money: { enabled: false, reason: "Calls with money aren't available yet.", presetsBaseUnits: ["5000000"], minBaseUnits: "1000000", maxBaseUnits: null, defaultAmountBaseUnits: null, pendingTtlMs: 600000 },
+    wallet: { enabled: false, account: { tradingWallet: null, chumbucketWallet: null } },
+    signIns: { methods: [{ id: "s1", kind: "x", label: "dev", current: true, unlink: null, alsoUnlinks: [] }], linking: false, fold: false },
+  };
+
+  test("a non-admin status hides everything: money, the Chumbucket wallet (even when the bundle ships it), linking", () => {
+    expect(moneyOn(nonAdmin.money)).toBe(false);
+    expect(chumbucketWalletOn(true, nonAdmin.wallet)).toBe(false);
+    expect(linkingOn(nonAdmin.signIns)).toBe(false);
+    // No answer yet, or a failed one, is off too.
+    for (const unknown of [null, undefined, {}, { enabled: "true" }]) {
+      expect(moneyOn(unknown)).toBe(false);
+      expect(chumbucketWalletOn(true, unknown)).toBe(false);
+    }
+    expect(linkingOn(null)).toBe(false);
+    // On only with both: the bundle ships it and the server says so for this account.
+    expect(moneyOn({ ...nonAdmin.money, enabled: true })).toBe(true);
+    expect(chumbucketWalletOn(true, { enabled: true })).toBe(true);
+    expect(chumbucketWalletOn(false, { enabled: true })).toBe(false);
+    expect(linkingOn({ ...nonAdmin.signIns, linking: true })).toBe(true);
+  });
+
+  test("every surface reads those gates: no money UI, no Privy load, no linking UI when off", () => {
+    const provider = readCode(join(WEB, "components/webapp/money/MoneyProvider.tsx"));
+    expect(provider).toMatch(/const enabled = moneyOn\(status\.data\);/);
+    expect(provider).toMatch(/\{enabled \? \(/);
+    const root = readCode(join(WEB, "components/webapp/chumbucketWallet.tsx"));
+    expect(root).toContain("setOn(chumbucketWalletOn(CHUMBUCKET_WALLET_ENABLED, s));");
+    expect(root).toMatch(/\(\) => \(on \? \{ enabled: true, address, busy, error, ensure \} : OFF\)/);
+    expect(root).toMatch(/if \(!onRef\.current\) throw new Error\("off"\);/);
+    expect(root).toContain("{hosted && on ? <PrivyBridgeHost");
+    // A new account starts off again.
+    expect(root).toMatch(/setAddress\(null\);\s*setOn\(false\);/);
+    const signIns = readCode(join(WEB, "components/webapp/SignInMethods.tsx"));
+    expect(signIns).toMatch(/if \(!linkingOn\(data\)\) return null;/);
+    // Nothing reads the build flag to decide on its own.
+    for (const { file, text } of [...sources(join(WEB, "components/webapp")), ...sources(join(WEB, "lib/webapp"))]) {
+      if (file.endsWith("chumbucketWallet.tsx")) continue;
+      expect({ file, match: text.match(/NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED|CHUMBUCKET_WALLET_ENABLED|MONEY_CALLS_ENABLED/)?.[0] ?? null }).toEqual({ file, match: null });
+    }
+  });
+});
+
+describe("keep free makes a new free call", () => {
+  test("the sheet moves to the new call and the market shows it as yours; a fill after all reads funded", () => {
+    const sheet = readCode(join(WEB, "components/webapp/money/MoneyCallSheet.tsx"));
+    expect(sheet).toContain("if (kept.call.call.id !== moneyCall.callId) replaced(moneyCall.callId, kept.call);");
+    expect(sheet).toContain('finish(kept.moneyCall.state === "FUNDED" ? "funded" : "free", kept.call);');
+    expect(sheet).toMatch(/if \(pathname === appPath\.call\(oldId\)\) router\.replace\(appPath\.call\(entry\.call\.id\)\);/);
+    // A refusal (market closed, price unreadable) leaves the pending call as it was, with the server's line.
+    expect(sheet).toMatch(/catch \(e\) \{\s*if \(alive\.current\) setView\(\{ v: "stuck", moneyCall, line: lineOf\(e\), busy: null \}\);/);
   });
 });

@@ -390,11 +390,15 @@ export function progressOf(view: Pick<MoneyCallView, "state" | "trade">): CallPr
   return "stuck";
 }
 
-/** The owner's own mark on a call with money intent that isn't funded: never pink. */
-export function pendingMark(entry: Pick<CallFeedEntry, "money">): { amount: string; expired: boolean } | null {
+/**
+ * The owner's own mark on a call with money intent that isn't funded: never
+ * pink. Pending is going through; expired, or replaced by a fresh free call
+ * (keep free), never went through.
+ */
+export function pendingMark(entry: Pick<CallFeedEntry, "money">): { amount: string; state: "pending" | "expired" | "replaced" } | null {
   const m = entry.money;
   if (!m || !/^[1-9][0-9]{0,15}$/.test(m.amountBaseUnits)) return null;
-  return { amount: usd(m.amountBaseUnits), expired: m.state === "EXPIRED" };
+  return { amount: usd(m.amountBaseUnits), state: m.state === "PENDING" ? "pending" : m.state === "FREE" ? "replaced" : "expired" };
 }
 
 /** "$5 on YES" for a FILLED call whose amount the BFF sends; null otherwise. */

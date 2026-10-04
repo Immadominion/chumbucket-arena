@@ -101,11 +101,12 @@ export function PantaMark() {
  * The owner's own call with money that isn't funded: grey, with its hourglass,
  * never pink. Nobody else ever sees the call at all.
  */
-export function PendingChip({ amount, expired }: { amount: string; expired: boolean }) {
+export function PendingChip({ amount, state }: { amount: string; state: "pending" | "expired" | "replaced" }) {
+  const line = state === "pending" ? "Going through" : state === "replaced" ? "Kept free" : "Didn’t go through";
   return (
-    <span className="wa-chip wa-chip--pending" title={expired ? "Didn’t go through" : "Going through"}>
-      <Icon name={expired ? "cancel" : "sand-watch"} size={14} />
-      <span className="wa-sr">{expired ? "Didn’t go through: " : "Going through: "}</span>
+    <span className="wa-chip wa-chip--pending" title={line}>
+      <Icon name={state === "pending" ? "sand-watch" : "cancel"} size={14} />
+      <span className="wa-sr">{`${line}: `}</span>
       {amount}
     </span>
   );
@@ -118,7 +119,7 @@ export function PendingChip({ amount, expired }: { amount: string; expired: bool
  */
 export function CallMarkChip({ entry }: { entry: Pick<CallFeedEntry, "call" | "funding" | "money"> & { market?: Pick<Market, "outcomes"> } }) {
   const pending = pendingMark(entry);
-  if (pending) return <PendingChip amount={pending.amount} expired={pending.expired} />;
+  if (pending) return <PendingChip amount={pending.amount} state={pending.state} />;
   const mark = callMark(entry);
   if (mark === "funded") return <FundedChip amount={fundedStamp(entry, (side) => sideName(entry.market, side))} />;
   return mark === "free" ? <FreeChip /> : null;

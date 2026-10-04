@@ -116,8 +116,11 @@ export interface CallFeedEntry {
    * filled amount and side, for "$5 on YES" receipts and cards.
    */
   funding?: { state?: "FILLED"; venue: string; fundedAt?: number; amountBaseUnits?: string; side?: Side } | null;
-  /** The owner's own view of their pending or expired call with money. Never sent to anyone else. */
-  money?: { state: "PENDING" | "EXPIRED"; amountBaseUnits: string; side: Side; expiresAt: number };
+  /**
+   * The owner's own view of their call with money that isn't public: pending,
+   * expired, or FREE (replaced by a fresh free call). Never sent to anyone else.
+   */
+  money?: { state: "PENDING" | "EXPIRED" | "FREE"; amountBaseUnits: string; side: Side; expiresAt: number };
 }
 
 export interface FeedPage {
