@@ -31,6 +31,7 @@ import { codeForStoreReason, failAuth } from "./AuthIdentityError.ts";
 import type { AccountLinkStore, AccountSignIns, LinkMethod } from "./AccountLinkStore.ts";
 import type { SupabaseJwtVerifier, SupabaseSession } from "./SupabaseJwt.ts";
 import { hashNonce, isSolanaAddress, type WalletLinkService } from "./WalletLinkService.ts";
+import { CHUMBUCKET_WALLET_TYPE } from "../wallet/tradingWallet.ts";
 
 export type MethodKind = "wallet" | "x" | "google";
 
@@ -53,6 +54,11 @@ export interface SignInMethodRow {
   unlink: UnlinkRoute | null;
   /** Other kinds on the same sign-in, which go with it. */
   alsoUnlinks: MethodKind[];
+  /**
+   * The Chumbucket wallet (wallet_type 'chumbucket'): shown read-only. It
+   * follows the account, so it is never unlinked and is not a way in.
+   */
+  chumbucket: boolean;
 }
 
 export interface SignInMethods {
@@ -156,6 +162,9 @@ export function signInMethodRows(data: AccountSignIns, session: SupabaseSession)
   const sessionWallets = walletsOf(own?.identities ?? []);
   const primaryWallets = walletsOf(primary?.identities ?? []);
   const linkedWallets = new Set(data.wallets.map((w) => w.address));
+  const chumbucketWallets = chumbucketWalletsOf(data);
+  const holdsChumbucket = (identities: { provider: string; label: string | null }[]) =>
+    [...walletsOf(identities)].some((a) => chumbucketWallets.has(a));
 
   // The identity this session signed in with: of the kinds its amr names,
   // the one used most recently on this sign-in.
@@ -182,11 +191,13 @@ export function signInMethodRows(data: AccountSignIns, session: SupabaseSession)
       if (!kind) continue;
       let unlink: UnlinkRoute | null = null;
       let alsoUnlinks: MethodKind[] = [];
+      let chumbucket = false;
       if (kind === "wallet") {
         const address = i.label;
         if (!address || seenWallets.has(address)) continue;
         seenWallets.add(address);
-        if (sessionWallets.has(address) || primaryWallets.has(address)) unlink = null;
+        chumbucket = chumbucketWallets.has(address);
+        if (chumbucket || sessionWallets.has(address) || primaryWallets.has(address)) unlink = null;
         else if (linkedWallets.has(address)) unlink = { mode: "server", ref: `w:${address}` };
         else if (!s.primary && s.signInId) unlink = { mode: "server", ref: `s:${s.signInId}` };
         if (unlink && !s.primary) alsoUnlinks = otherKinds(s.identities, "wallet");
@@ -194,7 +205,7 @@ export function signInMethodRows(data: AccountSignIns, session: SupabaseSession)
         // Supabase unlinks an identity from the session's own sign-in, and
         // only while that sign-in keeps another.
         unlink = s.identities.length >= 2 ? { mode: "native", identityId: i.identityId } : null;
-      } else if (!s.primary && s.signInId) {
+      } else if (!s.primary && s.signInId && !holdsChumbucket(s.identities)) {
         unlink = { mode: "server", ref: `s:${s.signInId}` };
         alsoUnlinks = otherKinds(s.identities, kind);
       }
@@ -205,25 +216,35 @@ export function signInMethodRows(data: AccountSignIns, session: SupabaseSession)
         current: current?.identityId === i.identityId,
         unlink,
         alsoUnlinks,
+        chumbucket,
       });
     }
   }
-  // Wallets linked with a SIWS proof that have not signed in yet.
+  // Wallets linked with a SIWS proof that have not signed in yet, and the
+  // Chumbucket wallet (it never signs in; it is read-only here).
   for (const w of data.wallets) {
     if (seenWallets.has(w.address)) continue;
     seenWallets.add(w.address);
+    const chumbucket = chumbucketWallets.has(w.address);
     rows.push({
       id: `w:${w.address}`,
       kind: "wallet",
       label: w.address,
       current: false,
-      unlink: { mode: "server", ref: `w:${w.address}` },
+      unlink: chumbucket ? null : { mode: "server", ref: `w:${w.address}` },
       alsoUnlinks: [],
+      chumbucket,
     });
   }
-  // The last way in is never removable, whatever else holds.
-  if (rows.length <= 1) for (const r of rows) r.unlink = null;
+  // The last way in is never removable, whatever else holds. The Chumbucket
+  // wallet is not a way in.
+  if (rows.filter((r) => !r.chumbucket).length <= 1) for (const r of rows) r.unlink = null;
   return rows.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+}
+
+/** The account's Chumbucket wallets: listed read-only, never unlinked. */
+function chumbucketWalletsOf(data: AccountSignIns): Set<string> {
+  return new Set(data.wallets.filter((w) => w.walletType === CHUMBUCKET_WALLET_TYPE).map((w) => w.address));
 }
 
 export class AccountLinkService {
@@ -269,6 +290,15 @@ export class AccountLinkService {
     if (signIn !== undefined && !UUID.test(signIn)) failAuth("SIGN_IN_NOT_FOUND");
     if (wallet !== undefined && !isSolanaAddress(wallet)) failAuth("SIGN_IN_NOT_FOUND");
     if (signIn === undefined && wallet === undefined) failAuth("SIGN_IN_NOT_FOUND");
+    // The Chumbucket wallet follows the account: never unlinked, by itself or
+    // with a sign-in that holds it. unlink_sign_in_v1 refuses it too; an
+    // unreadable listing refuses here.
+    const data = await this.links().signIns(who.userId);
+    const kept = chumbucketWalletsOf(data);
+    const held = signIn ? data.signIns.find((s) => s.signInId === signIn)?.identities ?? [] : [];
+    if ((wallet && kept.has(wallet)) || held.some((i) => i.provider === "web3" && i.label !== null && kept.has(i.label))) {
+      failAuth("CHUMBUCKET_WALLET_KEPT");
+    }
     const result = await this.links().unlink({
       userId: who.userId,
       sessionAuthUserId: who.authUserId,

@@ -123,6 +123,27 @@ describe("Settings → Sign-in methods rows", () => {
     expect(rows.filter((r) => r.label === DEV_WALLET)).toHaveLength(1);
   });
 
+  test("the Chumbucket wallet is a read-only row: never unlinked, never a way in", () => {
+    const data = ownerSignIns();
+    data.wallets.push({ address: OTHER_WALLET, walletType: "chumbucket", isPrimary: false });
+    const rows = signInMethodRows(data, { authUserId: "auth-dev", signInMethod: "web3" });
+    expect(rows.find((r) => r.label === OTHER_WALLET)).toMatchObject({
+      id: `w:${OTHER_WALLET}`, kind: "wallet", current: false, unlink: null, alsoUnlinks: [], chumbucket: true,
+    });
+    expect(rows.filter((r) => r.chumbucket)).toHaveLength(1);
+    // The account's other wallets are no Chumbucket wallet, and keep their rules.
+    expect(rows.find((r) => r.label === DEV_WALLET)).toMatchObject({ chumbucket: false, unlink: null });
+    // With it, the only way in is still the only way in.
+    const alone: AccountSignIns = { signIns: [{ ...ownerSignIns().signIns[0]! }], wallets: [...data.wallets] };
+    expect(signInMethodRows(alone, { authUserId: "auth-dev" }).every((r) => r.unlink === null)).toBe(true);
+    // A sign-in that holds it can't be unlinked either (it would take it along).
+    const held = ownerSignIns();
+    held.signIns[1]!.identities.push({ identityId: "id-web3-cb", provider: "web3", label: OTHER_WALLET, lastSignInAt: null });
+    held.wallets.push({ address: OTHER_WALLET, walletType: "chumbucket", isPrimary: false });
+    const heldRows = signInMethodRows(held, { authUserId: "auth-dev", signInMethod: "web3" });
+    expect(heldRows.filter((r) => r.kind !== "wallet" || r.label === OTHER_WALLET).every((r) => r.unlink === null)).toBe(true);
+  });
+
   test("the token's newest amr entry is the method; junk is nothing", () => {
     const token = (claims: unknown) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
     expect(latestAmrMethod(token({ amr: [{ method: "oauth", timestamp: 1 }, { method: "web3", timestamp: 2 }] }))).toBe("web3");
@@ -305,16 +326,41 @@ describe("AccountLinkService", () => {
       expect(await codeOf(() => service.unlink("tok-dev", ref))).toBe("SIGN_IN_NOT_FOUND");
     }
     expect(links.calls).toHaveLength(0);
+    const unlinks = () => links.calls.filter((c) => c.name === "unlink");
     expect(await service.unlink("tok-dev", `s:${SIGN_IN}`)).toEqual({ signIns: 1, wallets: 0 });
-    expect(links.calls[0]).toEqual({
+    expect(unlinks()[0]).toEqual({
       name: "unlink", input: { userId: "user-dev", sessionAuthUserId: "auth-dev", signInId: SIGN_IN },
     });
     await service.unlink("tok-dev", `w:${OTHER_WALLET}`);
-    expect(links.calls[1]!.input).toEqual({ userId: "user-dev", sessionAuthUserId: "auth-dev", wallet: OTHER_WALLET });
+    expect(unlinks()[1]!.input).toEqual({ userId: "user-dev", sessionAuthUserId: "auth-dev", wallet: OTHER_WALLET });
     links.answers.unlink = { ok: false, reason: "current_sign_in" };
     expect(await codeOf(() => service.unlink("tok-dev", `s:${SIGN_IN}`))).toBe("SIGN_IN_IN_USE");
     links.answers.unlink = { ok: false, reason: "primary_sign_in" };
     expect(await codeOf(() => service.unlink("tok-dev", `w:${DEV_WALLET}`))).toBe("SIGN_IN_IN_USE");
+  });
+
+  test("the Chumbucket wallet is never unlinked: refused before the store, and by the store", async () => {
+    const data = ownerSignIns();
+    data.wallets.push({ address: OTHER_WALLET, walletType: "chumbucket", isPrimary: false });
+    const { service, links } = linkRig({ links: new RecordingLinks(data) });
+    expect(await codeOf(() => service.unlink("tok-dev", `w:${OTHER_WALLET}`))).toBe("CHUMBUCKET_WALLET_KEPT");
+    expect(links.calls.map((c) => c.name)).toEqual(["signIns"]);
+    // A sign-in that holds it would take it along.
+    data.signIns[1]!.identities.push({ identityId: "id-web3-cb", provider: "web3", label: OTHER_WALLET, lastSignInAt: null });
+    expect(await codeOf(() => service.unlink("tok-dev", `s:${SIGN_IN}`))).toBe("CHUMBUCKET_WALLET_KEPT");
+    expect(links.calls.filter((c) => c.name === "unlink")).toHaveLength(0);
+    // unlink_sign_in_v1's own refusal reads the same.
+    const plain = linkRig();
+    plain.links.answers.unlink = { ok: false, reason: "chumbucket_wallet" };
+    expect(await codeOf(() => plain.service.unlink("tok-dev", `w:${OTHER_WALLET}`))).toBe("CHUMBUCKET_WALLET_KEPT");
+    // An unreadable listing refuses rather than guess.
+    const down = new RecordingLinks();
+    down.signIns = async () => {
+      throw new AuthIdentityError("IDENTITY_STORE_ERROR");
+    };
+    const blind = linkRig({ links: down });
+    expect(await codeOf(() => blind.service.unlink("tok-dev", `w:${OTHER_WALLET}`))).toBe("IDENTITY_STORE_ERROR");
+    expect(down.calls.filter((c) => c.name === "unlink")).toHaveLength(0);
   });
 });
 
@@ -434,6 +480,13 @@ describe("routes and switches", () => {
     const done = await caller.completeSignInLink({ supabaseAccessToken: "tok-dev", ticket: "ab".repeat(32), expect: FOLD_EXPECT });
     // Only the outcome and the account: no follows, no devices, no ids of other sign-ins.
     expect(done).toEqual({ outcome: "folded", userId: "user-dev" });
+  });
+
+  test("unlinking the Chumbucket wallet is refused as FORBIDDEN, with its own code", async () => {
+    const { caller, links } = await routeRig({ ACCOUNT_LINKING_ENABLED: "true" });
+    links.answers.unlink = { ok: false, reason: "chumbucket_wallet" };
+    await expect(caller.unlinkSignIn({ supabaseAccessToken: "tok-dev", ref: `w:${OTHER_WALLET}` }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: "CHUMBUCKET_WALLET_KEPT" });
   });
 
   test("a fold tells the folded account's devices", async () => {

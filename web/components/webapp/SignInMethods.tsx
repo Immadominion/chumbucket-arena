@@ -22,9 +22,9 @@ import {
   accountName,
   expectationOf,
   KIND_NAME,
-  KINDS,
   linkCopy,
   methodLabel,
+  missingKinds,
   type LinkMethod,
   type LinkPreview,
   type MethodKind,
@@ -218,7 +218,7 @@ export function SignInMethods() {
   if (data === null && unavailable) return null;
   const rows = data?.methods ?? [];
   const current = rows.find((r) => r.current) ?? null;
-  const missing = data?.linking ? KINDS.filter((k) => !rows.some((r) => r.kind === k)) : [];
+  const missing = data?.linking ? missingKinds(rows) : [];
 
   return (
     <section className="wa-signins" aria-label="Sign-in methods">
@@ -240,8 +240,10 @@ export function SignInMethods() {
             <div className="wa-signin">
               <KindMark kind={row.kind} />
               <span className="wa-signin-label">{methodLabel(row)}</span>
+              {/* The Chumbucket wallet follows the account: read-only, never unlinked. */}
+              {row.chumbucket ? <span className="wa-signin-tag">Chumbucket wallet</span> : null}
               {row.current ? <Icon name="check-solid" size={18} label="Signed in with this" className="wa-signin-now" /> : null}
-              {data?.linking && row.unlink && !row.current ? (
+              {data?.linking && row.unlink && !row.current && !row.chumbucket ? (
                 <button
                   type="button"
                   className="wa-iconbtn wa-signin-off"

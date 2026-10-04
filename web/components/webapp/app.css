@@ -2186,6 +2186,15 @@
   color: var(--wa-pink-ink);
   flex: none;
 }
+.wa-signin-tag {
+  flex: none;
+  margin-left: auto;
+  margin-right: 12px;
+  color: var(--wa-faint);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .wa-signin-off {
   margin-left: auto;
   color: var(--wa-faint);

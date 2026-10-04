@@ -94,6 +94,8 @@ export type AuthIdentityErrorCode =
   /** The sign-in you are using, or the account's own first one, can't be unlinked. */
   | "SIGN_IN_IN_USE"
   | "SIGN_IN_NOT_FOUND"
+  /** The Chumbucket wallet follows the account; it is never unlinked. */
+  | "CHUMBUCKET_WALLET_KEPT"
   /** Only the other account's own first sign-in can fold it. */
   | "FOLD_NEEDS_PRIMARY_SIGN_IN"
   /** Both accounts have a legacy wallet; neither is orphaned to fold. */
@@ -186,6 +188,8 @@ export function codeForStoreReason(
       return "SIGN_IN_IN_USE";
     case "not_found":
       return "SIGN_IN_NOT_FOUND";
+    case "chumbucket_wallet":
+      return "CHUMBUCKET_WALLET_KEPT";
     default:
       return fallback;
   }

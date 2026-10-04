@@ -64,7 +64,7 @@ import { USERNAME_FORMAT, identityCopy, nameHint, normaliseUsername, suggestUser
 import { APP_BASE, TRAIL_MAX, appPath, canGoBack, nextTrail, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
 import { PRICE_UPDATING, isPriceRefusal, retryAfterPriceRefresh } from "../web/lib/webapp/prices.ts";
 import { SIGN_IN_STATEMENT, sameBytes, signInMessage } from "../web/lib/webapp/siws.ts";
-import { KINDS, LINK_CALLBACK_PATH, accountName, expectationOf, linkCopy, methodLabel } from "../web/lib/webapp/linking.ts";
+import { KINDS, LINK_CALLBACK_PATH, accountName, expectationOf, linkCopy, methodLabel, missingKinds } from "../web/lib/webapp/linking.ts";
 import { awaitProofCode, LinkStopped } from "../web/lib/webapp/proof.ts";
 import type { CallFeedEntry, PublicRecord, SharePrice } from "../web/lib/webapp/types.ts";
 import { webAppHref } from "../web/lib/webAppLink.ts";
@@ -943,6 +943,17 @@ describe("web app: sign-in methods", () => {
     expect(linkCopy("ACCOUNT_HAS_MONEY")).toContain("stays separate");
     expect(linkCopy("identity_already_exists")).toContain("another account");
     expect(linkCopy("anything else")).toBe("That didn’t work. Try again.");
+  });
+
+  test("the Chumbucket wallet is a read-only row: no unlink, and Link Wallet stays offered", () => {
+    // Settings still offers linking a wallet app beside it.
+    expect(missingKinds([{ kind: "wallet", chumbucket: true }, { kind: "x" }])).toEqual(["wallet", "google"]);
+    expect(missingKinds([{ kind: "wallet" }, { kind: "wallet", chumbucket: true }])).toEqual(["x", "google"]);
+    expect(linkCopy("CHUMBUCKET_WALLET_KEPT")).toBe("Your Chumbucket wallet stays with your account.");
+    const ui = readCode(join(WEB, "components/webapp/SignInMethods.tsx"));
+    // Icon, short address and the small label; the unlink button never renders for it.
+    expect(ui).toContain('{row.chumbucket ? <span className="wa-signin-tag">Chumbucket wallet</span> : null}');
+    expect(ui).toContain("data?.linking && row.unlink && !row.current && !row.chumbucket");
   });
 
   test("the proof window never starts this site's auth client, and drops its tokens", () => {

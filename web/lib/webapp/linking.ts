@@ -22,6 +22,8 @@ export interface SignInMethodRow {
   current: boolean;
   unlink: { mode: "native"; identityId: string } | { mode: "server"; ref: string } | null;
   alsoUnlinks: MethodKind[];
+  /** The Chumbucket wallet: a read-only row (it follows the account, never unlinked). */
+  chumbucket?: boolean;
 }
 
 export interface SignInMethods {
@@ -67,6 +69,11 @@ export function expectationOf(p: LinkPreview): { outcome: LinkPreview["outcome"]
 export const KINDS: readonly MethodKind[] = ["wallet", "x", "google"];
 
 export const KIND_NAME: Record<MethodKind, string> = { wallet: "Wallet", x: "X", google: "Google" };
+
+/** Link is offered for a kind with no row yet; the Chumbucket wallet is no linked wallet. */
+export function missingKinds(rows: readonly Pick<SignInMethodRow, "kind" | "chumbucket">[]): MethodKind[] {
+  return KINDS.filter((k) => !rows.some((r) => r.kind === k && !r.chumbucket));
+}
 
 /**
  * Where an OAuth proof window lands: inside /app, so the redirect allow-list
@@ -121,6 +128,8 @@ export function linkCopy(code: string): string {
       return "You’re signed in with that one.";
     case "SIGN_IN_NOT_FOUND":
       return "Already unlinked.";
+    case "CHUMBUCKET_WALLET_KEPT":
+      return "Your Chumbucket wallet stays with your account.";
     case "WALLET_OWNED_BY_ANOTHER_USER":
     case "WALLET_REQUIRES_TRANSFER":
       return "That wallet is on another account.";
