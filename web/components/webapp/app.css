@@ -2168,3 +2168,7 @@
   font-size: 14px;
   max-width: 320px;
 }
+.wa-move-from {
+  color: var(--wa-faint);
+  font-size: 14px;
+}

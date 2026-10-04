@@ -64,7 +64,8 @@ import { USERNAME_FORMAT, identityCopy, nameHint, normaliseUsername, suggestUser
 import { APP_BASE, TRAIL_MAX, appPath, canGoBack, nextTrail, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
 import { PRICE_UPDATING, isPriceRefusal, retryAfterPriceRefresh } from "../web/lib/webapp/prices.ts";
 import { SIGN_IN_STATEMENT, sameBytes, signInMessage } from "../web/lib/webapp/siws.ts";
-import { KINDS, LINK_CALLBACK_PATH, accountName, linkCopy, methodLabel } from "../web/lib/webapp/linking.ts";
+import { KINDS, LINK_CALLBACK_PATH, accountName, expectationOf, linkCopy, methodLabel } from "../web/lib/webapp/linking.ts";
+import { awaitProofCode, LinkStopped } from "../web/lib/webapp/proof.ts";
 import type { CallFeedEntry, PublicRecord, SharePrice } from "../web/lib/webapp/types.ts";
 import { webAppHref } from "../web/lib/webAppLink.ts";
 
@@ -800,7 +801,7 @@ describe("web app: sign-in methods", () => {
     await api.unlinkSignIn("tok", "w:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
     await api.startSignInLink("tok", "x");
     await api.previewSignInLink("other-tok", "ab".repeat(32));
-    await api.completeSignInLink("other-tok", "ab".repeat(32));
+    await api.completeSignInLink("other-tok", "ab".repeat(32), { outcome: "fold", otherUserId: null });
     await api.requestWalletNonce("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "chumbucket.fun", "https://chumbucket.fun");
     await api.linkWallet("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "message", "signature");
     expect(calls.map((c) => [c.path, c.kind])).toEqual([
@@ -836,11 +837,58 @@ describe("web app: sign-in methods", () => {
     expect(LINK_CALLBACK_PATH).toBe("/app/link");
     expect(existsSync(join(WEB, "app/app/link/page.tsx"))).toBe(true);
     const callback = readCode(join(WEB, "components/webapp/LinkCallback.tsx"));
-    expect(callback).not.toMatch(/authClient|from "\.\/session"|refresh_token/);
+    // It forwards the nonce and a one-time PKCE code, never a token.
+    expect(callback).not.toMatch(/authClient|from "\.\/session"|access_token|refresh_token/);
     expect(callback).toContain("history.replaceState");
     const plumbing = readCode(join(WEB, "components/webapp/linking.ts"));
-    // A separate, unpersisted client for proofs; the page's own session is untouched.
+    // A separate, unpersisted PKCE client for proofs: the verifier stays in this page.
+    expect(plumbing).toMatch(/flowType: "pkce"/);
     expect(plumbing).toMatch(/persistSession: false/);
-    expect(plumbing).toMatch(/BroadcastChannel/);
+    expect(plumbing).toMatch(/exchangeCodeForSession/);
+    expect(plumbing).not.toMatch(/flowType: "implicit"/);
+  });
+
+  test("the proof answer is accepted only for this attempt: unsolicited, wrong-nonce and token messages are ignored", async () => {
+    const name = `cb-proof-test-${Math.random()}`;
+    const nonce = "11111111-2222-4333-8444-555555555555";
+    const ctl = new AbortController();
+    const answer = awaitProofCode(nonce, null, ctl.signal, name);
+    const tx = new BroadcastChannel(name);
+    tx.postMessage({ code: "unsolicited-code-0001" });
+    tx.postMessage({ n: "99999999-2222-4333-8444-555555555555", code: "other-attempt-0001" });
+    tx.postMessage({ n: nonce, accessToken: "a.b.c" });
+    tx.postMessage({ n: nonce, code: "x" });
+    tx.postMessage({ n: nonce, code: "f47ac10b-58cc-4372-a567-0e02b2c3d479" });
+    expect(await answer).toBe("f47ac10b-58cc-4372-a567-0e02b2c3d479");
+
+    const refused = awaitProofCode(nonce, null, new AbortController().signal, name);
+    tx.postMessage({ n: "wrong", error: "identity_already_exists" });
+    tx.postMessage({ n: nonce, error: "access_denied" });
+    await expect(refused).rejects.toMatchObject({ code: "access_denied" });
+
+    const left = new AbortController();
+    const cancelled = awaitProofCode(nonce, null, left.signal, name);
+    left.abort();
+    await expect(cancelled).rejects.toBeInstanceOf(LinkStopped);
+    tx.close();
+  });
+
+  test("Link/Move confirms exactly what the preview showed, with the proven identity", async () => {
+    const preview = {
+      outcome: "fold" as const,
+      proof: { kind: "x" as const, label: "ownerx" },
+      into: { userId: "u-dev", handle: "dev", displayName: null },
+      from: { userId: "u-dominion", handle: "dominion", displayName: null },
+      otherUserId: "u-dominion",
+      refusal: null,
+    };
+    expect(expectationOf(preview)).toEqual({ outcome: "fold", otherUserId: "u-dominion" });
+    expect(methodLabel(preview.proof)).toBe("@ownerx");
+    const sheet = readCode(join(WEB, "components/webapp/SignInMethods.tsx"));
+    expect(sheet).toContain("expectationOf(m.preview)");
+    expect(sheet).toMatch(/preview\.proof\.label/);
+    const { api, calls } = recorder();
+    await api.completeSignInLink("other-tok", "ab".repeat(32), expectationOf(preview));
+    expect(calls[0]!.input).toEqual({ supabaseAccessToken: "other-tok", ticket: "ab".repeat(32), expect: { outcome: "fold", otherUserId: "u-dominion" } });
   });
 });
