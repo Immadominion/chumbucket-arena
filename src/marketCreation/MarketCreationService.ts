@@ -25,6 +25,7 @@ import { MarketCreationError, isMarketCreationError, type MarketCreationErrorCod
 import { recentBlockhashOf, type CreateBinding, type PantaMarketCreator } from "./PantaMarketCreator.ts";
 import { normalizeDraft, publishDeadline, validateDraft, type MarketDraft, type PantaCreateCategory } from "./rules.ts";
 import type { MarketProposalStore, ProposalRow, ProposalStatus, ReviewReason, SessionRow } from "./store.ts";
+import type { AccountWallets } from "../wallet/accountWallets.ts";
 
 export const PROPOSER_PENDING_LIMIT = 5;
 export const PROPOSER_DAILY_LIMIT = 10;
@@ -100,7 +101,16 @@ export interface MarketCreationDeps {
    * fallback across restarts. Off unless composed (tests drive `refresh`).
    */
   followUp?: { attempts: number; everyMs: number; schedule?: (run: () => void, ms: number) => void } | null;
+  /**
+   * MONEY_CALLS_ENABLED (docs/money-api.md §g): only the proposer publishes,
+   * and pays from one of their own proven wallets. Reviewers only approve.
+   * Absent: the proposer or a reviewer may publish, from any wallet.
+   */
+  proposerOnly?: { wallets: AccountWallets } | null;
 }
+
+/** What the verified session proves about its own wallet: a Sign-in-with-Solana address. */
+export interface PublishSession { signInWallet?: string | null }
 
 const refuse = (code: ConstructorParameters<typeof MarketCreationError>[0], message: string, field?: string): never => {
   throw new MarketCreationError(code, message, field ? { field } : {});
@@ -198,9 +208,10 @@ export class MarketCreationService {
   // ── publishing (the paid Panta create) ──────────────────────────────────
 
   /** Upload the cover once, quote and build. Nothing is signed or broadcast. */
-  async preparePublish(userId: string, proposalId: string, wallet: string): Promise<PublishReview> {
+  async preparePublish(userId: string, proposalId: string, wallet: string, publishSession: PublishSession = {}): Promise<PublishReview> {
     const publishing = this.requirePublishing();
     let row = await this.publishable(userId, proposalId);
+    await this.assertOwnWallet(userId, wallet, publishSession);
     if (!row.cover_image_url) {
       const url = await publishing.creator.uploadCover(row.category as PantaCreateCategory);
       row = await this.deps.store.updateProposal(row.id, "approved", { cover_image_url: url })
@@ -217,13 +228,15 @@ export class MarketCreationService {
   }
 
   /** Commit the signed bytes, then claim the proposal, then broadcast, then try to confirm. */
-  async submitPublish(userId: string, proposalId: string, sessionId: string, signedTransaction: string): Promise<ProposalView> {
+  async submitPublish(userId: string, proposalId: string, sessionId: string, signedTransaction: string, publishSession: PublishSession = {}): Promise<ProposalView> {
     const publishing = this.requirePublishing();
     let session = await this.deps.store.session(sessionId);
     if (!session || session.proposal_id !== proposalId || session.publisher_id !== userId) {
       return refuse("MC_NOT_FOUND", "That publish review is not yours. Start publishing again.");
     }
     const binding = publishing.creator.validateBinding(session.prepared);
+    // Still the publisher's own wallet: a link revoked since the review stops the send.
+    if (session.state === "QUOTED") await this.assertOwnWallet(userId, binding.wallet, publishSession);
     let tx: SignedPantaTransaction;
     try { tx = validateSignedPantaTransaction(signedTransaction, binding.wallet, binding.messageHash); }
     catch { return refuse("MC_INVALID", "The wallet approval doesn't match the reviewed market transaction."); }
@@ -368,10 +381,27 @@ export class MarketCreationService {
     if (!row || (row.proposer_id !== userId && !this.isReviewer(userId))) return refuse("MC_NOT_FOUND", "That market proposal no longer exists.");
     return row;
   }
+  /**
+   * With proposer-only publishing, the paying wallet must be the publisher's
+   * own: an active SIWS-proven link, or (with no link row at all) the wallet
+   * this session signed in with. Unreadable links refuse, never assume.
+   */
+  private async assertOwnWallet(userId: string, wallet: string, session: PublishSession): Promise<void> {
+    const rule = this.deps.proposerOnly;
+    if (!rule) return;
+    let status: Awaited<ReturnType<AccountWallets["status"]>>;
+    try { status = await rule.wallets.status(userId, wallet); }
+    catch { return refuse("MC_UNVERIFIED", "We couldn't confirm this wallet is yours. Try again in a moment."); }
+    if (status === "active" || (status === "none" && session.signInWallet === wallet)) return;
+    refuse("MC_FORBIDDEN", "Link this wallet to your account first", "wallet");
+  }
+
   /** Approved, still in time, and the caller may pay for it. */
   private async publishable(userId: string, proposalId: string): Promise<ProposalRow> {
     const row = await this.visible(userId, proposalId);
-    if (row.proposer_id !== userId && !this.isReviewer(userId)) refuse("MC_FORBIDDEN", "Only the proposer or a reviewer can publish this market.");
+    if (this.deps.proposerOnly) {
+      if (row.proposer_id !== userId) refuse("MC_FORBIDDEN", "Only the person who proposed this market can publish it.");
+    } else if (row.proposer_id !== userId && !this.isReviewer(userId)) refuse("MC_FORBIDDEN", "Only the proposer or a reviewer can publish this market.");
     if (row.status !== "approved") refuse("MC_STATE", this.stateCopy(row.status));
     if (this.now() > publishDeadline(ms(row.closes_at))) refuse("MC_STATE", "Trading closes too soon to publish this market now.");
     return row;
@@ -407,7 +437,8 @@ export class MarketCreationService {
       // Who reviewed stays private; the decision and its reason do not.
       review: row.reviewed_at ? { decidedAt: ms(row.reviewed_at), reason: row.review_reason, note: row.review_note } : null,
       canWithdraw: isProposer && (status === "pending_review" || status === "approved"),
-      canPublish: status === "approved" && this.deps.publishing != null && (isProposer || this.isReviewer(viewerId)),
+      canPublish: status === "approved" && this.deps.publishing != null &&
+        (isProposer || (!this.deps.proposerOnly && this.isReviewer(viewerId))),
       publish: row.status === "publishing" && row.creator_wallet ? { wallet: row.creator_wallet, submittedAt: ms(row.updated_at) } : null,
       live: row.status === "live" && row.venue_market_id && row.live_at && row.creator_wallet
         ? { venueMarketId: row.venue_market_id, marketId: marketUuid("panta", row.venue_market_id), creatorWallet: row.creator_wallet, liveAt: ms(row.live_at) }

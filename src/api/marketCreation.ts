@@ -51,6 +51,20 @@ async function viewer(ctx: Context, required: boolean): Promise<string | null> {
   return null;
 }
 
+/** The publisher and what their session proves: its own Sign-in-with-Solana address, if any. */
+async function publisher(ctx: Context): Promise<{ userId: string; session: { signInWallet: string | null } }> {
+  const identity = authIdentityRuntimeFor(ctx.app.config);
+  if (!ctx.supabaseAccessToken || !identity.store.enabled) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to create markets." });
+  // The one account resolver (src/auth/accountResolver.ts).
+  const resolved = await resolveAccountOutcome(ctx.app.config, ctx.supabaseAccessToken);
+  if (resolved.ok) return { userId: resolved.account.userId, session: { signInWallet: resolved.account.session.solanaWallet ?? null } };
+  if (resolved.reason === "UNAVAILABLE") {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Market proposals are temporarily unavailable. Try again shortly." });
+  }
+  if (resolved.reason === "SIGNED_OUT") throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to create markets." });
+  throw new TRPCError({ code: "UNAUTHORIZED", message: "Your account isn't linked yet. Sign in again to finish setting it up." });
+}
+
 async function run<T>(action: () => Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
@@ -121,14 +135,18 @@ export const marketCreationRouter = router({
   })),
 
   /** Quote + build the paid create. Returns the unsigned transaction to review. */
-  preparePublish: publicProcedure.input(z.object({ proposalId: uuid, wallet }).strict()).mutation(({ ctx, input }) => run(async () =>
-    marketCreationFor(ctx.app.config).service.preparePublish(await viewer(ctx, true), input.proposalId, input.wallet))),
+  preparePublish: publicProcedure.input(z.object({ proposalId: uuid, wallet }).strict()).mutation(({ ctx, input }) => run(async () => {
+    const who = await publisher(ctx);
+    return marketCreationFor(ctx.app.config).service.preparePublish(who.userId, input.proposalId, input.wallet, who.session);
+  })),
 
   /** The wallet-signed create. Committed before broadcast; never re-quoted. */
   submitPublish: publicProcedure.input(z.object({
     proposalId: uuid, sessionId: uuid, signedTransaction: z.string().min(1).max(1644),
-  }).strict()).mutation(({ ctx, input }) => run(async () =>
-    marketCreationFor(ctx.app.config).service.submitPublish(await viewer(ctx, true), input.proposalId, input.sessionId, input.signedTransaction))),
+  }).strict()).mutation(({ ctx, input }) => run(async () => {
+    const who = await publisher(ctx);
+    return marketCreationFor(ctx.app.config).service.submitPublish(who.userId, input.proposalId, input.sessionId, input.signedTransaction, who.session);
+  })),
 
   /** Re-check a publishing market against Panta and the chain. */
   refreshPublish: publicProcedure.input(z.object({ proposalId: uuid }).strict()).mutation(({ ctx, input }) => run(async () =>

@@ -16,6 +16,8 @@ import { MarketCreationError } from "./errors.ts";
 import { MarketCreationService, type CatalogIngest, type PersonRef } from "./MarketCreationService.ts";
 import { cloudinaryUpload, pantaCreatePost, PantaMarketCreator } from "./PantaMarketCreator.ts";
 import { SupabaseMarketProposalStore } from "./store.ts";
+import { SupabaseAccountWallets } from "../wallet/accountWallets.ts";
+import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 
 export interface MarketCreationRuntime {
   config: MarketCreationConfig;
@@ -80,6 +82,10 @@ export function marketCreationFor(app: AppConfig): MarketCreationRuntime {
     reviewerIds: config.reviewerIds, people, publishing: publishingDeps,
     // ~30s covers a normal Solana confirmation; well inside Panta's 40 registers/min.
     followUp: publishingDeps ? { attempts: 6, everyMs: 5_000 } : null,
+    // MONEY_CALLS_ENABLED: only the proposer publishes and pays, from their own wallet.
+    proposerOnly: app.money?.callsEnabled === true
+      ? { wallets: new SupabaseAccountWallets(app.social!, fetch, authIdentityRuntimeFor(app).accountLinks) }
+      : null,
   });
   const runtime = { config, proposals, publishing, service };
   runtimes.set(app, runtime);
