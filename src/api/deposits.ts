@@ -11,7 +11,7 @@ import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
 import type { DepositPerson } from "../deposits/accounts.ts";
-import { centsToUsd } from "../deposits/config.ts";
+import { NOT_LIVE_REASON, centsToUsd, depositsOpenTo } from "../deposits/config.ts";
 import { DepositError, isDepositError, type DepositErrorCode } from "../deposits/errors.ts";
 import { depositsRuntimeFor, type DepositsRuntime } from "../deposits/runtime.ts";
 import { maskEmail, readDepositBalance } from "../deposits/service.ts";
@@ -55,6 +55,12 @@ function serviceOf(rt: DepositsRuntime) {
   return rt.service;
 }
 
+/** Staging (test money) is for the admin allow-list only; see depositsOpenTo. */
+function openFor(rt: DepositsRuntime, who: DepositPerson): DepositPerson {
+  if (!depositsOpenTo(rt.readiness, who.userId, rt.admins)) throw new DepositError("UNAVAILABLE", NOT_LIVE_REASON.message);
+  return who;
+}
+
 /** Our copy only. Anything unexpected is a generic, causeless failure. */
 async function run<T>(action: () => Promise<T>): Promise<T> {
   try {
@@ -75,15 +81,20 @@ export const depositsRouter = router({
   /** Public shape plus, when signed in, which wallets can receive funds. */
   status: publicProcedure.mutation(async ({ ctx }) => {
     const rt = depositsRuntimeFor(ctx.app.config);
-    const cfg = rt.readiness.config;
     const resolved = await rt.accounts
       .resolve(ctx.supabaseAccessToken, { email: rt.readiness.available })
       .catch(() => ({ ok: false, reason: "UNAVAILABLE" }) as const);
+    // Ready but not for this person (staging, not an admin): the same shape
+    // as any other unavailable server, so no test money and no "staging".
+    const open = depositsOpenTo(rt.readiness, resolved.ok ? resolved.person.userId : null, rt.admins);
+    const cfg = open ? rt.readiness.config : null;
     return {
-      available: rt.readiness.available,
-      reason: rt.readiness.reason,
+      available: open,
+      reason: open ? null : (rt.readiness.reason ?? NOT_LIVE_REASON),
       provider: "Crossmint" as const,
       environment: cfg?.environment ?? null,
+      /** True only while what is offered is Crossmint staging: devnet test USDC. */
+      testMode: cfg?.environment === "staging",
       asset: "USDC" as const,
       chain: "solana" as const,
       deliveryNetwork: cfg?.deliveryNetwork ?? null,
@@ -126,7 +137,7 @@ export const depositsRouter = router({
       run(async () => {
         const rt = depositsRuntimeFor(ctx.app.config);
         const service = serviceOf(rt);
-        return service.quote(await person(ctx, rt, true), input);
+        return service.quote(openFor(rt, await person(ctx, rt, true)), input);
       }),
     ),
 
@@ -146,7 +157,7 @@ export const depositsRouter = router({
       run(async () => {
         const rt = depositsRuntimeFor(ctx.app.config);
         const service = serviceOf(rt);
-        return service.create(await person(ctx, rt, true), input);
+        return service.create(openFor(rt, await person(ctx, rt, true)), input);
       }),
     ),
 
@@ -157,7 +168,7 @@ export const depositsRouter = router({
       run(async () => {
         const rt = depositsRuntimeFor(ctx.app.config);
         const service = serviceOf(rt);
-        return service.order(await person(ctx, rt), input.orderId);
+        return service.order(openFor(rt, await person(ctx, rt)), input.orderId);
       }),
     ),
 
@@ -168,7 +179,7 @@ export const depositsRouter = router({
       run(async () => {
         const rt = depositsRuntimeFor(ctx.app.config);
         const service = serviceOf(rt);
-        return service.verifyWallet(await person(ctx, rt), input.orderId, input.signature);
+        return service.verifyWallet(openFor(rt, await person(ctx, rt)), input.orderId, input.signature);
       }),
     ),
 });

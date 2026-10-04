@@ -48,7 +48,7 @@ export interface DepositsConfig {
   presetsCents: number[];
 }
 
-export type DepositsUnavailableCode = "PAUSED" | "NOT_CONFIGURED" | "MISCONFIGURED" | "NO_ACCOUNTS";
+export type DepositsUnavailableCode = "PAUSED" | "NOT_CONFIGURED" | "MISCONFIGURED" | "NO_ACCOUNTS" | "NOT_LIVE";
 
 export interface DepositsReadiness {
   available: boolean;
@@ -71,6 +71,25 @@ const unavailable = (code: DepositsUnavailableCode, message: string): DepositsRe
   reason: { code, message },
   config: null,
 });
+
+/** What a person who may not add funds yet is told. Never says "staging". */
+export const NOT_LIVE_REASON = Object.freeze({ code: "NOT_LIVE" as const, message: "Adding funds isn't available yet." });
+
+/**
+ * Whether this person may add funds. Production Crossmint is for everyone.
+ * Staging delivers devnet test USDC, which must never look like real money to
+ * an ordinary person, so it is offered only to TRUST_ADMIN_USER_IDS (and every
+ * client says "test" whenever `environment` is `staging`).
+ */
+export function depositsOpenTo(
+  readiness: DepositsReadiness,
+  userId: string | null | undefined,
+  admins: ReadonlySet<string>,
+): boolean {
+  if (!readiness.available || !readiness.config) return false;
+  if (readiness.config.environment === "production") return true;
+  return !!userId && admins.has(userId.toLowerCase());
+}
 
 /** "25" | "25.5" | "25.50" → 2550. Anything else → null. */
 export function usdToCents(value: string | undefined | null): number | null {

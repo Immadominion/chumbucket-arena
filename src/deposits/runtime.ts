@@ -13,6 +13,7 @@ import {
   type DepositAccounts,
 } from "./accounts.ts";
 import { MainnetBalanceReader, type WalletBalanceReader } from "./balance.ts";
+import { resolveTrustConfig } from "../trust/config.ts";
 import { resolveDeposits, type DepositsReadiness } from "./config.ts";
 import { HttpCrossmintTransport } from "./crossmint.ts";
 import { DepositRateLimiter, DepositService } from "./service.ts";
@@ -25,6 +26,8 @@ export interface DepositsRuntime {
   /** Null when no usable RPC is configured. */
   balances: WalletBalanceReader | null;
   limiter: DepositRateLimiter;
+  /** TRUST_ADMIN_USER_IDS: the only people offered staging (test) deposits. */
+  admins: ReadonlySet<string>;
 }
 
 const unconfiguredAccounts: DepositAccounts = {
@@ -55,7 +58,8 @@ export function buildDepositsRuntime(config: AppConfig, env: Record<string, stri
         limiter,
       })
     : null;
-  return { readiness, service, accounts, balances, limiter };
+  const admins = resolveTrustConfig(config, env).adminUserIds;
+  return { readiness, service, accounts, balances, limiter, admins };
 }
 
 const runtimes = new WeakMap<AppConfig, DepositsRuntime>();

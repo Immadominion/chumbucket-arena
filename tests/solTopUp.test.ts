@@ -733,6 +733,7 @@ describe("solTopUp router", () => {
       },
       balances: null,
       limiter: new DepositRateLimiter(),
+      admins: new Set(),
     };
     primeDepositsRuntime(cfg, deposits);
     const readiness = resolveSolTopUp(cfg, env);

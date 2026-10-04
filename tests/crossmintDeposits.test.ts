@@ -24,7 +24,7 @@ import {
   type LinkedWalletReader,
 } from "../src/deposits/accounts.ts";
 import { MainnetBalanceReader, type WalletBalanceReader } from "../src/deposits/balance.ts";
-import { centsToUsd, resolveDeposits, usdToCents, type DepositsConfig } from "../src/deposits/config.ts";
+import { centsToUsd, depositsOpenTo, resolveDeposits, usdToCents, type DepositsConfig } from "../src/deposits/config.ts";
 import {
   HttpCrossmintTransport,
   type CrossmintCreateOrderBody,
@@ -33,7 +33,7 @@ import {
 } from "../src/deposits/crossmint.ts";
 import { CrossmintHttpError, DepositError } from "../src/deposits/errors.ts";
 import { deriveDepositState, toDepositOrderView } from "../src/deposits/orders.ts";
-import { primeDepositsRuntime, type DepositsRuntime } from "../src/deposits/runtime.ts";
+import { buildDepositsRuntime, primeDepositsRuntime, type DepositsRuntime } from "../src/deposits/runtime.ts";
 import { DepositRateLimiter, DepositService, chooseDepositWallet, maskEmail, readDepositBalance } from "../src/deposits/service.ts";
 import { MAINNET_GENESIS_HASH, MAINNET_USDC_MINT } from "../src/prediction/PantaChain.ts";
 import { FakeIdentityStore, FakeJwtVerifier } from "./authIdentityFixtures.ts";
@@ -743,7 +743,9 @@ describe("mainnet balance", () => {
 // ── the tRPC surface ──────────────────────────────────────────────────────────
 
 describe("deposits router", () => {
-  async function routerRig(env: Record<string, string | undefined>) {
+  // Staging is offered to TRUST_ADMIN_USER_IDS only, so the signed-in person
+  // is an admin unless a test says otherwise.
+  async function routerRig(env: Record<string, string | undefined>, admins: string[] = [USER]) {
     const cfg = baseConfig();
     const app = await createApp({ config: cfg });
     const crossmint = new FakeCrossmint();
@@ -766,6 +768,7 @@ describe("deposits router", () => {
       accounts,
       balances,
       limiter,
+      admins: new Set(admins),
     };
     primeDepositsRuntime(cfg, runtime);
     return {
@@ -814,6 +817,63 @@ describe("deposits router", () => {
       account: { receiptEmail: "ad•@example.com", needsEmail: false },
     });
     expect(status.account?.wallets.map((w) => w.address)).toEqual([mine.address, second.address]);
+  });
+
+  test("staging is test money: an ordinary person is told it isn't available, and nothing reaches Crossmint", async () => {
+    const { signedIn, anonymous, crossmint } = await routerRig(stagingEnv, []);
+    for (const status of [await signedIn.status(), await anonymous.status()]) {
+      expect(status).toMatchObject({
+        available: false,
+        reason: { code: "NOT_LIVE", message: "Adding funds isn't available yet." },
+        environment: null,
+        testMode: false,
+        deliveryNetwork: null,
+        limits: null,
+        presetsUsd: [],
+      });
+      expect(JSON.stringify(status)).not.toMatch(/staging|devnet/i);
+    }
+    for (const attempt of [
+      () => signedIn.quote({ amountUsd: "5" }),
+      () => signedIn.create({ amountUsd: "5", idempotencyKey: "key-key-key-key-0110" }),
+      () => signedIn.order({ orderId: ORDER_ID }),
+    ]) {
+      await expect(attempt()).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Adding funds isn't available yet." });
+    }
+    expect(crossmint.calls).toHaveLength(0);
+  });
+
+  test("staging for an admin always says test", async () => {
+    const { signedIn } = await routerRig(stagingEnv, [USER]);
+    expect(await signedIn.status()).toMatchObject({ available: true, environment: "staging", testMode: true, deliveryNetwork: "solana-devnet" });
+  });
+
+  test("production is for everyone, and is never test money", async () => {
+    const { signedIn, crossmint } = await routerRig(
+      {
+        DEPOSITS_ENABLED: "true",
+        CROSSMINT_ENV: "production",
+        CROSSMINT_SERVER_API_KEY: "sk_production_SYNTHETIC",
+        CROSSMINT_CLIENT_API_KEY: "ck_production_SYNTHETIC",
+      },
+      [],
+    );
+    expect(await signedIn.status()).toMatchObject({ available: true, environment: "production", testMode: false, deliveryNetwork: "solana-mainnet" });
+    await signedIn.create({ amountUsd: "10", idempotencyKey: "key-key-key-key-0111" });
+    expect(crossmint.count("create")).toBe(1);
+  });
+
+  test("the admin allow-list is TRUST_ADMIN_USER_IDS, exact canonical ids only", () => {
+    const cfg = baseConfig();
+    const staging = resolveDeposits(cfg, stagingEnv);
+    const rt = buildDepositsRuntime(cfg, { ...stagingEnv, TRUST_ADMIN_USER_IDS: ` ${USER.toUpperCase()} , not-a-uuid, *` });
+    expect([...rt.admins]).toEqual([USER]);
+    expect(depositsOpenTo(staging, USER, rt.admins)).toBe(true);
+    expect(depositsOpenTo(staging, OTHER_USER, rt.admins)).toBe(false);
+    expect(depositsOpenTo(staging, null, rt.admins)).toBe(false);
+    expect(buildDepositsRuntime(cfg, stagingEnv).admins.size).toBe(0);
+    // Nothing is open on a server that isn't ready, admin or not.
+    expect(depositsOpenTo(resolveDeposits(cfg, {}), USER, rt.admins)).toBe(false);
   });
 
   test("a recipient address cannot be smuggled in", async () => {
