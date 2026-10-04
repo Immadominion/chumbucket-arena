@@ -110,7 +110,7 @@ async function rig(opts: { pantaDown?: boolean } = {}) {
 
 /** `RespondToCallInput.toJson()` in the app, field for field. */
 const appRespond = (targetCallId: string, kind = "fade") => ({
-  targetCallId, kind, confidence: null, thesis: null, visibility: "public",
+  targetCallId, kind, confidence: null, thesis: null, visibility: "public", note: null,
 });
 
 test("the app's exact respond payload locks a Fade for a new account", async () => {
@@ -138,6 +138,18 @@ test("a Fade on a lapsed price reads Panta again instead of refusing", async () 
   expect(own.entryPrice.yesPrice).toBe("0.62");
   expect(own.entryPrice.observedAt).toBe(h.clock.now());
   expect(h.http.calls.length).toBeGreaterThan(before);
+});
+
+test("a Dare's words arrive as its note, from the app's exact payload", async () => {
+  const h = await rig();
+  const res = await h.post("calls.respond", "tok-new", {
+    ...appRespond(h.target.call.id, "challenge"),
+    note: "Say it again on Friday.",
+  });
+  expect(res.status).toBe(200);
+  const data = res.body.result.data.json;
+  expect(data.resultingCall).toBeNull();
+  expect(data.invitation.note).toBe("Say it again on Friday.");
 });
 
 test("a fresh price is not read again", async () => {
