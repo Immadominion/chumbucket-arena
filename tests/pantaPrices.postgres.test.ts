@@ -4,10 +4,13 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharePriceFromIndicative } from "../src/prediction/sharePrices.ts";
+import { PANTA_PROGRAM_ID, pantaChainRead } from "../src/prediction/PantaProgram.ts";
+import * as REAL from "./fixtures/pantaChainAccounts.ts";
 
 const url = process.env.PANTA_PRICES_TEST_DATABASE_URL;
 const local = url ? describe : describe.skip;
 let db: SQL;
+let preexisting: { market: string; s: { id: string } };
 const migrations = join(import.meta.dir, "../../chumbucket-social-calls/supabase/migrations");
 
 local('Panta prices — disposable PostgreSQL only', () => {
@@ -34,6 +37,10 @@ local('Panta prices — disposable PostgreSQL only', () => {
       '20260913140000_social_calls_calls.sql','20260928210000_panta_share_price_evidence.sql']) {
       await db.unsafe(readFileSync(join(migrations,file),'utf8'));
     }
+    // A USDC observation written under the original constraints, then the
+    // SOL-quoted widening: ADD CONSTRAINT re-validates every existing row.
+    preexisting = await fixture();
+    await db.unsafe(readFileSync(join(migrations,'20261004090000_panta_sol_quoted_prices.sql'),'utf8'));
   });
   afterAll(async () => { if (db) await db.end(); });
 
@@ -126,6 +133,53 @@ local('Panta prices — disposable PostgreSQL only', () => {
     for(const patch of [{yesPrice:1.2},{noPrice:'-1'},{yesPrice:'1e3'},{executable:true},{stake:'1'},{currency:'USD'},{yesPrice:'0.01'}]) {
       const s={...f.s,id:randomUUID(),...patch};
       await expect(db`INSERT INTO market_share_price_snapshots VALUES (${s.id},${f.market},${new Date(f.s.observedAt)},${s}::jsonb,${f.raw}::jsonb)`.execute()).rejects.toThrow();
+    }
+  });
+
+  // ── SOL-quoted markets (20261004090000) ──────────────────────────────────
+  async function solFixture(edit: (raw: Record<string, any>, s: Record<string, any>) => void = () => {}) {
+    const market = randomUUID(), user = randomUUID(), venueMarketId = `synthetic-sol-${randomUUID()}`, at = Date.now();
+    const s: Record<string, any> = { ...sharePriceFromIndicative({ marketId: market, venueMarketId, venue: 'panta', currency: 'SOL',
+      unit: 'per_share', yesPrice: '0.671739755', noPrice: '0.328260245', observedAt: at, executable: false,
+      attribution: 'Powered by Panta', demo: false }) };
+    // Real account bytes; the DB checks the envelope, the BFF re-derives the bytes.
+    const read = pantaChainRead({ address: REAL.SOL_OPEN_HYPE.address, owner: PANTA_PROGRAM_ID,
+      data: Buffer.from(REAL.SOL_OPEN_HYPE.data, 'base64'), slot: REAL.CAPTURED_SLOT, fetchedAt: at, category: 'crypto' });
+    const raw: Record<string, any> = { ...read.raw, venueMarketId, body: { ...(read.raw.body as object), account: venueMarketId } };
+    edit(raw, s);
+    await db`INSERT INTO users VALUES (${user})`;
+    await db`INSERT INTO venue_markets(id,venue,venue_event_id,venue_market_id,question,rules_text,outcomes,status,raw_status,opens_at,closes_at,payload_version,raw_payload)
+      VALUES (${market},'panta',${venueMarketId},${venueMarketId},'Synthetic SOL question','Synthetic exact rules','[{"side":"YES"},{"side":"NO"}]','OPEN','secondary',now()-interval '1 hour',now()+interval '1 hour',2,${raw.body}::jsonb)`;
+    const insert = () => db`INSERT INTO market_share_price_snapshots(id,market_id,observed_at,snapshot,raw_evidence)
+      VALUES (${s.id},${market},${new Date(at)},${s}::jsonb,${raw}::jsonb)`;
+    return { market, user, other: user, s: s as any, raw, insert };
+  }
+  test('rows written before the widening are untouched and still valid', async () => {
+    const [row] = await db`SELECT snapshot FROM market_share_price_snapshots WHERE id=${preexisting.s.id}`;
+    expect(row.snapshot.currency).toBe('USDC');
+    const [{ convalidated }] = await db`SELECT bool_and(convalidated) AS convalidated FROM pg_constraint
+      WHERE conname IN ('panta_snapshot_shape','panta_snapshot_raw_evidence')`;
+    expect(convalidated).toBe(true);
+  });
+  test('a SOL-quoted price with its program-account evidence is accepted, and a free call pins it', async () => {
+    const f = await solFixture(); await f.insert();
+    const id = await call(f as any); const [c] = await db`SELECT entry_price FROM calls WHERE id=${id}`;
+    expect(c.entry_price).toEqual(f.s); expect(c.entry_price.currency).toBe('SOL');
+  });
+  test('a SOL price cannot borrow partner-API evidence, relabel its currency, or disagree with its evidence', async () => {
+    const edits: [string, (raw: Record<string, any>, s: Record<string, any>) => void][] = [
+      ['v1 evidence', raw => { raw.payloadVersion = 1; }],
+      ['USDC label on chain evidence', (_raw, s) => { s.currency = 'USDC'; }],
+      ['evidence says USDC', raw => { raw.body.quoteAsset = 'USDC'; }],
+      ['evidence from another account', raw => { raw.body.account = 'someone-else'; }],
+      ['evidence without bytes', raw => { delete raw.body.data; }],
+      ['not an account read', raw => { raw.body.source = 'website'; }],
+      ['different observed price', raw => { raw.body.yesPrice = '0.9'; }],
+      ['an unknown currency', (_raw, s) => { s.currency = 'USD'; }],
+    ];
+    for (const [label, edit] of edits) {
+      const f = await solFixture(edit);
+      await expect(f.insert().execute(), label).rejects.toThrow();
     }
   });
 });

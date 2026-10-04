@@ -17,6 +17,7 @@ const COPY: Record<RateLimitedAction, string> = {
   "calls.create": "You're making calls very quickly.",
   "calls.respond": "You're responding to calls very quickly.",
   "people.follow": "You're following and unfollowing very quickly.",
+  "people.find": "You're looking people up very quickly.",
   "trust.report": "You've sent a lot of reports in a short time.",
   "trust.relation": "You're blocking and muting very quickly.",
   "account.export": "You've exported your data several times already.",

@@ -47,6 +47,9 @@ export type WriteScope = "ip" | "session" | "user";
  */
 export const READ_ONLY_MUTATIONS: ReadonlySet<string> = new Set([
   "auth.whoami",
+  // add a friend: "is this them?" — a lookup, with its own per-person limit
+  // (src/trust/config.ts "people.find")
+  "people.find",
   "pantaTrading.status",
   "pantaTrading.order",
   "pantaTrading.forCall",

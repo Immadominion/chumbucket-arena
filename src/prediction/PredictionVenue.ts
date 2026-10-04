@@ -246,12 +246,15 @@ export const readsResolutions = (v: PredictionVenue): v is PredictionVenue & Res
   typeof (v as Partial<ResolutionReader>).publishedResolution === "function";
 
 /** Independent venue share prices, not complementary outcome probabilities.
- * Decimal strings preserve precision and may exceed 1 USDC. Never executable. */
+ * Decimal strings preserve precision and may exceed 1 USDC. Never executable.
+ * `currency` is the market's own quote asset: Panta's partner API serves USDC
+ * markets; SOL-quoted markets are read from the program (./PantaProgram.ts)
+ * and are never converted to USD. */
 export interface IndicativePrices {
   marketId: string;
   venue: VenueId;
   venueMarketId: string;
-  currency: "USDC";
+  currency: "USDC" | "SOL";
   unit: "per_share";
   yesPrice: string | null;
   noPrice: string | null;

@@ -56,11 +56,14 @@ describe("the call procedures plus canonical follow actions", () => {
       "calls.top",
       "markets.detail",
       "markets.open",
+      // Add a friend: "is this them?" before people.follow (personFinder.ts).
+      "people.find",
       "people.follow",
       "people.following",
       "people.get",
       "people.leaderboard",
       "people.search",
+      "people.suggested",
       "people.unfollow",
     ]);
   });

@@ -12,7 +12,7 @@
  * no existing path or shape changes; see src/calls/people.ts):
  *
  *   people.leaderboard · people.search · people.following
- *   calls.top · calls.addUpdate
+ *   calls.top · calls.addUpdate · people.suggested · people.find
  *
  * Deliberate properties:
  *  - it is ONE new file and touches no integration-owned file. Nesting it is
@@ -51,11 +51,16 @@ import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-impo
 import { z } from "zod";
 import { callsRuntimeFor, type CallsRuntime } from "../calls/runtime.ts";
 import { isCallsError, type CallsErrorCode } from "../calls/errors.ts";
+import { noFriendsReader } from "../calls/friends.ts";
+import { FIND_QUERY_COPY, findPerson, parseFindQuery } from "../calls/personFinder.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
 import { guard, router } from "./trpc.ts";
 import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 import { isTrustError } from "../trust/errors.ts";
+import { redactSecrets } from "../prediction/redact.ts";
+import { systemClock } from "../prediction/clock.ts";
+import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { trustRuntimeFor } from "../trust/runtime.ts";
 import { trustTrpcError } from "./trust.ts";
 
@@ -141,20 +146,67 @@ const CALLS_CODE_MAP: Record<CallsErrorCode, TRPC_ERROR_CODE_KEY> = {
 /**
  * Run a service call, mapping CallsError to the right transport code. Nested in
  * guard() so a DomainError raised anywhere below still maps the usual way.
+ *
+ * A write names itself ([procedure]) so a refusal is logged by its CODE: the
+ * proxy log alone shows "POST /calls.respond 400", which cannot tell "your own
+ * call" from "price unavailable" from "content refused". Only the procedure
+ * and the code are written — never the message, the input, a person or an id.
  */
-function call<T>(fn: () => Promise<T> | T): Promise<T> {
+function call<T>(fn: () => Promise<T> | T, procedure?: string): Promise<T> {
   return guard(async () => {
     try {
       return await fn();
     } catch (err) {
       if (isCallsError(err)) {
+        if (procedure) logRefusal(procedure, err.code);
         throw new TRPCError({ code: CALLS_CODE_MAP[err.code], message: err.message, cause: err });
       }
       // Rate limits, the content policy and blocks (src/trust).
-      if (isTrustError(err)) throw trustTrpcError(err);
+      if (isTrustError(err)) {
+        if (procedure) logRefusal(procedure, err.code);
+        throw trustTrpcError(err);
+      }
       throw err;
     }
   });
+}
+
+function logRefusal(procedure: string, code: string): void {
+  console.warn("[calls] refused", JSON.stringify({ procedure, code }));
+}
+
+/** How long a lock waits on Panta for one fresh price before the service
+ *  decides with what it holds. */
+export const LOCK_PRICE_REFRESH_MS = 4_000;
+
+/**
+ * A Panta price lapses after ten minutes and the market sync refreshes prices
+ * on a budget, so a lock can land on a market whose price just lapsed. Rather
+ * than refuse that lock with an internal freshness state, read Panta's price
+ * for this ONE market now — the same read `predictions` serves — and let the
+ * service stamp it. Bounded and best effort: a slow or failed read changes
+ * nothing, and the service still refuses a lock it cannot price.
+ */
+async function freshenPantaPrice(rt: CallsRuntime, marketId: string | null | undefined): Promise<void> {
+  const prediction = rt.prediction;
+  if (!marketId || !prediction) return;
+  const market = rt.markets.getMarket(marketId);
+  if (!market || market.venue !== "panta" || !market.venueMarketId) return;
+  if (usableSharePrice(rt.markets.latestSharePrice?.(marketId), prediction.clock.now())) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Settles either way, so a read that loses the race can never surface later
+  // as an unhandled rejection.
+  const read = prediction.service.getIndicativePrices(market.venueMarketId).then(
+    () => undefined,
+    () => undefined,
+  );
+  await Promise.race([
+    read,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, LOCK_PRICE_REFRESH_MS);
+    }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
 }
 
 // ── the memo (contracts §6) ──────────────────────────────────────────────────
@@ -197,12 +249,22 @@ async function requireViewer(rt: CallsRuntime, ctx: ViewerContext): Promise<stri
  *  mirror's copy. */
 export const PROFILE_REFRESH_TIMEOUT_MS = 1_500;
 
+/** A `public.users.id`: the only reference a directory miss is read through for. */
+const CANONICAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * A person edits their name, bio and picture straight in `public.users` (the
  * profile screen's `update_user_profile` RPC), and the mirror reads that table
  * only at boot and on a directory miss. Without this, a bio written after
  * someone's first visit would not reach their public page until the next
  * deploy. So a profile view re-reads that ONE row first.
+ *
+ * A canonical id the mirror has never seen (an account, or a wallet friend,
+ * created after boot on this replica or another) is that directory miss: the
+ * same one-row read brings it in, so the Friends tab can open a friend added an
+ * hour ago. A handle miss is not read through; only an id is. The read never
+ * creates or merges an identity (`refreshPerson`), and an id with no row stays
+ * "We couldn't find that person."
  *
  * Best effort and bounded: a failed or slow read serves the mirror's copy,
  * exactly as before, and is never the reason a profile does not load.
@@ -211,15 +273,16 @@ async function refreshProfileRow(rt: CallsRuntime, personRef: string): Promise<v
   const durable = rt.durable;
   if (!durable) return;
   const known = durable.getPerson(personRef) ?? durable.getPersonByHandle(personRef);
-  if (!known) return;
+  const id = known?.id ?? (CANONICAL_ID.test(personRef) ? personRef : null);
+  if (id === null) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // Settles either way, so a read that loses the race can never surface later
   // as an unhandled rejection.
-  const refreshed = durable.refreshPerson(known.id).then(
+  const refreshed = durable.refreshPerson(id).then(
     () => undefined,
     (err: unknown) => {
       console.warn(
-        `[persist] profile refresh for ${known.id} failed; serving the mirror's copy: ${err instanceof Error ? err.message : String(err)}`,
+        `[persist] profile refresh for ${id} failed; serving the mirror's copy: ${err instanceof Error ? err.message : String(err)}`,
       );
     },
   );
@@ -228,6 +291,28 @@ async function refreshProfileRow(rt: CallsRuntime, personRef: string): Promise<v
       refreshed,
       new Promise<void>((resolve) => {
         timer = setTimeout(resolve, PROFILE_REFRESH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** How long people.find waits for one directory read-through. */
+export const FIND_REFRESH_TIMEOUT_MS = 3_000;
+
+const FIND_UNAVAILABLE = "We couldn't look that up right now. Try again in a moment.";
+
+/** A read-through that must finish (found or not) in time, or fail the lookup. */
+export async function within<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Promise.race subscribes to `work`, so a read that fails after losing the
+  // race is already handled and never surfaces as an unhandled rejection.
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`read-through took longer than ${ms}ms`)), ms);
       }),
     ]);
   } finally {
@@ -294,6 +379,7 @@ const callsNamespace = router({
       const trust = safety(ctx.app.config);
       trust.assertClean(input.thesis, "thesis");
       trust.limiter.charge("calls.create", actor);
+      await freshenPantaPrice(rt, input.marketId);
       const entry = rt.service.createCall(
         {
           marketId: input.marketId,
@@ -310,7 +396,7 @@ const callsNamespace = router({
       // native funded ledger references the actual persisted call, not a ghost.
       await rt.durable?.flush();
       return entry;
-    });
+    }, "calls.create");
   }),
 
   /**
@@ -331,6 +417,10 @@ const callsNamespace = router({
       const target = rt.store.getCall(input.targetCallId);
       if (target && target.userId !== actor) await trust.assertNotBlocked(actor, target.userId, "respond");
       trust.limiter.charge("calls.respond", actor);
+      // Back and Fade lock the actor's own call; a challenge locks nothing.
+      if (target && target.userId !== actor && input.kind !== "challenge") {
+        await freshenPantaPrice(rt, target.marketId);
+      }
       const response = rt.service.respond(
         {
           targetCallId: input.targetCallId,
@@ -344,7 +434,7 @@ const callsNamespace = router({
       );
       await rt.durable?.flush();
       return response;
-    });
+    }, "calls.respond");
   }),
 
   /** Invitations addressed to the caller. No escrow, ever. Takes no input. */
@@ -507,6 +597,88 @@ const peopleNamespace = router({
         const viewer = await viewerOf(rt, ctx);
         const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
         return rt.service.searchPeople({ query: input.query, limit: input.limit }, viewer, { excludeAuthors });
+      });
+    }),
+
+  /**
+   * Who to follow during onboarding (onboarding spec §13.3). Public: people
+   * with at least one public free call, ordered by the public record and
+   * never by money. The session (never an input) leaves out the viewer and
+   * anyone already followed, and adds the viewer's own friends from the old
+   * app. No wallet, stake or P&L anywhere in the answer.
+   */
+  suggested: publicProcedure
+    .input(
+      z
+        .object({ limit: z.number().int().min(1).max(20).default(10) })
+        .strict()
+        .default({ limit: 10 }),
+    )
+    .query(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        await rt.ready;
+        const viewer = await viewerOf(rt, ctx);
+        const friendIds = viewer ? await (rt.friends ?? noFriendsReader).friendsOf(viewer) : [];
+        // Blocked and muted people, and people who blocked the viewer (src/trust).
+        const excludeAuthors = await safety(ctx.app.config).hiddenAuthorsFor(viewer);
+        return rt.service.suggestedPeople({ limit: input.limit, friendIds }, viewer, { excludeAuthors });
+      });
+    }),
+
+  /**
+   * "Is this them?" — the add-a-friend confirmation card. An X handle or
+   * profile link, a Chumbucket @username, or a Solana wallet in; the matching
+   * people out (picture, name, @username, X handle, public record, whether
+   * the session already follows them), or — for an X handle nobody here has —
+   * that handle and its public X picture, to invite. See
+   * src/calls/personFinder.ts.
+   *
+   * Session only, rate-limited per person, and writes nothing: adding is a
+   * separate people.follow once the person has seen the card. A MUTATION only
+   * so the query (which may be a wallet) travels in the body, never in a URL
+   * or an access log — the same reason as auth.whoami. A wallet is never
+   * echoed back.
+   */
+  find: publicProcedure
+    .input(z.object({ query: z.string().trim().min(1).max(200) }).strict())
+    .mutation(({ ctx, input }) => {
+      const rt = runtime(ctx.app.config);
+      return call(async () => {
+        const viewer = await requireViewer(rt, ctx);
+        safety(ctx.app.config).limiter.charge("people.find", viewer);
+        const query = parseFindQuery(input.query);
+        if (!query) throw new TRPCError({ code: "BAD_REQUEST", message: FIND_QUERY_COPY });
+        const durable = rt.durable;
+        try {
+          return await findPerson(
+            {
+              store: rt.store,
+              people: rt.service.people,
+              identities: rt.identities,
+              xAvatars: rt.xAvatars,
+              clock: systemClock,
+              ...(durable
+                ? {
+                    refreshById: async (id: string) => {
+                      await within(durable.refreshPerson(id), FIND_REFRESH_TIMEOUT_MS);
+                    },
+                    refreshByHandle: async (handle: string) => {
+                      await within(durable.refreshPersonByHandle(handle), FIND_REFRESH_TIMEOUT_MS);
+                    },
+                  }
+                : {}),
+            },
+            query,
+            viewer,
+          );
+        } catch (err) {
+          if (err instanceof TRPCError || isCallsError(err) || isTrustError(err)) throw err;
+          // Never "nobody matched" when we could not look. The message is
+          // redacted (a PgrestError already is) and names no query.
+          console.warn(`[people.find] lookup unavailable: ${redactSecrets(err instanceof Error ? err.message : String(err))}`);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: FIND_UNAVAILABLE });
+        }
       });
     }),
 

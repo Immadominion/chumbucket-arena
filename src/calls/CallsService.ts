@@ -54,6 +54,7 @@ import {
   type RespondToCallInput,
   type Side,
   type ThesisUpdate,
+  type SuggestedPeople,
   type TopCallsPage,
   type VenueMarket,
 } from "./types.ts";
@@ -333,6 +334,20 @@ export class CallsService {
     return this.people.following(viewerUserId);
   }
 
+  /** people.suggested — who to follow during onboarding. See
+   *  `PeopleDirectory.suggested`. */
+  suggestedPeople(
+    args: { limit?: number; friendIds?: readonly string[] },
+    viewerUserId: string | null,
+    opts: PeopleViewOptions = {},
+  ): SuggestedPeople {
+    return this.people.suggested(
+      { limit: clamp(args.limit ?? 10, 1, 20), friendIds: args.friendIds ?? [] },
+      viewerUserId,
+      opts,
+    );
+  }
+
   /** calls.top — open calls worth answering, crowd direction gated. */
   topCalls(args: { limit?: number }, viewerUserId: string | null, opts: PeopleViewOptions = {}): TopCallsPage {
     return this.people.topCalls({ limit: clamp(args.limit ?? 10, 1, 20) }, viewerUserId, opts);
@@ -570,7 +585,7 @@ export class CallsService {
     const at = this.clock.now();
     const entryPrice = args.market.venue === "panta" ? this.markets.latestSharePrice?.(args.market.id) : undefined;
     if (args.market.venue === "panta" && !usableSharePrice(entryPrice, at)) {
-      throw new CallsError("CALL_INVALID", "Panta prices are missing or stale. Refresh before locking your call.");
+      throw new CallsError("CALL_INVALID", "Panta's price for this market isn't available right now. Try again in a minute.");
     }
     const snapshot = args.market.venue === "panta" ? undefined : this.markets.latestSnapshot(args.market.id);
     const call = this.store.insertCall({

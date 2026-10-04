@@ -277,6 +277,8 @@ export interface PersonCard {
   handle: string;
   displayName: string;
   avatarUrl: string | null;
+  /** One of the app's five fixed avatars (1..5), when the person chose one. */
+  avatarId?: number | null;
   record: PublicRecord;
   viewerIsFollowing: boolean;
 }
@@ -324,6 +326,33 @@ export interface TopCall {
   viewerHasCalled: boolean;
 }
 
+/** A person's latest live public call, for people.suggested. No money. */
+export interface LatestLiveCall {
+  callId: string;
+  side: Side;
+  marketId: string;
+  question: string;
+  closesAt: number | null;
+}
+
+/** Why someone is suggested. Evidence only — never money. */
+export type SuggestionReason = "ranked" | "top_call" | "building" | "recent" | "friend";
+
+export interface SuggestedPerson extends PersonCard {
+  latestLiveCall: LatestLiveCall | null;
+  reason: SuggestionReason;
+}
+
+/** people.suggested — who to follow during onboarding. */
+export interface SuggestedPeople {
+  /** The session's friends from the old app who are Chumbucket people.
+   *  Always empty for a signed-out caller. */
+  friends: SuggestedPerson[];
+  /** People with at least one public free call, best evidence first. */
+  people: SuggestedPerson[];
+  servedAt: number;
+}
+
 export interface TopCallsPage {
   entries: TopCall[];
   servedAt: number;
@@ -332,6 +361,47 @@ export interface TopCallsPage {
 export interface PeopleSearchResult {
   query: string;
   people: PersonCard[];
+  servedAt: number;
+}
+
+/**
+ * people.find — who an X handle, a @username or a wallet belongs to, for the
+ * add-a-friend confirmation card. Session only. No wallet, email or provider
+ * subject anywhere in it: a wallet query is answered with a person, never
+ * echoed back.
+ */
+export type PersonLookupKind = "x" | "handle" | "wallet";
+
+/** How a match was found. `x`: their X account has that username. */
+export type PersonMatchedBy = "x" | "username" | "wallet";
+
+export interface PersonMatch {
+  /** The same card, record included, the people lists show. */
+  person: PersonCard;
+  matchedBy: PersonMatchedBy;
+  /** Their X username, when they signed in with (or linked) X. */
+  xHandle: string | null;
+  /** Their X profile picture from that sign-in, on X's CDN, or null. */
+  xAvatarUrl: string | null;
+  /** The signed-in person themselves: nothing to add. */
+  isViewer: boolean;
+}
+
+/** An X handle with no Chumbucket account behind it. */
+export interface PersonNotOnChumbucket {
+  xHandle: string;
+  /** Their public X profile picture, when one could be found; else null. */
+  xAvatarUrl: string | null;
+}
+
+export interface PersonLookup {
+  kind: PersonLookupKind;
+  /** The handle looked up, without @, lowercase. Null for a wallet. */
+  handle: string | null;
+  /** Most likely first. Empty when nobody matched. */
+  matches: PersonMatch[];
+  /** Set only when nobody matched and the query can be an X handle. */
+  notOnChumbucket: PersonNotOnChumbucket | null;
   servedAt: number;
 }
 

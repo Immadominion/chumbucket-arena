@@ -37,6 +37,9 @@ export class PantaTradingService {
     }
     const call = await this.deps.store.callIntent(userId, input.callId);
     if (!call) return refuse("Only your own call on this exact Panta market can be funded");
+    // SOL-quoted markets take calls, never trades: our trade path is Panta's
+    // USDC primary buy. Refused before any provider read or reservation.
+    if (call.tradable === false) return refuse("Trading isn't available on this market. Your call still counts");
     const market = await this.deps.venue.getMarket(call.venueMarketId);
     if (market.venue !== "panta" || market.status !== "OPEN" || (market.opensAt !== null && market.opensAt > this.now())) return refuse("This Panta market is not open for a primary buy");
     const reserved = await this.deps.store.reserve({

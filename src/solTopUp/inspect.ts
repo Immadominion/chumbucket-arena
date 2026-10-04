@@ -11,7 +11,7 @@
 
 import { Connection, PublicKey, type MessageV0, type VersionedTransaction } from "@solana/web3.js";
 import { MAINNET_GENESIS_HASH } from "../prediction/PantaChain.ts";
-import { ownerTokenAccount, SwapCheckError, TOKEN_PROGRAM, USDC_MINT, type CheckedSwap } from "./verify.ts";
+import { ownerTokenAccount, SwapCheckError, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT, type CheckedSwap } from "./verify.ts";
 
 export interface SwapEffect {
   /** Change in the person's own SOL account, in lamports. */
@@ -97,8 +97,14 @@ export class RpcSwapInspector implements SwapInspector {
     }
 
     const usdc = ownerTokenAccount(owner, USDC_MINT);
-    const [ownerInfo, usdcInfo] = await this.connection.getMultipleAccountsInfo([new PublicKey(owner), new PublicKey(usdc)]);
+    const wsol = ownerTokenAccount(owner, WSOL_MINT);
+    const [ownerInfo, usdcInfo, wsolInfo] = await this.connection.getMultipleAccountsInfo(
+      [new PublicKey(owner), new PublicKey(usdc), new PublicKey(wsol)]);
     if (!usdcInfo || usdcInfo.owner.toBase58() !== TOKEN_PROGRAM) throw new SwapCheckError("no USDC account");
+    // A rent repayment returns what the fee payer put into a WSOL account it
+    // opened for this swap. If the person already had one, the create is a
+    // no-op and the "repayment" would be the person's own rent: refused.
+    if (checked.rentRepayLamports > 0n && wsolInfo) throw new SwapCheckError("rent repaid for the person's own account");
     const preLamports = BigInt(ownerInfo?.lamports ?? 0);
     const preUsdc = tokenAmountOf(Buffer.from(usdcInfo.data), USDC_MINT, owner);
 

@@ -84,7 +84,7 @@ for (const [label, at, yes, no] of [
   const calls = new InMemoryCallsStore(); calls.upsertPerson(person('alice'));
   const service = new CallsService({store:calls, markets:predictionStoreReader(prices),clock,allowPantaCalls:true});
   expect(service.openMarkets()).toEqual([]);
-  expect(() => service.createCall({marketId:id, side:'YES'}, 'alice')).toThrow('missing or stale');
+  expect(() => service.createCall({marketId:id, side:'YES'}, 'alice')).toThrow("isn't available right now");
   expect(calls.listCalls()).toEqual([]);
 });
 

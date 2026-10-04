@@ -157,8 +157,11 @@ export default function TermsPage() {
       <Section id="legacy" title="9. Legacy features">
         <P>
           Earlier versions of Chumbucket offered SOL escrow challenges between friends and &ldquo;Arena&rdquo; football
-          predictions. These are now read-only history in the app. Existing escrow challenges can still be resolved,
-          claimed or refunded as before; new ones cannot be created.
+          predictions. These are now history in the app, under Settings &rarr; History, and new escrow challenges
+          cannot be created. An escrow challenge that is still open keeps its SOL in the escrow program on Solana until
+          its witness settles it with their own wallet, as before: &ldquo;completed&rdquo; returns the stake to the
+          challenger, &ldquo;not completed&rdquo; sends it to the witness, and the program keeps its fee (2.5%, at most
+          0.1 SOL) either way. Chumbucket cannot move, refund or settle escrowed SOL for you.
         </P>
       </Section>
 

@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { TRPCError } from "@trpc/server";
-import { setAccountRuntime } from "../src/account/runtime.ts";
+import { pushDelivers, setAccountRuntime } from "../src/account/runtime.ts";
 import { InMemoryAccountStore } from "../src/account/store.ts";
 import { createApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
@@ -152,6 +152,30 @@ describe("account.* is keyed by the session, never by a client-named identity", 
   });
 });
 
+describe("account.pushStatus says whether this server sends pushes at all", () => {
+  const sender = { send: async () => "ok" as const };
+  const configured = { enabled: true as const, account: {} as never, maxAgeMs: 60_000 };
+
+  test("public, about the server: false without a sender, so the app asks nothing", async () => {
+    const s = await scene();
+    expect(await s.anon.account.pushStatus({})).toEqual({ pushEnabled: false });
+    expect(await s.ann.account.pushStatus()).toEqual({ pushEnabled: false });
+    // Strict: nobody can be named.
+    expect(await code(s.anon.account.pushStatus({ userId: "u-ann" } as never))).toBe("BAD_REQUEST");
+  });
+
+  test("true only with a token store, a sender and the scheduler running", async () => {
+    const s = await scene();
+    setAccountRuntime(s.app.config, { store: s.store, push: configured as never, sender });
+    expect(await s.anon.account.pushStatus({})).toEqual({ pushEnabled: true });
+    const rt = { store: s.store, push: configured as never, sender };
+    expect(pushDelivers(rt, {})).toBe(true);
+    expect(pushDelivers(rt, { NOTIFICATIONS_SCHEDULER_ENABLED: "false" })).toBe(false);
+    expect(pushDelivers({ ...rt, sender: null }, {})).toBe(false);
+    expect(pushDelivers({ ...rt, store: { ...s.store, enabled: false } as never }, {})).toBe(false);
+  });
+});
+
 describe("no social payload names anybody's wallet (M2)", () => {
   test("feed authors, people pages and call details carry walletAddress: null, self included", async () => {
     const s = await scene();
@@ -187,6 +211,7 @@ describe("the calls BFF no longer serves the legacy engine (B2, B12)", () => {
       "inbox.list", "inbox.unreadCount", "inbox.markRead", "record.mine", "auth.whoami",
       "auth.completeProfile", "pantaTrading.prepare", "predictions.catalog", "health",
       "account.me", "account.updateProfile", "account.addWalletFriend", "account.registerPushToken",
+      "account.pushStatus", "people.suggested",
     ]) {
       expect(served).toContain(p);
     }

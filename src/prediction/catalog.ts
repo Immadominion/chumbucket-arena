@@ -22,6 +22,7 @@
 
 import { VenueError } from "./errors.ts";
 import { pantaReportedVolume } from "./PantaVenue.ts";
+import { pantaQuoteCurrency, type QuoteCurrency } from "./marketQuote.ts";
 import type { VenueMarketRecord } from "./store.ts";
 import type { MarketStatus, VenueId, VenueMarket } from "./types.ts";
 
@@ -35,6 +36,10 @@ export type CatalogSort = (typeof CATALOG_SORTS)[number];
 export interface CatalogMarket extends VenueMarket {
   /** Panta's `volumeUsdc`, verbatim, or null when the venue did not report it. */
   volumeUsdc: string | null;
+  /** The market's quote asset (./marketQuote.ts); null outside Panta. */
+  quoteCurrency: QuoteCurrency | null;
+  /** Whether Chumbucket's trade path can trade it. Calls never depend on this. */
+  tradable: boolean;
 }
 
 export interface CatalogCategory {
@@ -158,6 +163,8 @@ export function catalogPage(records: readonly VenueMarketRecord[], q: CatalogQue
       ...market,
       status: effectiveStatus(market, q.now),
       volumeUsdc: market.venue === "panta" && raw?.venue === "panta" ? pantaReportedVolume(raw.body) : null,
+      quoteCurrency: pantaQuoteCurrency(market),
+      tradable: pantaQuoteCurrency(market) === "USDC",
     });
   }
 
