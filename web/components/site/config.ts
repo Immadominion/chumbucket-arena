@@ -44,14 +44,16 @@ export const NAV_ITEMS = [
  * signal and battery) and the gesture handle is cropped off. Each is
  * 720 x 1558, the phone screen's ratio (0.4622); the call-to-action phones
  * crop a hair off the sides. `label` says what the screen shows; the phones
- * themselves are decorative (the copy beside them says the same).
+ * themselves are decorative (the copy beside them says the same). The call
+ * and markets shots predate the percent display (they show per-share USDC
+ * prices), so their labels say so until they are recaptured.
  * See docs/website-structure.md, "Product screenshots".
  */
 export const SCREENS = {
   home: { src: "/product-shots/home-feed.webp", label: "Home: a receipt banner over the feed of calls" },
-  call: { src: "/product-shots/call-on-record.webp", label: "A call: “You’re on record”, with its side, percent and time" },
+  call: { src: "/product-shots/call-on-record.webp", label: "A free call: “You’re on record”, with its locked side, its price when called in USDC per share, and its time" },
   receipt: { src: "/product-shots/receipt-missed.webp", label: "A receipt: “Missed this one.”, settled by Panta" },
-  markets: { src: "/product-shots/markets.webp", label: "Markets: categories and each side’s percent" },
+  markets: { src: "/product-shots/markets.webp", label: "Markets: categories and YES / NO prices in USDC per share" },
   profile: { src: "/product-shots/profile-record.webp", label: "Profile: wallet and the record of calls" },
   welcome: { src: "/product-shots/welcome.webp", label: "Welcome: “Call it before it happens.”" },
 } as const;
