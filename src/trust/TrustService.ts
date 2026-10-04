@@ -362,15 +362,19 @@ export class TrustService {
     if (prior?.authDeletedAt) {
       return { status: "deleted", userId: prior.userId, alreadyDeleted: true, completedAt: prior.authDeletedAt };
     }
+    // The account the database will delete — asked of the database itself,
+    // so a sign-in the BFF cannot resolve (linking switched off) is never a
+    // way round the guards. delete_account_v2 refuses any other answer.
+    const target = input.userId ?? (await this.deps.store.deletionTarget(input.authUserId));
     // Every check another part of the product needs first (cash out, …).
     // A guard refuses by throwing; nothing has been written yet.
-    if (input.userId) {
+    if (target) {
       for (const guard of this.deps.deletionGuards ?? accountDeletionGuards) {
-        await guard({ userId: input.userId, authUserId: input.authUserId });
+        await guard({ userId: target, authUserId: input.authUserId });
       }
     }
     const outcome = await this.deps.store.deleteAccount(
-      { userId: input.userId ?? prior?.userId ?? null, authUserId: input.authUserId },
+      { userId: target ?? prior?.userId ?? null, authUserId: input.authUserId },
       this.now(),
     );
     if (!outcome.ok) {

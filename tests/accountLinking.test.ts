@@ -335,12 +335,15 @@ describe("a wallet's sign-in and a wallet's link", () => {
 
     const on = walletRig(true);
     on.links.answers.resolveWalletSignIn = { ok: true, user_id: "user-x", outcome: "linked" };
-    expect(await on.service.authenticate("tok-wallet")).toEqual({ authUserId: "auth-wallet", userId: "user-x" });
+    // Every request but sign-in only reads: no binding off the hot path.
+    expect(await codeOf(() => on.service.authenticate("tok-wallet"))).toBe("AUTH_USER_UNLINKED");
+    expect(on.links.calls).toHaveLength(0);
+    expect(await on.service.authenticate("tok-wallet", { carry: true })).toEqual({ authUserId: "auth-wallet", userId: "user-x" });
     expect(on.links.calls[0]).toEqual({
       name: "resolveWalletSignIn", input: { authUserId: "auth-wallet", walletAddress: on.wallet.address },
     });
     // A Google/X session never asks.
-    await on.service.authenticate("tok-x");
+    await on.service.authenticate("tok-x", { carry: true });
     expect(on.links.calls).toHaveLength(1);
   });
 

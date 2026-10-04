@@ -23,6 +23,10 @@ import { harness, person, testApp } from "./socialCallsFixtures.ts";
  *  accounts folded into theirs. */
 class WholePersonStore extends InMemoryTrustStore {
   calls: { userId: string | null; authUserId: string }[] = [];
+  /** The database's own answer (resolve_auth_user_v1), switches or not. */
+  override async deletionTarget(authUserId: string): Promise<string | null> {
+    return authUserId === "auth-orphan" ? "u-ann" : null;
+  }
   override async deleteAccount(input: { userId: string | null; authUserId: string }, at: number): Promise<DeleteAccountOutcome> {
     this.calls.push(input);
     const done = await super.deleteAccount(input, at);
@@ -41,7 +45,10 @@ async function scene(guards?: readonly AccountDeletionGuard[]) {
   setTrustRuntime(app.config, buildTrustRuntime(app.config, { store, authAdmin, ...(guards ? { deletionGuards: guards } : {}) }));
   // auth-ann-x is an additional sign-in of u-ann (a folded account's X).
   const identity = new FakeIdentityStore().addUser("auth-ann", "u-ann").addUser("auth-ann-x", "u-ann");
-  const verifier = new FakeJwtVerifier().issue("tok-ann", "auth-ann").issue("tok-ann-x", "auth-ann-x");
+  // auth-orphan reaches u-ann in the database, but this BFF can't resolve it
+  // (linking switched off after it was linked).
+  const verifier = new FakeJwtVerifier().issue("tok-ann", "auth-ann").issue("tok-ann-x", "auth-ann-x")
+    .issue("tok-orphan", "auth-orphan");
   primeAuthIdentityRuntime(app.config, { store: identity, verifier, policy: resolveAuthIdentityPolicy(app.config) });
   return { h, store, authAdmin, account: (token: string) => authRouter.createCaller({ app, supabaseAccessToken: token }) };
 }
@@ -70,6 +77,23 @@ describe("deleting an account with many sign-ins", () => {
     expect(seen).toEqual(["u-ann/auth-ann"]);
     expect(s.store.calls).toEqual([]);
     expect(s.authAdmin.deleted).toEqual([]);
+  });
+
+  test("a sign-in the BFF can't resolve still runs the guards on the account the database deletes", async () => {
+    const seen: string[] = [];
+    const s = await scene([
+      async ({ userId }) => {
+        seen.push(userId);
+        throw new TrustError("TRUST_DELETION_FAILED", "Cash out first.");
+      },
+    ]);
+    await expect(s.account("tok-orphan").deleteAccount({ confirm: "DELETE" })).rejects.toMatchObject({ message: "Cash out first." });
+    expect(seen).toEqual(["u-ann"]);
+    expect(s.store.calls).toEqual([]);
+    const open = await scene();
+    await open.account("tok-orphan").deleteAccount({ confirm: "DELETE" });
+    // It names the account, so delete_account_v2's refusal of a null one never bites.
+    expect(open.store.calls).toEqual([{ userId: "u-ann", authUserId: "auth-orphan" }]);
   });
 
   test("the registry other workstreams add to is the default", async () => {

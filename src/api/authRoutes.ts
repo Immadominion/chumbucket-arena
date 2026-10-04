@@ -260,7 +260,7 @@ export const authRouter = router({
       if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
       // A sign-in that already reaches an account (the one resolver) is that account.
       try {
-        const who = await serviceFor(ctx.app.config).authenticateSession(input.supabaseAccessToken);
+        const who = await serviceFor(ctx.app.config).authenticateSession(input.supabaseAccessToken, { carry: true });
         return { userId: who.userId, authUserId: who.authUserId };
       } catch (e) {
         if (!(e instanceof AuthIdentityError) || e.code !== "AUTH_USER_UNLINKED") throw e;
@@ -367,7 +367,8 @@ export const authRouter = router({
     .input(z.object({ supabaseAccessToken: accessToken }))
     .mutation(({ ctx, input }) =>
       run(async () => {
-        const identity = await serviceFor(ctx.app.config).authenticate(input.supabaseAccessToken);
+        // Sign-in itself: the one path that may bind a linked or legacy wallet's sign-in.
+        const identity = await serviceFor(ctx.app.config).authenticate(input.supabaseAccessToken, { carry: true });
         // The caller's own stored @username — null when the account has none,
         // which is the app's cue to ask for one. Omitted (not null) when it
         // could not be read, so a failed read never looks like "no username".
