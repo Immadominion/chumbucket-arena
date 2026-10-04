@@ -50,7 +50,7 @@ export interface MoneyCallStore {
   byCall(userId: string, callId: string): Promise<MoneyCallRow | null>;
   /** Applied only while the row is still in `expected` (state and attempts). Null otherwise. */
   update(callId: string, expected: { state: MoneyCallState; attempts: number }, patch: MoneyCallPatch): Promise<MoneyCallRow | null>;
-  /** Every PENDING and EXPIRED row, for the visibility index. Throws past a hard cap rather than truncate. */
+  /** Every row that is not FUNDED, for the visibility index. Throws past a hard cap rather than truncate. */
   privateRows(): Promise<MoneyCallRow[]>;
   /** The person's PENDING rows, newest first. */
   pendingForUser(userId: string, limit?: number): Promise<MoneyCallRow[]>;
@@ -91,7 +91,7 @@ export class SupabaseMoneyCallStore implements MoneyCallStore {
     const out: MoneyCallRow[] = [];
     for (let offset = 0; offset < CAP; offset += PAGE) {
       const batch = await this.pg.select<MoneyCallRow>("money_calls", new URLSearchParams({
-        state: "in.(PENDING,EXPIRED)", select: moneyCallColumns, order: "created_at.asc,call_id.asc", limit: String(PAGE), offset: String(offset),
+        state: "in.(PENDING,EXPIRED,FREE)", select: moneyCallColumns, order: "created_at.asc,call_id.asc", limit: String(PAGE), offset: String(offset),
       }));
       out.push(...batch.map(normalizeMoneyCall));
       if (batch.length < PAGE) return out;
@@ -176,7 +176,7 @@ export class InMemoryMoneyCallStore implements MoneyCallStore {
     this.rows.set(callId, next);
     return { ...next };
   }
-  async privateRows() { return [...this.rows.values()].filter(r => r.state === "PENDING" || r.state === "EXPIRED").map(r => ({ ...r })); }
+  async privateRows() { return [...this.rows.values()].filter(r => r.state !== "FUNDED").map(r => ({ ...r })); }
   async pendingForUser(userId: string, limit = 20) {
     return [...this.rows.values()].filter(r => r.user_id === userId && r.state === "PENDING")
       .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit).map(r => ({ ...r }));

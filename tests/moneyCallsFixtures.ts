@@ -70,6 +70,13 @@ export class FakePanta {
     return { order, review } as never;
   }
   async reconcile(row: PantaTradeSession) { return this.rows.find(r => r.id === row.id) ?? row; }
+  /** The ledger's conditional write (only QUOTED/PREPARING -> FAILED is used by money calls). */
+  async update(id: string, previous: PantaTradeSession["state"], patch: Partial<PantaTradeSession>) {
+    const row = this.rows.find(r => r.id === id);
+    if (!row || row.state !== previous) return null;
+    Object.assign(row, patch);
+    return row;
+  }
   view(row: PantaTradeSession): VenueOrder {
     return { orderId: row.provider_order_id!, venueOrderId: row.provider_order_id, venue: "panta", venueMarketId: row.venue_market_id,
       owner: row.wallet_address, side: row.side, amountBaseUnits: row.amount_base_units,

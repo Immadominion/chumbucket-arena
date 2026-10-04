@@ -260,22 +260,56 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     expect(r.store.rows.get(out.call.call.id)!.attempts).toBe(1);
   });
 
-  test("keep free: public with the Free marker, and a Fade now counts", async () => {
+  test("keep free makes a fresh free call at the current price and time; the pending one is withdrawn, never kept", async () => {
     const r = moneyRig();
     const target = r.calls.createCall({ marketId: "m", side: "YES" }, "bob");
-    const out = await r.money.prepareCall(ann, respond("fade", target.call.id));
+    const out = await r.money.prepareCall(ann, { ...respond("fade", target.call.id), thesis: "Too optimistic", confidence: 0.7 });
     if (out.status !== "READY") throw new Error(out.status);
     r.panta.fail(out.trade.order.orderId);
+    // The price moves and time passes before the owner chooses.
+    r.h.clock.advance(4 * MIN);
+    r.h.venue.appendSnapshot({ marketId: "m", yesProbability: 0.8, observedAt: r.h.clock.now(), source: "venue" });
     const kept = await r.money.keepFree("ann", out.call.call.id);
-    expect(kept.moneyCall).toMatchObject({ state: "FREE", canRetry: false, canKeepFree: false });
+    expect(kept.moneyCall).toMatchObject({ callId: out.call.call.id, state: "FREE", canRetry: false, canKeepFree: false });
+    // A new call: current price and time, the same statement, the ordinary free path.
+    expect(kept.call.call.id).not.toBe(out.call.call.id);
+    expect(kept.call.call).toMatchObject({ side: "NO", parentCallId: target.call.id, lockedAt: T0 + 4 * MIN, entryProbability: 0.8,
+      thesis: "Too optimistic", confidence: 0.7, fundingState: "NONE" });
+    expect(out.call.call.entryProbability).toBe(0.5);
     expect(kept.call.funding).toBeUndefined();
     expect(kept.call.money).toBeUndefined();
-    expect(r.calls.getCall({ callId: out.call.call.id }, "cy").entry.call.fundingState).toBe("NONE");
-    expect(r.calls.getCall({ callId: target.call.id }, "cy").entry.fadeCount).toBe(1);
+    // The new call is public; the old one is withdrawn and on no record.
+    expect(r.calls.getCall({ callId: kept.call.call.id }, "cy").entry.call.id).toBe(kept.call.call.id);
+    expect(r.h.calls.getCall(out.call.call.id)!.hiddenReason).toBe("money_call_kept_free");
+    expect(() => r.calls.getCall({ callId: out.call.call.id }, "cy")).toThrow();
+    expect(r.calls.getCall({ callId: out.call.call.id }, "ann").entry.money?.state).toBe("FREE");
     expect(r.calls.people.publicRecord("ann").counts.pending).toBe(1);
-    // Idempotent, and final unless a fill lands.
-    expect((await r.money.keepFree("ann", out.call.call.id)).moneyCall.state).toBe("FREE");
+    expect(r.calls.getCall({ callId: target.call.id }, "cy").entry.fadeCount).toBe(1);
+    expect(r.h.calls.listResponses()).toHaveLength(1);
+    // A dropped reply answers with the same free call; nothing else changes.
+    const again = await r.money.keepFree("ann", out.call.call.id);
+    expect(again.call.call.id).toBe(kept.call.call.id);
     await expect(r.money.discard("ann", out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
+    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
+  });
+
+  test("keep free retires the live unsigned quote, so it can't be signed after the call went free", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    await r.money.keepFree("ann", out.call.call.id);
+    expect(r.panta.rows[0]!.state).toBe("FAILED");
+    expect(() => r.panta.submit(out.trade.order.orderId)).toThrow();
+  });
+
+  test("keep free with no readable price is refused and leaves the pending call exactly as it was", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    r.calls.priceReadable = () => false;
+    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "PRICE_UNAVAILABLE" });
+    expect(r.store.rows.get(out.call.call.id)!.state).toBe("PENDING");
+    expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).toBeNull();
+    expect(r.panta.rows[0]!.state).toBe("QUOTED");
+    expect(r.h.calls.listCalls()).toHaveLength(1);
   });
 
   test("keep free is refused once the market stopped taking calls; the sweeper then expires it", async () => {
@@ -284,6 +318,8 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     r.panta.fail(out.trade.order.orderId);
     r.h.clock.advance(6 * MIN);
     await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "MARKET_CLOSED" });
+    expect(r.store.rows.get(out.call.call.id)!.state).toBe("PENDING");
+    expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).toBeNull();
     expect(await r.money.sweep()).toMatchObject({ expired: 1 });
     expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "market_closed" });
   });
@@ -293,6 +329,7 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     const out = await ready(r);
     const gone = await r.money.discard("ann", out.call.call.id);
     expect(gone.moneyCall).toMatchObject({ state: "EXPIRED", canRetry: false });
+    expect(r.panta.rows[0]!.state).toBe("FAILED"); // its unsigned quote can't be signed any more
     const call = r.h.calls.getCall(out.call.call.id)!;
     expect(call.hiddenReason).toBe("money_call_expired");
     expect(r.calls.getCall({ callId: call.id }, "ann").entry.money?.state).toBe("EXPIRED");

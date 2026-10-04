@@ -51,6 +51,7 @@ const CODES: Record<MoneyErrorCode, TRPC_ERROR_CODE_KEY> = {
   IDEMPOTENCY_CONFLICT: "CONFLICT",
   MARKET_CLOSED: "PRECONDITION_FAILED",
   NOT_TRADABLE: "PRECONDITION_FAILED",
+  PRICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
   BAD_SIGNATURE: "BAD_REQUEST",
   EXPIRED: "PRECONDITION_FAILED",
   RATE_LIMITED: "TOO_MANY_REQUESTS",
@@ -223,12 +224,16 @@ export const moneyRouter = router({
     return moneyRuntimeFor(config).calls.retry(who, input.callId, input.wallet);
   })),
 
-  /** Keep a pending call as a free call: public now, with the Free marker. */
+  /** Go free instead: the pending call is withdrawn and a fresh free call is made at the current price. */
   keepFree: publicProcedure.input(z.object({ callId: uuid }).strict()).mutation(({ ctx, input }) => run("money.keepFree", async () => {
-    requireOn(ctx.app.config);
+    const config = ctx.app.config;
+    requireOn(config);
     const who = await person(ctx, "write");
-    await callsReady(ctx.app.config, who.userId);
-    return moneyRuntimeFor(ctx.app.config).calls.keepFree(who.userId, input.callId);
+    const rt = await callsReady(config, who.userId);
+    // The fresh free call is stamped with the current price: read it now, like calls.create does.
+    const own = rt.store.getCall(input.callId);
+    if (own && own.userId === who.userId) await freshenPantaPrice(rt, own.marketId);
+    return moneyRuntimeFor(config).calls.keepFree(who.userId, input.callId);
   })),
 
   /** Drop a pending call for good: withdrawn, never shown. */

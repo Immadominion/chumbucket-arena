@@ -12,6 +12,7 @@ export type MoneyErrorCode =
   | "IDEMPOTENCY_CONFLICT"
   | "MARKET_CLOSED"
   | "NOT_TRADABLE"
+  | "PRICE_UNAVAILABLE"
   | "BAD_SIGNATURE"
   | "EXPIRED"
   | "RATE_LIMITED"

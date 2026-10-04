@@ -4,8 +4,10 @@
  * A call made with an amount is PENDING until its Panta order is FILLED, and
  * a PENDING call is its owner's alone: no feed, profile, top-calls strip,
  * suggestion, notification, crowd split or record ever sees it. An EXPIRED one
- * (never funded, never kept free) stays that way for good. FUNDED and FREE
- * calls are ordinary public calls and are not held here.
+ * (never funded, never kept free) stays that way for good, and so does a FREE
+ * one: "keep it free" withdraws it and makes a fresh free call at the current
+ * price, which is the public one. A FUNDED call is an ordinary public call
+ * and is not held here.
  *
  * The calls layer reads a synchronous mirror (it serves every read from
  * memory), so this is a mirror too: hydrated from money_calls with the calls
@@ -17,7 +19,8 @@ import type { AppConfig } from "../config.ts";
 import { InMemoryMoneyCallStore, SupabaseMoneyCallStore, type MoneyCallRow, type MoneyCallStore } from "./store.ts";
 
 export interface MoneyCallOwnerView {
-  state: "PENDING" | "EXPIRED";
+  /** FREE: replaced by a fresh free call (that call is the one on record). */
+  state: "PENDING" | "EXPIRED" | "FREE";
   amountBaseUnits: string;
   side: "YES" | "NO";
   expiresAt: number;
@@ -25,7 +28,7 @@ export interface MoneyCallOwnerView {
 
 /** What the calls layer asks. */
 export interface MoneyCallVisibility {
-  /** PENDING or EXPIRED: owner-only, on no public surface or record. */
+  /** PENDING, EXPIRED or FREE (replaced): owner-only, on no public surface or record. */
   isPrivate(callId: string): boolean;
   /** The owner's view of their own private money call, or null. */
   ownerView(callId: string): MoneyCallOwnerView | null;
@@ -43,7 +46,7 @@ export class MoneyCallIndex implements MoneyCallVisibility {
 
   ownerView(callId: string): MoneyCallOwnerView | null {
     const row = this.rows.get(callId);
-    if (!row || (row.state !== "PENDING" && row.state !== "EXPIRED")) return null;
+    if (!row || row.state === "FUNDED") return null;
     return { state: row.state, amountBaseUnits: row.amount_base_units, side: row.side, expiresAt: Date.parse(row.expires_at) };
   }
 
@@ -52,10 +55,10 @@ export class MoneyCallIndex implements MoneyCallVisibility {
   /** Every PENDING row, for the sweeper. */
   pending(): MoneyCallRow[] { return [...this.rows.values()].filter(r => r.state === "PENDING"); }
 
-  /** The newest state of a row. FUNDED and FREE leave the index: the call is public. */
+  /** The newest state of a row. FUNDED leaves the index: the call is public. */
   put(row: MoneyCallRow): void {
-    if (row.state === "PENDING" || row.state === "EXPIRED") this.rows.set(row.call_id, row);
-    else this.rows.delete(row.call_id);
+    if (row.state === "FUNDED") this.rows.delete(row.call_id);
+    else this.rows.set(row.call_id, row);
   }
 
   /** Read every private row. Throws when the ledger cannot be read: the caller fails closed. */

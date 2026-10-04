@@ -12,7 +12,9 @@
  *                or the sweeper reading the same FILLED ledger row. The SQL
  *                guard refuses FUNDED without a FILLED trade.
  *   retry        a fresh quote for the same pending call
- *   keepFree     the owner keeps it as a free call: public now
+ *   keepFree     the owner goes free instead: the pending call is withdrawn
+ *                and a fresh free call is made at the current price and time
+ *                through the ordinary free path (never the old locked price)
  *   discard      the owner drops it: withdrawn, never shown
  *   sweep        FUNDED repair, and EXPIRED for anything abandoned
  *
@@ -100,15 +102,15 @@ export interface MoneyCallsDeps {
   index: MoneyCallIndex;
   calls: {
     service: Pick<CallsService, "planFundedCall" | "lockFundedCall" | "publishFundedCall" | "withdrawFundedCall" |
-      "restoreFundedCall" | "takesCalls" | "getCall">;
-    store: Pick<CallsStore, "getCall">;
+      "restoreFundedCall" | "takesCalls" | "getCall" | "assertFreeReplacement" | "replaceFundedCallWithFree" | "priceReadable">;
+    store: Pick<CallsStore, "getCall" | "liveCallByUserOnMarket">;
     /** Every queued call write is durable (or this throws). */
     flush(): Promise<void>;
   };
   /** Panta trading. `forRead` keeps reads working while new approvals are paused; throws when not configured. */
   trading(forRead: boolean): Pick<PantaTradingService, "prepare" | "reconcile" | "view">;
-  /** The private trade ledger; null when Panta is not configured. */
-  ledger(): Pick<PantaTradingLedger, "find" | "latestForCall"> | null;
+  /** The private trade ledger; null when Panta is not configured. `update` retires an unsigned quote. */
+  ledger(): Pick<PantaTradingLedger, "find" | "latestForCall" | "update"> | null;
   balances: BalancePort | null;
   gas: GasPort;
   /** The per-approval USDC ceiling (PANTA_MAX_AMOUNT_BASE_UNITS). */
@@ -247,6 +249,8 @@ export class MoneyCallsService {
 
     let next = row;
     if (current || wallet.address !== row.wallet_address) {
+      // Only the newest attempt's quote can ever be signed.
+      await this.retireQuote(row);
       const bumped = await this.deps.store.update(row.call_id, { state: "PENDING", attempts: row.attempts },
         { attempts: row.attempts + 1, wallet_address: wallet.address });
       if (!bumped) throw new MoneyError("STATE", "This call just changed. Check it again.");
@@ -268,27 +272,47 @@ export class MoneyCallsService {
 
   // ── the owner's choices ────────────────────────────────────────────────────
 
+  /**
+   * Go free instead. The pending money call is withdrawn (it stays off every
+   * record) and a FRESH free call is made at the current price and time,
+   * through the ordinary free path and its checks; that new call is returned.
+   * Market closed or no readable price: refused, and the pending call is left
+   * as it was, to be discarded or to expire. Never while a buy is going
+   * through; the live unsigned quote is retired first, so it can't be signed
+   * after the call went free.
+   */
   async keepFree(userId: string, callId: string): Promise<{ moneyCall: MoneyCallView; call: CallFeedEntry }> {
     let row = await this.own(userId, callId);
-    if (row.state === "PENDING") {
-      const latest = await this.latest(row);
-      if (latest?.state === "FILLED") row = await this.markFunded(row);
-      else {
-        if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
-        await this.assertAlive(row);
-        if (!this.deps.calls.service.takesCalls(row.market_id)) {
-          throw new MoneyError("MARKET_CLOSED", "This market stopped taking calls, so this call can't be kept.");
-        }
-        const saved = await this.deps.store.update(callId, { state: "PENDING", attempts: row.attempts }, { state: "FREE", ended_reason: "kept_free" });
-        if (!saved) throw new MoneyError("STATE", "This call just changed. Check it again.");
-        row = saved;
-        this.deps.index.put(row);
-        // Public now: a Tail/Fade counts on its target from this moment.
-        this.deps.calls.service.publishFundedCall(callId);
-        await this.deps.calls.flush();
-      }
-    } else if (row.state !== "FREE") throw new MoneyError("STATE", this.stateCopy(row));
-    return { moneyCall: await this.describe(row), call: this.entry(row) };
+    if (row.state === "FREE") {
+      // A dropped reply: the free call made for it is the person's live call on that market.
+      const live = this.deps.calls.store.liveCallByUserOnMarket(userId, row.market_id);
+      if (live) return { moneyCall: await this.describe(row), call: this.deps.calls.service.getCall({ callId: live.id }, userId).entry };
+    }
+    if (row.state !== "PENDING") throw new MoneyError("STATE", this.stateCopy(row));
+    const latest = await this.latest(row);
+    if (latest?.state === "FILLED") {
+      row = await this.markFunded(row);
+      return { moneyCall: await this.describe(row), call: this.entry(row) };
+    }
+    if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
+    await this.assertAlive(row);
+    const calls = this.deps.calls.service;
+    if (!calls.takesCalls(row.market_id)) {
+      throw new MoneyError("MARKET_CLOSED", "This market stopped taking calls, so there's no free call to make.");
+    }
+    if (!calls.priceReadable(row.market_id)) {
+      throw new MoneyError("PRICE_UNAVAILABLE", "This market's price isn't available right now. Try again in a minute.");
+    }
+    calls.assertFreeReplacement(callId, userId);
+    await this.retireQuote(row);
+    // Calls first, ledger second: a crash in between leaves a withdrawn call
+    // with a PENDING row the sweeper expires, never a live private call.
+    const entry = calls.replaceFundedCallWithFree(callId, userId);
+    await this.deps.calls.flush();
+    const saved = await this.deps.store.update(callId, { state: "PENDING", attempts: row.attempts }, { state: "FREE", ended_reason: "kept_free" });
+    row = saved ?? (await this.deps.store.byCall(userId, callId)) ?? row;
+    this.deps.index.put(row);
+    return { moneyCall: await this.describe(row), call: entry };
   }
 
   async discard(userId: string, callId: string): Promise<{ moneyCall: MoneyCallView }> {
@@ -298,6 +322,7 @@ export class MoneyCallsService {
       if (latest?.state === "FILLED") row = await this.markFunded(row);
       else {
         if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
+        await this.retireQuote(row);
         row = await this.end(row, "discarded");
       }
     } else if (row.state !== "EXPIRED") throw new MoneyError("STATE", this.stateCopy(row));
@@ -369,7 +394,7 @@ export class MoneyCallsService {
         if (!exists) { if (now - Date.parse(row.created_at) > NOT_CREATED_GRACE_MS) reason = "not_created"; }
         else if (!this.deps.calls.service.takesCalls(row.market_id)) reason = "market_closed";
         else if (now >= Date.parse(row.expires_at)) reason = "expired";
-        if (reason) { await this.end(row, reason); report.expired++; }
+        if (reason) { await this.retireQuote(row); await this.end(row, reason); report.expired++; }
       } catch (error) {
         report.errors.push(error instanceof MoneyError ? error.code : "MONEY_SWEEP_FAILED");
       }
@@ -407,6 +432,21 @@ export class MoneyCallsService {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * The current attempt's unsigned quote can no longer be signed: QUOTED (or
+   * still PREPARING) becomes FAILED, the trade ledger's own allowed move. If
+   * a signature got there first, that buy is going through and nothing ends.
+   */
+  private async retireQuote(row: MoneyCallRow): Promise<void> {
+    const ledger = this.deps.ledger();
+    if (!ledger) return;
+    const current = await ledger.find(row.user_id, tradeKey(row));
+    if (!current || (current.state !== "QUOTED" && current.state !== "PREPARING")) return;
+    if (await ledger.update(current.id, current.state, { state: "FAILED" })) return;
+    const now = await ledger.find(row.user_id, tradeKey(row));
+    if (now?.state === "SUBMITTED" || now?.state === "FILLED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
+  }
 
   /**
    * A pending call past its time is over even before the sweeper gets to it:
@@ -521,7 +561,7 @@ export class MoneyCallsService {
   private stateCopy(row: MoneyCallRow): string {
     switch (row.state) {
       case "FUNDED": return "This call is already funded.";
-      case "FREE": return "This call was kept as a free call.";
+      case "FREE": return "You went free on this one; your free call is the one on record.";
       case "EXPIRED": return "This call wasn't finished in time. Make it again.";
       case "PENDING": return "This call is still waiting for its money.";
     }

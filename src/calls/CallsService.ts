@@ -105,6 +105,8 @@ export interface FundedCallPlan {
 
 /** The hidden reason of a money call that was never funded nor kept free. */
 export const MONEY_CALL_EXPIRED_REASON = "money_call_expired";
+/** The hidden reason of a money call its owner replaced with a fresh free call. */
+export const MONEY_CALL_KEPT_FREE_REASON = "money_call_kept_free";
 
 const THESIS_MAX = 280;
 
@@ -838,13 +840,59 @@ export class CallsService {
   }
 
   /**
+   * "Keep it free" (docs/money-api.md §a): the pending money call is
+   * withdrawn and a FRESH free call is made at the current price and time,
+   * through the ordinary free path (calls.create, or calls.respond for a
+   * Tail/Fade) with all of its checks. The pending call's own locked price is
+   * never kept: waiting to see where the price goes, then keeping the old
+   * one, would be an option nobody else gets. Validated before anything
+   * changes, so a refusal leaves the pending call exactly as it was.
+   */
+  replaceFundedCallWithFree(callId: string, actorUserId: string): CallFeedEntry {
+    const { input, statement } = this.freeReplacementOf(callId, actorUserId);
+    this.validateFundedCall(input, actorUserId, callId);
+    this.store.hideCall(callId, MONEY_CALL_KEPT_FREE_REASON);
+    if (input.kind === "own") {
+      return this.createCall({ marketId: input.marketId, side: input.side, ...statement }, actorUserId);
+    }
+    const made = this.respond({ targetCallId: input.targetCallId, kind: input.kind, ...statement }, actorUserId);
+    return made.resultingCall!;
+  }
+
+  /** Whether "keep it free" would be accepted right now, without changing anything. */
+  assertFreeReplacement(callId: string, actorUserId: string): void {
+    const { input } = this.freeReplacementOf(callId, actorUserId);
+    this.validateFundedCall(input, actorUserId, callId);
+  }
+
+  /** A price a new call can be stamped with right now (Panta: a fresh share price). */
+  priceReadable(marketId: string): boolean {
+    const market = this.markets.getMarket(marketId);
+    if (!market) return false;
+    return market.venue !== "panta" || usableSharePrice(this.markets.latestSharePrice?.(market.id), this.clock.now());
+  }
+
+  private freeReplacementOf(callId: string, actorUserId: string): {
+    input: FundedCallInput; statement: { confidence: number | null; thesis: string | null; visibility: CallVisibility };
+  } {
+    const call = this.store.getCall(callId);
+    if (!call || call.userId !== actorUserId || call.hiddenAt !== null) throw new CallsError("CALL_NOT_FOUND", "We couldn't find that call.");
+    const statement = { confidence: call.confidence, thesis: call.thesis, visibility: call.visibility };
+    if (!call.parentCallId) return { input: { kind: "own", marketId: call.marketId, side: call.side }, statement };
+    const target = this.store.getCall(call.parentCallId);
+    if (!target) throw new CallsError("CALL_NOT_FOUND", "We couldn't find that call.");
+    return { input: { kind: call.side === target.side ? "back" : "fade", targetCallId: target.id }, statement };
+  }
+
+  /**
    * An expired money call that a confirmed fill funded after all (the venue
    * wins): shown again, unless the person has since made another live call on
    * that market (one live call per market).
    */
   restoreFundedCall(callId: string): void {
     const call = this.store.getCall(callId);
-    if (!call || call.hiddenAt === null || call.hiddenReason !== MONEY_CALL_EXPIRED_REASON) return;
+    if (!call || call.hiddenAt === null ||
+        (call.hiddenReason !== MONEY_CALL_EXPIRED_REASON && call.hiddenReason !== MONEY_CALL_KEPT_FREE_REASON)) return;
     if (this.store.liveCallByUserOnMarket(call.userId, call.marketId)) return;
     this.store.unhideCall(callId);
   }
@@ -856,7 +904,8 @@ export class CallsService {
       this.markets.getResolution(market.id) === undefined;
   }
 
-  private validateFundedCall(input: FundedCallInput, actorUserId: string): Omit<FundedCallPlan, "callId"> {
+  /** `replacing`: the actor's own pending call that this one replaces (not a conflict). */
+  private validateFundedCall(input: FundedCallInput, actorUserId: string, replacing?: string): Omit<FundedCallPlan, "callId"> {
     if (input.kind === "own") {
       const market = this.requireMarket(input.marketId);
       this.assertCurrentVenue(market);
@@ -873,7 +922,7 @@ export class CallsService {
           { details: { marketId: market.id, status: market.status } },
         );
       }
-      this.assertNoLiveCall(actorUserId, market.id);
+      this.assertNoLiveCall(actorUserId, market.id, replacing);
       return { kind: "own", marketId: market.id, side: input.side, targetCallId: null };
     }
     const target = this.requireVisibleCall(input.targetCallId, actorUserId);
@@ -901,13 +950,13 @@ export class CallsService {
         details: { targetCallId: target.id, kind: input.kind },
       });
     }
-    this.assertNoLiveCall(actorUserId, market.id);
+    this.assertNoLiveCall(actorUserId, market.id, replacing);
     return { kind: input.kind, marketId: market.id, side: input.kind === "back" ? target.side : opposite(target.side), targetCallId: target.id };
   }
 
-  private assertNoLiveCall(actorUserId: string, marketId: string): void {
+  private assertNoLiveCall(actorUserId: string, marketId: string, replacing?: string): void {
     const existing = this.store.liveCallByUserOnMarket(actorUserId, marketId);
-    if (existing) {
+    if (existing && existing.id !== replacing) {
       throw new CallsError("CALL_ALREADY_MADE", "you already have a live call on this market", {
         details: { callId: existing.id, marketId },
       });
