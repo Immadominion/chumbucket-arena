@@ -19,6 +19,7 @@ import {
   isFreeCall,
   outcomeCopy,
   priceLabel,
+  priceParts,
   priceUnit,
   recordLabel,
   safeAvatar,
@@ -120,6 +121,22 @@ describe("presentation", () => {
       yesPrice: "0.671739755", noPrice: "0.328260245", observedAt: 1, attribution: "Powered by Panta" } };
     expect(entryLabel(call as never)).toBe("0.33 SOL");
     expect(entryLabel(call as never)).not.toMatch(/[$¢]/);
+  });
+
+  test("price parts: the figure, and a unit only where the figure carries none", () => {
+    expect(priceParts("0.671739755", "SOL")).toEqual({ value: "0.67", unit: "SOL" });
+    expect(priceParts("0.001", "SOL")).toEqual({ value: "<0.01", unit: "SOL" });
+    expect(priceParts("0.5", "USDC")).toEqual({ value: "50¢", unit: null });
+    expect(priceParts("1.2", null)).toEqual({ value: "$1.20", unit: null });
+    for (const bad of [null, undefined, "", "-1", "abc"]) {
+      expect(priceParts(bad, "SOL")).toBeNull();
+      expect(priceParts(bad, "USDC")).toBeNull();
+    }
+    // priceLabel is exactly the parts joined, in both units.
+    for (const [price, cur] of [["0.671739755", "SOL"], ["0.5", "USDC"], ["2", undefined]] as const) {
+      const parts = priceParts(price, cur)!;
+      expect(priceLabel(price, cur)).toBe(parts.unit ? `${parts.value} ${parts.unit}` : parts.value);
+    }
   });
 
   test("outcomes and records", () => {

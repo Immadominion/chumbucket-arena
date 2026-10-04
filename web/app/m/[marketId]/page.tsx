@@ -12,7 +12,7 @@ import OpenInApp from "@/components/public/OpenInApp";
 import { ExternalIcon, PublicShell, Unavailable } from "@/components/public/PublicShell";
 import {
   NotFound,
-  priceLabel,
+  priceParts,
   priceUnit,
   getMarket,
   sideLabel,
@@ -66,8 +66,8 @@ export default async function MarketPage({ params }: { params: Promise<Params> }
 
 function MarketBody({ detail }: { detail: MarketDetail }) {
   const { market, sharePrice } = detail;
-  const yes = priceLabel(sharePrice?.yesPrice, sharePrice?.currency);
-  const no = priceLabel(sharePrice?.noPrice, sharePrice?.currency);
+  const yes = priceParts(sharePrice?.yesPrice, sharePrice?.currency);
+  const no = priceParts(sharePrice?.noPrice, sharePrice?.currency);
   const venue = venueUrl(market);
   const open = market.status === "OPEN";
   const closes = whenLabel(market.closesAt);
@@ -92,11 +92,11 @@ function MarketBody({ detail }: { detail: MarketDetail }) {
         <div className="pub-prices" role="group" aria-label="Current price per share">
           <div className="pub-price pub-price-yes">
             <span className="pub-price-label">{sideLabel(market, "YES")}</span>
-            <span className="pub-price-value">{yes ?? "–"}</span>
+            <PriceValue parts={yes} />
           </div>
           <div className="pub-price pub-price-no">
             <span className="pub-price-label">{sideLabel(market, "NO")}</span>
-            <span className="pub-price-value">{no ?? "–"}</span>
+            <PriceValue parts={no} />
           </div>
         </div>
         <p className="pub-muted pub-small">
@@ -125,5 +125,20 @@ function MarketBody({ detail }: { detail: MarketDetail }) {
         label={open ? "Make your call before it closes" : "See who called it"}
       />
     </section>
+  );
+}
+
+/** The figure large; a unit it does not carry (SOL) small beside it, so a
+ *  SOL price reads as one figure in a half-width box, as a USDC one does. */
+function PriceValue({ parts }: { parts: ReturnType<typeof priceParts> }) {
+  if (!parts) return <span className="pub-price-value">–</span>;
+  if (!parts.unit) return <span className="pub-price-value">{parts.value}</span>;
+  // The unit sits under the figure in a phone-width box and beside it where
+  // both fit (public.css). The space between the two is not laid out, but
+  // keeps "0.67 SOL" two words for a screen reader.
+  return (
+    <span className="pub-price-value pub-price-figure">
+      <span>{parts.value}</span> <span className="pub-price-unit">{parts.unit}</span>
+    </span>
   );
 }

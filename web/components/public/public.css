@@ -452,6 +452,29 @@
   font-weight: var(--cb-bold);
   font-variant-numeric: tabular-nums;
 }
+/* A SOL price: the figure with its unit set small. Under the figure while the
+   two boxes are narrow (a phone), beside it once each box has room for both,
+   so the YES and NO boxes always change layout together. */
+.pub-prices {
+  container-type: inline-size;
+}
+.pub-price-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+@container (min-width: 360px) {
+  .pub-price-figure {
+    flex-direction: row;
+    align-items: baseline;
+    column-gap: 4px;
+    white-space: nowrap;
+  }
+}
+.pub-price-unit {
+  font-size: 15px;
+  line-height: 20px;
+}
 .pub-rules {
   padding-top: 12px;
   border-top: 1px solid var(--pub-line);

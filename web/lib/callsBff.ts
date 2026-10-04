@@ -225,12 +225,28 @@ export function centsLabel(price: string | null | undefined): string | null {
  * (`0.67 SOL`), never converted to dollars or cents.
  */
 export function priceLabel(price: string | null | undefined, currency: string | null | undefined): string | null {
-  if (currency !== "SOL") return centsLabel(price);
+  const parts = priceParts(price, currency);
+  return parts && (parts.unit ? `${parts.value} ${parts.unit}` : parts.value);
+}
+
+/**
+ * `priceLabel` split for display: the figure, and the unit to set beside it
+ * when the figure does not carry one. USDC: `{ value: "50¢", unit: null }`;
+ * SOL: `{ value: "0.67", unit: "SOL" }`. Missing, negative or unparsable ->
+ * null.
+ */
+export function priceParts(
+  price: string | null | undefined,
+  currency: string | null | undefined,
+): { value: string; unit: "SOL" | null } | null {
+  if (currency !== "SOL") {
+    const cents = centsLabel(price);
+    return cents ? { value: cents, unit: null } : null;
+  }
   if (price === null || price === undefined || price.trim() === "") return null;
   const n = Number(price);
   if (!Number.isFinite(n) || n < 0) return null;
-  if (n > 0 && n < 0.005) return "<0.01 SOL";
-  return `${n.toFixed(2)} SOL`;
+  return { value: n > 0 && n < 0.005 ? "<0.01" : n.toFixed(2), unit: "SOL" };
 }
 
 /** "USDC" or "SOL": the unit a share price is quoted in. */
