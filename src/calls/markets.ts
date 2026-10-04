@@ -14,6 +14,7 @@
  * for such a method to be built out of.
  */
 
+import { servedMarket } from "../prediction/marketQuote.ts";
 import type { PredictionStore } from "../prediction/store.ts";
 import type { SharePriceSnapshot } from "../prediction/sharePrices.ts";
 import type { MarketResolutionRecord, MarketSnapshot, VenueMarket } from "../prediction/types.ts";
@@ -39,8 +40,14 @@ export interface VenueMarketReader {
  */
 export function predictionStoreReader(store: PredictionStore): VenueMarketReader {
   return {
-    getMarket: (marketId) => store.getMarket(marketId)?.market,
-    listMarkets: () => store.listMarkets().map((r) => r.market),
+    // Served with the market's quote asset and whether it can be traded
+    // (../prediction/marketQuote.ts): a SOL-quoted Panta market takes calls
+    // but is never offered a trade.
+    getMarket: (marketId) => {
+      const market = store.getMarket(marketId)?.market;
+      return market ? servedMarket(market) : undefined;
+    },
+    listMarkets: () => store.listMarkets().map((r) => servedMarket(r.market)),
     latestSnapshot: (marketId) => store.latestSnapshot(marketId),
     latestSharePrice: (marketId) => store.latestSharePrice(marketId),
     getResolution: (marketId) => store.getResolution(marketId),

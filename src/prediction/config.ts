@@ -26,6 +26,9 @@ export interface PredictionConfigInput {
   panta?: { apiKey: string; timeoutMs?: number; programId?: string };
   pantaSchemaReady?: boolean;
   maxAmountBaseUnits?: string;
+  /** SOL-quoted Panta markets from the program account. Explicit config only:
+   *  the environment reaches this through loadConfig(), never as a fallback. */
+  pantaSolMarkets?: { enabled?: boolean; rpcUrl?: string };
   /** Historical input compatibility only; ignored and never enables an adapter. */
   polymarket?: { baseUrl?: string; timeoutMs?: number };
   flags?: { fundedPositions?: boolean };
@@ -43,6 +46,8 @@ export interface PredictionConfig {
   venue: VenueId;
   jupiter: { baseUrl: string; apiKey: string; timeoutMs: number } | null;
   panta: { apiKey: string; timeoutMs: number } | null;
+  /** Set when SOL-quoted Panta markets are read from the program. Never described outward (the URL can carry a provider key). */
+  pantaSolMarkets?: { rpcUrl: string } | null;
   polymarket: { baseUrl: string; timeoutMs: number } | null;
   flags: { fundedPositions: boolean };
   cache: CacheTtls;
@@ -90,6 +95,8 @@ export function resolvePredictionConfig(
     venue,
     jupiter: null,
     panta: venue === "panta" ? { apiKey: pantaKey!, timeoutMs: fromApp?.panta?.timeoutMs ?? num(env.PANTA_TIMEOUT_MS, 8_000) } : null,
+    pantaSolMarkets: venue === "panta" && fromApp?.pantaSolMarkets?.enabled === true && fromApp.pantaSolMarkets.rpcUrl
+      ? { rpcUrl: fromApp.pantaSolMarkets.rpcUrl } : null,
     polymarket: null,
     flags: {
       // Native Panta execution additionally requires durable schema and a
@@ -124,6 +131,7 @@ export function describePredictionConfig(cfg: PredictionConfig): {
   jupiterConfigured: boolean;
   polymarketConfigured: boolean;
   pantaConfigured: boolean;
+  pantaSolMarkets: boolean;
   cache: CacheTtls;
 } {
   return {
@@ -134,6 +142,7 @@ export function describePredictionConfig(cfg: PredictionConfig): {
     // Retained response fields for old clients; both retired providers are false.
     polymarketConfigured: cfg.polymarket !== null,
     pantaConfigured: cfg.panta !== null,
+    pantaSolMarkets: !!cfg.pantaSolMarkets,
     cache: cfg.cache,
   };
 }

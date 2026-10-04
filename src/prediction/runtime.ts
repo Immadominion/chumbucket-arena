@@ -26,6 +26,9 @@
 import type { AppConfig } from "../config.ts";
 import { FixtureVenue } from "./FixtureVenue.ts";
 import { PantaVenue } from "./PantaVenue.ts";
+import { PantaCatalogVenue } from "./PantaCatalogVenue.ts";
+import { PantaChainCatalog } from "./PantaChainCatalog.ts";
+import { registerSecret } from "./redact.ts";
 import { CircuitBreaker } from "./circuit.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { resolvePredictionConfig, type PredictionConfig } from "./config.ts";
@@ -93,13 +96,30 @@ export interface BuildRuntimeOverrides {
 /** Live composition has no other-provider or demo fallback. */
 function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
   if (config.venue === "panta" && config.panta) {
-    return new PantaVenue({ ...config.panta, clock, retry: config.retry,
+    const live = new PantaVenue({ ...config.panta, clock, retry: config.retry,
       circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "panta", name: "panta" }) });
+    if (!config.pantaSolMarkets) return live;
+    // The partner API lists only USDC markets; SOL-quoted ones come from the
+    // program account (./PantaProgram.ts). The RPC URL can carry a provider
+    // key, so it and its query values are redacted from every error.
+    const rpcUrl = config.pantaSolMarkets.rpcUrl;
+    registerSecret(rpcUrl);
+    for (const [name, value] of new URL(rpcUrl).searchParams) {
+      if (/key|token|secret|auth/i.test(name)) registerSecret(value);
+    }
+    const chain = new PantaChainCatalog({ rpcUrl, clock, retry: config.retry,
+      onUnserved: (address, error) => console.warn(`[panta-chain] set aside ${address}: ${describeFailure(error)}`) });
+    return new PantaCatalogVenue({ live, chain, clock,
+      onChainFailure: error => console.warn(`[panta-chain] SOL markets unavailable this pass: ${describeFailure(error)}`) });
   }
   // Only explicit in-code test injection can select fixtures, never env config.
   if (config.venue === "fixture") return new FixtureVenue({ clock });
   throw new VenueError("VENUE_MISCONFIGURED", "Panta is the only live prediction provider and requires a live server key", { venue: "panta" });
 }
+
+/** A log-safe one-liner: a VenueError's code and redacted message, nothing else. */
+const describeFailure = (error: unknown): string =>
+  error instanceof VenueError ? `${error.code} ${error.message}` : "unexpected error";
 
 export function buildPredictionRuntime(
   appConfig: AppConfig | undefined,
