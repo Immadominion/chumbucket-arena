@@ -4,6 +4,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import { CallsService } from "../src/calls/CallsService.ts";
+import { buildCallsRuntime } from "../src/calls/runtime.ts";
+import { MoneyCallIndex } from "../src/money/visibility.ts";
 import { callsStoreReader } from "../src/notifications/sources.ts";
 import { PENDING_MAX_MS, PENDING_TTL_MS, dollars } from "../src/money/MoneyCallsService.ts";
 import { PantaFundingIndex } from "../src/prediction/PantaFunding.ts";
@@ -61,6 +63,15 @@ describe("prepare: gas, then funds, before anything exists", () => {
     await expect(r.money.prepareCall(ann, { ...own(), wallet: W.bob })).rejects.toMatchObject({ code: "WALLET_NOT_LINKED" });
     await expect(r.money.prepareCall({ ...ann, wallets: [] }, own())).rejects.toMatchObject({ code: "NO_WALLET" });
     expect(r.store.rows.size).toBe(0);
+  });
+
+  test("a market our trade path cannot buy on (SOL-quoted) takes free calls only; nothing is written", async () => {
+    const r = moneyRig();
+    (r.money as unknown as { deps: { tradable: (id: string) => boolean } }).deps.tradable = id => id !== "m";
+    await expect(r.money.prepareCall(ann, own("m"))).rejects.toMatchObject({ code: "NOT_TRADABLE", message: "This market takes free calls only." });
+    expect(r.h.calls.listCalls()).toHaveLength(0);
+    expect(r.store.rows.size).toBe(0);
+    expect((await r.money.prepareCall(ann, own("n"))).status).toBe("READY");
   });
 
   test("a chosen linked wallet (pay with Phantom) pays instead of the trading wallet", async () => {
@@ -364,6 +375,26 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     expect(await r.money.defaultAmount("ann")).toBe("10000000");
     expect(dollars("5000000")).toBe("$5");
     expect(dollars("9200000")).toBe("$9.20");
+  });
+});
+
+describe("after a restart", () => {
+  test("which calls are private is rebuilt from the ledger, and a pending call stays its owner's", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    const fresh = new MoneyCallIndex(r.store);
+    expect(fresh.isPrivate(out.call.call.id)).toBe(false);
+    expect(await fresh.hydrate()).toBe(1);
+    const calls = new CallsService({ store: r.h.calls, markets: r.h.rt.markets, clock: r.h.clock, moneyCalls: fresh });
+    expect(() => calls.getCall({ callId: out.call.call.id }, "bob")).toThrow("We couldn't find that call.");
+    expect(calls.getCall({ callId: out.call.call.id }, "ann").entry.money?.state).toBe("PENDING");
+  });
+
+  test("a money_calls ledger that cannot be read fails the feed closed, never open", async () => {
+    const h = harness({ people: [person("ann")], markets: [market("m")] });
+    const rt = buildCallsRuntime(undefined, { store: h.calls, markets: h.rt.markets, hydrate: true,
+      moneyCalls: new MoneyCallIndex({ privateRows: async () => { throw new Error("relation money_calls does not exist"); } }) });
+    await expect(rt.ready).rejects.toMatchObject({ code: "VENUE_UNAVAILABLE" });
   });
 });
 

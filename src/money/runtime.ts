@@ -10,6 +10,7 @@ import { callsRuntimeFor } from "../calls/runtime.ts";
 import { depositsRuntimeFor } from "../deposits/runtime.ts";
 import { pantaLifecycleFor, pantaTradingFor } from "../prediction/PantaTradingRuntime.ts";
 import { RpcRentReader } from "../solTopUp/need.ts";
+import { pantaTradable } from "../prediction/marketQuote.ts";
 import { solTopUpRuntimeFor } from "../solTopUp/runtime.ts";
 import { chumbucketWalletEnabled } from "../wallet/tradingWallet.ts";
 import { RpcUsdcCredits, type UsdcCreditsReader } from "./activity.ts";
@@ -53,6 +54,10 @@ export function buildMoneyRuntime(config: AppConfig): MoneyRuntime {
     gas,
     maxBaseUnits: maxRaw && /^[1-9][0-9]{0,15}$/.test(maxRaw) ? BigInt(maxRaw) : null,
     chumbucketWallet: chumbucketWalletEnabled(config),
+    tradable: marketId => {
+      const market = calls.markets.getMarket(marketId);
+      return market !== undefined && market.venue === "panta" && pantaTradable(market);
+    },
   });
   const transfers = new TransferService({
     store: config.social ? new SupabaseWalletTransferStore(config.social) : new InMemoryWalletTransferStore(),

@@ -11,6 +11,7 @@ export type MoneyErrorCode =
   | "IN_FLIGHT"
   | "IDEMPOTENCY_CONFLICT"
   | "MARKET_CLOSED"
+  | "NOT_TRADABLE"
   | "BAD_SIGNATURE"
   | "EXPIRED"
   | "RATE_LIMITED"
