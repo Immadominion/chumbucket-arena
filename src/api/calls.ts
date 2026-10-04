@@ -60,6 +60,7 @@ import { socialProcedure as publicProcedure } from "./socialProcedure.ts";
 import { isTrustError } from "../trust/errors.ts";
 import { redactSecrets } from "../prediction/redact.ts";
 import { systemClock } from "../prediction/clock.ts";
+import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { trustRuntimeFor } from "../trust/runtime.ts";
 import { trustTrpcError } from "./trust.ts";
 
@@ -145,20 +146,67 @@ const CALLS_CODE_MAP: Record<CallsErrorCode, TRPC_ERROR_CODE_KEY> = {
 /**
  * Run a service call, mapping CallsError to the right transport code. Nested in
  * guard() so a DomainError raised anywhere below still maps the usual way.
+ *
+ * A write names itself ([procedure]) so a refusal is logged by its CODE: the
+ * proxy log alone shows "POST /calls.respond 400", which cannot tell "your own
+ * call" from "price unavailable" from "content refused". Only the procedure
+ * and the code are written — never the message, the input, a person or an id.
  */
-function call<T>(fn: () => Promise<T> | T): Promise<T> {
+function call<T>(fn: () => Promise<T> | T, procedure?: string): Promise<T> {
   return guard(async () => {
     try {
       return await fn();
     } catch (err) {
       if (isCallsError(err)) {
+        if (procedure) logRefusal(procedure, err.code);
         throw new TRPCError({ code: CALLS_CODE_MAP[err.code], message: err.message, cause: err });
       }
       // Rate limits, the content policy and blocks (src/trust).
-      if (isTrustError(err)) throw trustTrpcError(err);
+      if (isTrustError(err)) {
+        if (procedure) logRefusal(procedure, err.code);
+        throw trustTrpcError(err);
+      }
       throw err;
     }
   });
+}
+
+function logRefusal(procedure: string, code: string): void {
+  console.warn("[calls] refused", JSON.stringify({ procedure, code }));
+}
+
+/** How long a lock waits on Panta for one fresh price before the service
+ *  decides with what it holds. */
+export const LOCK_PRICE_REFRESH_MS = 4_000;
+
+/**
+ * A Panta price lapses after ten minutes and the market sync refreshes prices
+ * on a budget, so a lock can land on a market whose price just lapsed. Rather
+ * than refuse that lock with an internal freshness state, read Panta's price
+ * for this ONE market now — the same read `predictions` serves — and let the
+ * service stamp it. Bounded and best effort: a slow or failed read changes
+ * nothing, and the service still refuses a lock it cannot price.
+ */
+async function freshenPantaPrice(rt: CallsRuntime, marketId: string | null | undefined): Promise<void> {
+  const prediction = rt.prediction;
+  if (!marketId || !prediction) return;
+  const market = rt.markets.getMarket(marketId);
+  if (!market || market.venue !== "panta" || !market.venueMarketId) return;
+  if (usableSharePrice(rt.markets.latestSharePrice?.(marketId), prediction.clock.now())) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Settles either way, so a read that loses the race can never surface later
+  // as an unhandled rejection.
+  const read = prediction.service.getIndicativePrices(market.venueMarketId).then(
+    () => undefined,
+    () => undefined,
+  );
+  await Promise.race([
+    read,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, LOCK_PRICE_REFRESH_MS);
+    }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
 }
 
 // ── the memo (contracts §6) ──────────────────────────────────────────────────
@@ -331,6 +379,7 @@ const callsNamespace = router({
       const trust = safety(ctx.app.config);
       trust.assertClean(input.thesis, "thesis");
       trust.limiter.charge("calls.create", actor);
+      await freshenPantaPrice(rt, input.marketId);
       const entry = rt.service.createCall(
         {
           marketId: input.marketId,
@@ -347,7 +396,7 @@ const callsNamespace = router({
       // native funded ledger references the actual persisted call, not a ghost.
       await rt.durable?.flush();
       return entry;
-    });
+    }, "calls.create");
   }),
 
   /**
@@ -368,6 +417,10 @@ const callsNamespace = router({
       const target = rt.store.getCall(input.targetCallId);
       if (target && target.userId !== actor) await trust.assertNotBlocked(actor, target.userId, "respond");
       trust.limiter.charge("calls.respond", actor);
+      // Back and Fade lock the actor's own call; a challenge locks nothing.
+      if (target && target.userId !== actor && input.kind !== "challenge") {
+        await freshenPantaPrice(rt, target.marketId);
+      }
       const response = rt.service.respond(
         {
           targetCallId: input.targetCallId,
@@ -381,7 +434,7 @@ const callsNamespace = router({
       );
       await rt.durable?.flush();
       return response;
-    });
+    }, "calls.respond");
   }),
 
   /** Invitations addressed to the caller. No escrow, ever. Takes no input. */

@@ -585,7 +585,7 @@ export class CallsService {
     const at = this.clock.now();
     const entryPrice = args.market.venue === "panta" ? this.markets.latestSharePrice?.(args.market.id) : undefined;
     if (args.market.venue === "panta" && !usableSharePrice(entryPrice, at)) {
-      throw new CallsError("CALL_INVALID", "Panta prices are missing or stale. Refresh before locking your call.");
+      throw new CallsError("CALL_INVALID", "Panta's price for this market isn't available right now. Try again in a minute.");
     }
     const snapshot = args.market.venue === "panta" ? undefined : this.markets.latestSnapshot(args.market.id);
     const call = this.store.insertCall({
