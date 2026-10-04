@@ -61,6 +61,9 @@ export class PantaTradingService {
     }
     const call = await this.deps.store.callIntent(userId, input.callId);
     if (!call) return refuse("Only your own call on this exact Panta market can be funded");
+    // A call made with an amount is funded only while pending, through money.*:
+    // an expired, discarded or replaced one is never brought back from here.
+    if (call.moneyState && call.moneyState !== "PENDING") return refuse("This call's money window has closed. Make a new call.");
     // SOL-quoted markets take calls, never trades: our trade path is Panta's
     // USDC primary buy. Refused before any provider read or reservation.
     if (call.tradable === false) return refuse("Trading isn't available on this market. Your call still counts");

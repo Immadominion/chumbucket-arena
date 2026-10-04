@@ -19,6 +19,12 @@ export interface PantaCallIntent {
   /** False for a market Chumbucket's trade path cannot trade (a SOL-quoted
    *  Panta market read from its program account). Absent means tradable. */
   tradable?: boolean;
+  /**
+   * The call's money call state (money_calls, MONEY_CALLS_ENABLED), or null
+   * for a call made without an amount. A money call is traded only while
+   * PENDING, through money.*; an ended one is never brought back here.
+   */
+  moneyState?: "PENDING" | "FUNDED" | "FREE" | "EXPIRED" | null;
 }
 export interface PantaTradingStore {
   callIntent(userId: string, callId: string): Promise<PantaCallIntent | null>;
@@ -50,14 +56,20 @@ const ALL_ROWS_CAP = 10_000;
 const columns = "id,user_id,call_id,market_id,wallet_address,venue_market_id,side,amount_base_units::text,max_slippage_bps,idempotency_key,request_fingerprint,state,provider_order_id,prepared,signed_transaction,signature,fill_evidence,created_at,updated_at";
 export class SupabasePantaTradingStore implements PantaTradingLedger {
   private readonly pg: Pgrest;
-  constructor(config: PgrestConfig, fetchImpl: typeof fetch = fetch) { this.pg = new Pgrest(config, fetchImpl); }
+  /** `moneyCalls`: money_calls exists (MONEY_CALLS_ENABLED is not off), so a call's money state is read. */
+  constructor(config: PgrestConfig, fetchImpl: typeof fetch = fetch, private readonly opts: { moneyCalls?: boolean } = {}) { this.pg = new Pgrest(config, fetchImpl); }
   async callIntent(userId: string, callId: string): Promise<PantaCallIntent | null> {
     const calls = await this.pg.select<{ id: string; market_id: string; side: Side }>("calls", new URLSearchParams({ id: `eq.${callId}`, user_id: `eq.${userId}`, select: "id,market_id,side", limit: "1" }));
     const call = calls[0]; if (!call) return null;
     const markets = await this.pg.select<{ venue_market_id: string; payload_version: number }>("venue_markets", new URLSearchParams({ id: `eq.${call.market_id}`, venue: "eq.panta", is_public: "eq.true", select: "venue_market_id,payload_version", limit: "1" }));
     const market = markets[0];
-    return market ? { callId, marketId: call.market_id, venueMarketId: market.venue_market_id, side: call.side,
-      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }) } : null;
+    if (!market) return null;
+    // Unreadable fails closed: a money call's state is never assumed.
+    const money = this.opts.moneyCalls === true
+      ? (await this.pg.select<{ state: NonNullable<PantaCallIntent["moneyState"]> }>("money_calls", new URLSearchParams({ call_id: `eq.${callId}`, select: "state", limit: "1" })))[0]?.state ?? null
+      : null;
+    return { callId, marketId: call.market_id, venueMarketId: market.venue_market_id, side: call.side,
+      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }), moneyState: money };
   }
   async find(userId: string, idempotencyKey: string) {
     return (await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({ user_id: `eq.${userId}`, idempotency_key: `eq.${idempotencyKey}`, select: columns, limit: "1" })))[0] ?? null;

@@ -134,6 +134,8 @@ export function moneyRig(opts: { markets?: VenueMarket[]; people?: Person[] } = 
     filled: async (u, c) => panta.rows.some(r => r.user_id === u && r.call_id === c && r.state === "FILLED"),
     inFlight: async (u, c) => panta.rows.some(r => r.user_id === u && r.call_id === c && ["SUBMITTED", "FILLED"].includes(r.state)),
     callExists: id => h.calls.getCall(id) !== undefined,
+    lastQuoteFilled: async row => panta.rows.some(r => r.user_id === row.user_id && r.call_id === row.call_id && r.state === "FILLED" &&
+      r.idempotency_key === `${row.idempotency_key}.t${row.attempts}` && (r.prepared?.order.expiresAt ?? Infinity) <= Date.parse(row.expires_at)),
   });
   const index = new MoneyCallIndex(store);
   const calls = new CallsService({ store: h.calls, markets: h.rt.markets, clock: h.clock, moneyCalls: index, funding,

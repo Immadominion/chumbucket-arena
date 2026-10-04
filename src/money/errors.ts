@@ -13,13 +13,19 @@ export type MoneyErrorCode =
   | "MARKET_CLOSED"
   | "NOT_TRADABLE"
   | "PRICE_UNAVAILABLE"
+  | "PRICE_MOVED"
+  | "TRANSFER_IN_FLIGHT"
   | "BAD_SIGNATURE"
   | "EXPIRED"
   | "RATE_LIMITED"
   | "UNAVAILABLE";
 
 export class MoneyError extends Error {
-  constructor(readonly code: MoneyErrorCode, message: string) {
+  /**
+   * `publicDetails`: machine-readable facts the client may act on (sent as
+   * the error's `data.details`). Only ever our own ids and codes.
+   */
+  constructor(readonly code: MoneyErrorCode, message: string, readonly publicDetails?: Record<string, string>) {
     super(message);
     this.name = "MoneyError";
   }

@@ -37,6 +37,18 @@ export interface FilledRow {
   side?: "YES" | "NO";
 }
 interface Funded { at: number; amount: bigint; side: "YES" | "NO" | null; known: boolean }
+/** The least a call's confirmed fills must sum to before it counts as funded on money surfaces ($1). */
+export const FUNDED_MIN_BASE_UNITS = 1_000_000n;
+
+/**
+ * Whether a call counts as funded where money shows (funded-first ordering,
+ * the leaderboard tie-break, the "$5 on YES" stamp): its confirmed fills sum
+ * to at least $1. A dust trade buys no ranking.
+ */
+export function countsAsFunded(funding: CallFunding | null | undefined): boolean {
+  return !!funding?.amountBaseUnits && /^[0-9]+$/.test(funding.amountBaseUnits) && BigInt(funding.amountBaseUnits) >= FUNDED_MIN_BASE_UNITS;
+}
+
 export interface CallFundingReader {
   fundingOf(callId: string): CallFunding | null;
 }

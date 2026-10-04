@@ -128,6 +128,8 @@ export class InMemoryMoneyCallStore implements MoneyCallStore {
     filled?: (userId: string, callId: string) => Promise<boolean>;
     inFlight?: (userId: string, callId: string) => Promise<boolean>;
     callExists?: (callId: string) => boolean;
+    /** A closed row's own last quote (attempt key) filled, its life ending before the row's. */
+    lastQuoteFilled?: (row: MoneyCallRow) => Promise<boolean>;
   } = {}) {}
   private now() { return new Date(this.opts.now?.() ?? Date.now()).toISOString(); }
   async insert(intent: MoneyCallIntent) {
@@ -164,6 +166,10 @@ export class InMemoryMoneyCallStore implements MoneyCallStore {
       if (!ok) throw new Error("Invalid money call transition");
       if (next.state === "FUNDED" && this.opts.filled && !(await this.opts.filled(row.user_id, callId))) {
         throw new Error("A money call is funded only by a confirmed fill");
+      }
+      if (next.state === "FUNDED" && (row.state === "EXPIRED" || row.state === "FREE") &&
+          (row.ended_reason === "discarded" || (this.opts.lastQuoteFilled && !(await this.opts.lastQuoteFilled(row))))) {
+        throw new Error("A closed money call is funded only by its own last quote, signed in time");
       }
       if (next.state === "EXPIRED" && this.opts.inFlight && await this.opts.inFlight(row.user_id, callId)) {
         throw new Error("A money call with a trade going through cannot expire");
@@ -244,6 +250,8 @@ export interface WalletTransferStore {
   listForUser(userId: string, limit?: number): Promise<WalletTransferRow[]>;
   /** SUBMITTED across all people, oldest change first. Server worker only. */
   submitted(limit: number): Promise<WalletTransferRow[]>;
+  /** The transfer in flight (BUILT or SUBMITTED) from this wallet, if any: at most one. */
+  inFlightFrom(fromWallet: string): Promise<WalletTransferRow | null>;
 }
 
 const transferColumns = "id,user_id,kind,from_wallet,to_wallet,amount_base_units::text,idempotency_key,request_fingerprint,state,prepared," +
@@ -279,6 +287,7 @@ export class SupabaseWalletTransferStore implements WalletTransferStore {
       state: "eq.SUBMITTED", select: transferColumns, order: "updated_at.asc", limit: String(Math.max(1, Math.min(100, limit))),
     }))).map(normalizeTransfer);
   }
+  inFlightFrom(fromWallet: string) { return this.one({ from_wallet: `eq.${fromWallet}`, state: "in.(BUILT,SUBMITTED)" }); }
 }
 
 export class InMemoryWalletTransferStore implements WalletTransferStore {
@@ -288,6 +297,11 @@ export class InMemoryWalletTransferStore implements WalletTransferStore {
   async insert(intent: TransferIntent) {
     for (const row of this.rows.values()) if (row.user_id === intent.user_id && row.idempotency_key === intent.idempotency_key) return null;
     if (intent.from_wallet === intent.to_wallet) throw new Error("wallet_transfers_not_to_self");
+    for (const row of this.rows.values()) {
+      if (row.from_wallet === intent.from_wallet && (row.state === "BUILT" || row.state === "SUBMITTED")) {
+        throw new Error("wallet_transfers_one_in_flight_per_wallet");
+      }
+    }
     const at = this.iso();
     const row: WalletTransferRow = { ...intent, state: "BUILT", signed_transaction: null, signature: null, confirm_evidence: null, created_at: at, updated_at: at };
     this.rows.set(row.id, row);
@@ -323,5 +337,9 @@ export class InMemoryWalletTransferStore implements WalletTransferStore {
   async submitted(limit: number) {
     return [...this.rows.values()].filter(r => r.state === "SUBMITTED").sort((a, b) => a.updated_at.localeCompare(b.updated_at)).slice(0, limit)
       .map(r => structuredClone(r));
+  }
+  async inFlightFrom(fromWallet: string) {
+    const row = [...this.rows.values()].find(r => r.from_wallet === fromWallet && (r.state === "BUILT" || r.state === "SUBMITTED"));
+    return row ? structuredClone(row) : null;
   }
 }

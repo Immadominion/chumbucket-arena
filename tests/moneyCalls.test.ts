@@ -7,7 +7,7 @@ import { CallsService } from "../src/calls/CallsService.ts";
 import { buildCallsRuntime } from "../src/calls/runtime.ts";
 import { MoneyCallIndex } from "../src/money/visibility.ts";
 import { callsStoreReader } from "../src/notifications/sources.ts";
-import { PENDING_MAX_MS, PENDING_TTL_MS, dollars } from "../src/money/MoneyCallsService.ts";
+import { PENDING_GRACE_MS, dollars } from "../src/money/MoneyCallsService.ts";
 import { PantaFundingIndex } from "../src/prediction/PantaFunding.ts";
 import { HOUR, MIN, W, depositPerson, moneyRig, own, respond, settle } from "./moneyCallsFixtures.ts";
 import { harness, market, person, T0 } from "./socialCallsFixtures.ts";
@@ -165,7 +165,7 @@ describe("nothing is funded before FILLED", () => {
     await expect(r.money.discard("ann", out.call.call.id)).rejects.toMatchObject({ code: "IN_FLIGHT" });
     await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "IN_FLIGHT" });
     // The sweeper never expires a call with an order going through, even past its time.
-    r.h.clock.advance(PENDING_MAX_MS + MIN);
+    r.h.clock.advance(10 * MIN);
     expect((await r.money.sweep()).expired).toBe(0);
     expect(r.store.rows.get(out.call.call.id)!.state).toBe("PENDING");
   });
@@ -241,7 +241,7 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     const replay = await r.money.prepareCall(ann, input);
     expect(replay.status === "READY" && first.status === "READY" && replay.trade.order.orderId).toBe(first.status === "READY" ? first.trade.order.orderId : "");
     expect(r.panta.prepares).toHaveLength(1);
-    r.h.clock.advance(2 * MIN);
+    r.h.clock.advance(58_000); // the quote lapsed; the call's window (first quote + grace) has not
     const requoted = await r.money.prepareCall(ann, input);
     expect(requoted.status).toBe("READY");
     expect(r.panta.prepares).toHaveLength(2);
@@ -267,13 +267,13 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     if (out.status !== "READY") throw new Error(out.status);
     r.panta.fail(out.trade.order.orderId);
     // The price moves and time passes before the owner chooses.
-    r.h.clock.advance(4 * MIN);
+    r.h.clock.advance(90_000);
     r.h.venue.appendSnapshot({ marketId: "m", yesProbability: 0.8, observedAt: r.h.clock.now(), source: "venue" });
     const kept = await r.money.keepFree("ann", out.call.call.id);
     expect(kept.moneyCall).toMatchObject({ callId: out.call.call.id, state: "FREE", canRetry: false, canKeepFree: false });
     // A new call: current price and time, the same statement, the ordinary free path.
     expect(kept.call.call.id).not.toBe(out.call.call.id);
-    expect(kept.call.call).toMatchObject({ side: "NO", parentCallId: target.call.id, lockedAt: T0 + 4 * MIN, entryProbability: 0.8,
+    expect(kept.call.call).toMatchObject({ side: "NO", parentCallId: target.call.id, lockedAt: T0 + 90_000, entryProbability: 0.8,
       thesis: "Too optimistic", confidence: 0.7, fundingState: "NONE" });
     expect(out.call.call.entryProbability).toBe(0.5);
     expect(kept.call.funding).toBeUndefined();
@@ -313,10 +313,10 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
   });
 
   test("keep free is refused once the market stopped taking calls; the sweeper then expires it", async () => {
-    const r = moneyRig({ markets: [market("m", { closesAt: T0 + 5 * MIN })] });
+    const r = moneyRig({ markets: [market("m", { closesAt: T0 + MIN })] });
     const out = await ready(r);
     r.panta.fail(out.trade.order.orderId);
-    r.h.clock.advance(6 * MIN);
+    r.h.clock.advance(MIN + 1);
     await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "MARKET_CLOSED" });
     expect(r.store.rows.get(out.call.call.id)!.state).toBe("PENDING");
     expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).toBeNull();
@@ -342,8 +342,10 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
   test("no ghosts: an abandoned pending call expires after its time", async () => {
     const r = moneyRig();
     const out = await ready(r);
-    expect(out.moneyCall.expiresAt).toBe(T0 + PENDING_TTL_MS);
-    r.h.clock.advance(PENDING_TTL_MS - 1);
+    // The window is the first quote's life plus the grace: about two minutes.
+    expect(out.moneyCall.expiresAt).toBe(out.trade.order.expiresAt + PENDING_GRACE_MS);
+    expect(out.moneyCall.expiresAt - T0).toBe(2 * MIN);
+    r.h.clock.advance(2 * MIN - 1);
     expect((await r.money.sweep()).expired).toBe(0);
     r.h.clock.advance(1);
     expect((await r.money.sweep()).expired).toBe(1);
@@ -357,33 +359,84 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     const r = moneyRig();
     const out = await ready(r);
     r.panta.fail(out.trade.order.orderId);
-    r.h.clock.advance(PENDING_TTL_MS);
+    r.h.clock.advance(2 * MIN);
     expect((await r.money.status("ann", out.call.call.id)).moneyCall).toMatchObject({ state: "PENDING", canRetry: false, canKeepFree: false, canDiscard: false });
     await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED" });
     expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "expired" });
     await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
   });
 
-  test("no new quote that could outlive the call's thirty minutes", async () => {
+  test("a retry never extends the window, and re-quotes only while the price is where the call was locked", async () => {
     const r = moneyRig();
     const out = await ready(r);
     r.panta.fail(out.trade.order.orderId);
-    r.h.clock.advance(PENDING_MAX_MS - 5 * MIN);
-    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED" });
+    // Within the 1% slippage of the locked 50%: re-quoted, same window.
+    r.h.venue.appendSnapshot({ marketId: "m", yesProbability: 0.502, observedAt: r.h.clock.now() + 1, source: "venue" });
+    const again = await r.money.retry(ann, out.call.call.id);
+    expect(again.status === "READY" && again.moneyCall.expiresAt).toBe(out.moneyCall.expiresAt);
+    if (again.status === "READY") r.panta.fail(again.trade.order.orderId);
+    // The price moved: no re-quote; the person starts a new call.
+    r.h.venue.appendSnapshot({ marketId: "m", yesProbability: 0.6, observedAt: r.h.clock.now() + 2, source: "venue" });
+    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "PRICE_MOVED" });
+    expect(r.store.rows.get(out.call.call.id)!.attempts).toBe(2);
   });
 
-  test("an expired call a late fill funds after all is shown again (the venue wins)", async () => {
+  test("an expired call its own last quote funds after all comes back (the venue wins)", async () => {
     const r = moneyRig();
     const out = await ready(r);
-    const row = r.store.rows.get(out.call.call.id)!;
-    // Expired first (the race the SQL guard narrows), then the fill lands.
-    await r.money.discard("ann", out.call.call.id);
+    const id = out.call.call.id;
+    // The quote was signed in time but the sweep saw nothing going through (a race the SQL guard narrows).
+    r.h.clock.advance(2 * MIN);
+    expect((await r.money.sweep()).expired).toBe(1);
     r.panta.rows[0]!.state = "SUBMITTED"; r.panta.rows[0]!.signature = "s".padEnd(64, "1");
     r.panta.fill(out.trade.order.orderId);
     await settle();
-    expect(r.store.rows.get(row.call_id)!.state).toBe("FUNDED");
-    expect(r.h.calls.getCall(row.call_id)!.hiddenAt).toBeNull();
-    expect(r.calls.getCall({ callId: row.call_id }, "bob").entry.funding?.amountBaseUnits).toBe("5000000");
+    expect(r.store.rows.get(id)!.state).toBe("FUNDED");
+    expect(r.h.calls.getCall(id)!.hiddenAt).toBeNull();
+    expect(r.calls.getCall({ callId: id }, "bob").entry.funding?.amountBaseUnits).toBe("5000000");
+  });
+
+  test("a fill the hook missed on an expired call is repaired by the sweeper", async () => {
+    const r = moneyRig();
+    r.panta.onFilled = null;
+    const out = await ready(r);
+    r.h.clock.advance(2 * MIN);
+    await r.money.sweep();
+    r.panta.rows[0]!.state = "SUBMITTED"; r.panta.rows[0]!.signature = "s".padEnd(64, "1");
+    r.panta.fill(out.trade.order.orderId);
+    expect(r.store.rows.get(out.call.call.id)!.state).toBe("EXPIRED");
+    expect(await r.money.sweep()).toMatchObject({ funded: 1 });
+    expect(r.store.rows.get(out.call.call.id)!.state).toBe("FUNDED");
+  });
+
+  test("attack: a discarded call, or a fill of an older quote, never resurrects it", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    await r.money.discard("ann", out.call.call.id);
+    // Whatever lands later (the trade route refuses it: moneyResurrection.test.ts), the call stays withdrawn.
+    r.panta.rows[0]!.state = "SUBMITTED"; r.panta.rows[0]!.signature = "s".padEnd(64, "1");
+    r.panta.fill(out.trade.order.orderId);
+    await settle();
+    expect(await r.money.sweep()).toMatchObject({ funded: 0 });
+    expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "discarded" });
+    expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).not.toBeNull();
+    const row = r.store.rows.get(out.call.call.id)!;
+    await expect(r.store.update(row.call_id, { state: "EXPIRED", attempts: row.attempts }, { state: "FUNDED", ended_reason: "filled" }))
+      .rejects.toThrow("its own last quote");
+
+    // An older attempt's quote filling: not the call's last quote.
+    const s2 = moneyRig();
+    const first = await s2.money.prepareCall(ann, own("m"));
+    if (first.status !== "READY") throw new Error(first.status);
+    const firstRow = s2.panta.rows[0]!;
+    s2.panta.fail(first.trade.order.orderId);
+    await s2.money.retry(ann, first.call.call.id); // attempt 2
+    s2.h.clock.advance(2 * MIN);
+    await s2.money.sweep();
+    firstRow.state = "FILLED"; firstRow.signature = "t".padEnd(64, "1");
+    await s2.money.onFilled(firstRow);
+    expect(await s2.money.sweep()).toMatchObject({ funded: 0 });
+    expect(s2.store.rows.get(first.call.call.id)!.state).toBe("EXPIRED");
   });
 
   test("an intent whose call could not be locked leaves no ghost", async () => {
@@ -459,6 +512,25 @@ describe("funded-first ordering and filled amounts (§b)", () => {
     expect(r.calls.topCalls({}, "bob").entries.map(e => e.call.id)).toEqual([funded.call.call.id, free.call.id]);
     const board = r.calls.leaderboard({ window: "all" }, "ann");
     expect(board.viewer?.fundedCalls).toBe(1);
+  });
+
+  test("dust buys no ranking: a call counts as funded only from $1 of fills", () => {
+    const h = harness({ people: [person("ann"), person("bob")], markets: [market("m"), market("n")] });
+    const funding = new PantaFundingIndex(null);
+    let seq = 0;
+    const calls = new CallsService({ store: h.calls, markets: h.rt.markets, clock: h.clock, funding, moneyCalls: new MoneyCallIndex(null),
+      newId: kind => `${kind}-${++seq}` });
+    const dust = calls.createCall({ marketId: "m", side: "YES" }, "ann");
+    h.clock.advance(MIN);
+    const free = calls.createCall({ marketId: "n", side: "NO" }, "ann");
+    funding.markFilled(dust.call.id, 7, { id: "t1", amountBaseUnits: "990000", side: "YES" });
+    // The marker as before, but no "$" stamp, no funded-first, no funded count.
+    expect(calls.getCall({ callId: dust.call.id }, "bob").entry.funding).toEqual({ state: "FILLED", venue: "panta", fundedAt: 7 });
+    expect(calls.getPerson({ personRef: "ann" }, "bob").calls.map(e => e.call.id)).toEqual([free.call.id, dust.call.id]);
+    expect(calls.leaderboard({ window: "all" }, "ann").viewer?.fundedCalls).toBe(0);
+    funding.markFilled(dust.call.id, 8, { id: "t2", amountBaseUnits: "10000", side: "YES" });
+    expect(calls.getCall({ callId: dust.call.id }, "bob").entry.funding).toMatchObject({ amountBaseUnits: "1000000", side: "YES" });
+    expect(calls.getPerson({ personRef: "ann" }, "bob").calls.map(e => e.call.id)).toEqual([dust.call.id, free.call.id]);
   });
 
   test("with money calls off, a funded entry keeps its exact earlier shape and nothing is private", () => {

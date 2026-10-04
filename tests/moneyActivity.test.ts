@@ -5,6 +5,8 @@
 import { describe, expect, test } from "bun:test";
 import { buildActivity, collectableWinnings, solanaPayUri, type UsdcCredit } from "../src/money/activity.ts";
 import { moneyRouter } from "../src/api/money.ts";
+import { TRPCError } from "@trpc/server";
+import { MoneyError } from "../src/money/errors.ts";
 import { createApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { MAINNET_USDC_MINT } from "../src/prediction/PantaChain.ts";
@@ -104,6 +106,17 @@ describe("money routes", () => {
     await expect(caller.wallet()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(caller.prepareCall({ kind: "own", marketId: "m", side: "YES", amountBaseUnits: "5000000",
       idempotencyKey: "tap-key-0000000003", userId: "someone" } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  test("an error's public details reach the client as data.details; nothing else of a cause does", () => {
+    const format = (moneyRouter._def._config as { errorFormatter: (o: unknown) => { data: Record<string, unknown> } }).errorFormatter;
+    const shape = { message: "m", code: -32009, data: { code: "CONFLICT", httpStatus: 409, path: "money.cashOutPrepare" } };
+    const inFlight = new TRPCError({ code: "CONFLICT", message: "m",
+      cause: new MoneyError("TRANSFER_IN_FLIGHT", "m", { reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000001" }) });
+    expect(format({ shape, error: inFlight, type: "mutation", path: "money.cashOutPrepare", input: undefined, ctx: undefined }).data.details)
+      .toEqual({ reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000001" });
+    const other = new TRPCError({ code: "BAD_GATEWAY", message: "m", cause: new Error("secret upstream body") });
+    expect(format({ shape, error: other, type: "mutation", path: "x", input: undefined, ctx: undefined }).data).not.toHaveProperty("details");
   });
 
   test("polled money reads never spend the write budget", () => {

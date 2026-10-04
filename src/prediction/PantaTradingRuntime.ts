@@ -79,7 +79,7 @@ function buildLifecycle(config: AppConfig): PantaLifecycle {
   }, { preconnect: fetch.preconnect });
   const request = pantaPost(panta.apiKey, panta.timeoutMs);
   const execution = new PantaExecution({ request, programId: panta.programId!, providerUserId: panta.partnerUserId!, verifyTransaction: input => chain.verifyTransaction(input) });
-  const ledger = new SupabasePantaTradingStore(config.social!, safeFetch);
+  const ledger = new SupabasePantaTradingStore(config.social!, safeFetch, { moneyCalls: rolloutActive(moneyCallsRollout(config)) });
   // Claims need 20261002170000_panta_claim_sessions.sql. Until the owner has
   // applied it and said so, claims answer "not configured" and the app links
   // to panta.market instead; positions and reconciliation of buys still work.

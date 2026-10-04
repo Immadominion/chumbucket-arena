@@ -60,7 +60,20 @@ export async function makeContext(
   };
 }
 
-const t = initTRPC.context<Context>().create({ transformer: superjson });
+const t = initTRPC.context<Context>().create({
+  transformer: superjson,
+  /**
+   * An error may carry machine-readable `publicDetails` (only our own ids and
+   * codes, e.g. money.* TRANSFER_IN_FLIGHT with the transfer in flight). They
+   * are sent as `data.details`; nothing else of a cause is.
+   */
+  errorFormatter({ shape, error }) {
+    const details = (error.cause as { publicDetails?: unknown } | undefined)?.publicDetails;
+    if (!details || typeof details !== "object" || Array.isArray(details)) return shape;
+    const safe = Object.fromEntries(Object.entries(details as Record<string, unknown>).filter(([, v]) => typeof v === "string"));
+    return { ...shape, data: { ...shape.data, details: safe } };
+  },
+});
 
 export const router = t.router;
 

@@ -156,6 +156,7 @@ export function checkUsdcTransfer(bytes: Uint8Array, review: TransferReview): vo
 // ── the chain ────────────────────────────────────────────────────────────────
 
 export type AccountKind = "none" | "wallet" | "token" | "executable" | "other";
+export type TransferLookup = { status: "confirmed"; slot: number } | { status: "missing" } | { status: "unknown" };
 
 export interface TransferChainPort {
   accountKind(address: string): Promise<AccountKind>;
@@ -165,8 +166,15 @@ export interface TransferChainPort {
   broadcast(tx: SignedPantaTransaction): Promise<void>;
   failed(signature: string): Promise<boolean>;
   neverLanded(signature: string, lastValidBlockHeight: number, recentBlockhash: string): Promise<boolean>;
-  /** The slot, when exactly this message landed and moved exactly this USDC from `from` to `to`; else null. */
-  verifyTransfer(input: { signature: string; from: string; to: string; amountBaseUnits: string; messageHash: string }): Promise<{ slot: number } | null>;
+  /**
+   * What the chain says about this signature:
+   *   confirmed  exactly this message landed and moved exactly this USDC from `from` to `to`
+   *   missing    the RPC answered and has no such transaction
+   *   unknown    the RPC could not answer, or what landed is not that transfer
+   * Only `missing` may ever lead to FAILED (with an expired blockhash): an
+   * RPC that cannot see a landed transfer must never mark it failed.
+   */
+  verifyTransfer(input: { signature: string; from: string; to: string; amountBaseUnits: string; messageHash: string }): Promise<TransferLookup>;
 }
 
 type TokenBalance = { owner?: string; mint: string; uiTokenAmount: { amount: string; decimals: number } };
@@ -229,18 +237,22 @@ export class RpcTransferChain implements TransferChainPort {
   neverLanded(signature: string, lastValidBlockHeight: number, recentBlockhash: string) {
     return this.panta.neverLanded(signature, lastValidBlockHeight, recentBlockhash);
   }
-  async verifyTransfer(input: { signature: string; from: string; to: string; amountBaseUnits: string; messageHash: string }) {
+  async verifyTransfer(input: { signature: string; from: string; to: string; amountBaseUnits: string; messageHash: string }): Promise<TransferLookup> {
     await this.assertMainnet();
+    let result: Awaited<ReturnType<Connection["getTransaction"]>>;
     try {
-      const result = await this.connection.getTransaction(input.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      if (!result?.meta || result.meta.err !== null || result.transaction.signatures[0] !== input.signature) return null;
+      result = await this.connection.getTransaction(input.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    } catch { return { status: "unknown" }; }
+    if (result === null) return { status: "missing" };
+    try {
+      if (!result.meta || result.meta.err !== null || result.transaction.signatures[0] !== input.signature) return { status: "unknown" };
       const message = result.transaction.message;
       if (message.header.numRequiredSignatures !== 1 || message.staticAccountKeys[0]?.toBase58() !== input.from ||
-          hash(message.serialize()) !== input.messageHash) return null;
+          hash(message.serialize()) !== input.messageHash) return { status: "unknown" };
       const amount = BigInt(input.amountBaseUnits);
-      if (usdcDelta(result.meta, input.from) !== -amount || usdcDelta(result.meta, input.to) !== amount) return null;
-      return { slot: result.slot };
-    } catch { return null; }
+      if (usdcDelta(result.meta, input.from) !== -amount || usdcDelta(result.meta, input.to) !== amount) return { status: "unknown" };
+      return { status: "confirmed", slot: result.slot };
+    } catch { return { status: "unknown" }; }
   }
 }
 
@@ -263,6 +275,8 @@ export interface TransferView {
 
 export type TransferPrepareResult =
   | { status: "INVALID"; reason: TransferInvalid; message: string }
+  /** The same tap again, after its transfer was signed: its actual state, never a fresh review. */
+  | { status: "SENT"; transfer: TransferView }
   | { status: "NEEDS_GAS"; wallet: WalletRef; topUp: { amountBaseUnits: string } | null }
   | { status: "READY"; transfer: TransferView;
       transaction: { encoding: "solana-tx-base64"; payload: string; expiresAt: number };
@@ -316,11 +330,15 @@ export class TransferService {
     const existing = await this.deps.store.byKey(person.userId, input.idempotencyKey);
     if (existing) {
       if (existing.request_fingerprint !== fingerprint) throw new MoneyError("IDEMPOTENCY_CONFLICT", "This tap was already used for a different transfer. Try again.");
-      if (existing.state === "BUILT" && existing.prepared.expiresAt <= this.now()) {
+      if (existing.state !== "BUILT") return { status: "SENT", transfer: this.view(await this.reconcile(existing)) };
+      if (existing.prepared.expiresAt <= this.now()) {
+        await this.deps.store.update(existing.id, "BUILT", { state: "FAILED" }).catch(() => null);
         throw new MoneyError("EXPIRED", "This review expired. Nothing was sent. Start again.");
       }
       return this.ready(existing);
     }
+    // One transfer in flight per source wallet: an expired review is retired, anything else waits.
+    await this.assertNothingInFlight(input.from.address);
     const chain = this.chain();
     const amount = BigInt(input.amountBaseUnits);
     let kind: AccountKind;
@@ -356,14 +374,30 @@ export class TransferService {
       recentBlockhash: blockhash.blockhash, lastValidBlockHeight: blockhash.lastValidBlockHeight, createsAccount,
       networkFeeLamports: fee.toString(), rentLamports: rent.toString(), createdAt: now, expiresAt: now + TRANSFER_TTL_MS,
     };
-    const row = await this.deps.store.insert({
-      id: this.deps.newId?.() ?? crypto.randomUUID(), user_id: person.userId, kind: input.kind, from_wallet: review.from, to_wallet: review.to,
-      amount_base_units: review.amountBaseUnits, idempotency_key: input.idempotencyKey, request_fingerprint: fingerprint, prepared,
-    });
+    let row: WalletTransferRow | null;
+    try {
+      row = await this.deps.store.insert({
+        id: this.deps.newId?.() ?? crypto.randomUUID(), user_id: person.userId, kind: input.kind, from_wallet: review.from, to_wallet: review.to,
+        amount_base_units: review.amountBaseUnits, idempotency_key: input.idempotencyKey, request_fingerprint: fingerprint, prepared,
+      });
+    } catch (error) {
+      // Another transfer from this wallet got in first (the one-in-flight index).
+      await this.assertNothingInFlight(input.from.address);
+      throw error;
+    }
     if (row) return this.ready(row);
     const raced = await this.deps.store.byKey(person.userId, input.idempotencyKey);
     if (!raced || raced.request_fingerprint !== fingerprint) throw new MoneyError("IDEMPOTENCY_CONFLICT", "This tap was already used for a different transfer. Try again.");
     return this.ready(raced);
+  }
+
+  private async assertNothingInFlight(fromWallet: string): Promise<void> {
+    const flying = await this.deps.store.inFlightFrom(fromWallet);
+    if (!flying) return;
+    if (flying.state === "BUILT" && flying.prepared.expiresAt <= this.now() &&
+        await this.deps.store.update(flying.id, "BUILT", { state: "FAILED" })) return;
+    throw new MoneyError("TRANSFER_IN_FLIGHT", "Another transfer from this wallet is still going through. Try again when it's done.",
+      { reason: "TRANSFER_IN_FLIGHT", transferId: flying.id });
   }
 
   private ready(row: WalletTransferRow): TransferPrepareResult {
@@ -409,14 +443,18 @@ export class TransferService {
     if (row.state !== "SUBMITTED" || !row.signature) return row;
     const chain = this.chain();
     const p = row.prepared;
-    const proof = await chain.verifyTransfer({ signature: row.signature, from: row.from_wallet, to: row.to_wallet,
+    const lookup = await chain.verifyTransfer({ signature: row.signature, from: row.from_wallet, to: row.to_wallet,
       amountBaseUnits: row.amount_base_units, messageHash: p.messageHash });
-    if (proof) {
+    if (lookup.status === "confirmed") {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "CONFIRMED", confirm_evidence: {
-        independentlyVerified: true, messageHash: p.messageHash, signature: row.signature, amountBaseUnits: row.amount_base_units, slot: proof.slot } });
+        independentlyVerified: true, messageHash: p.messageHash, signature: row.signature, amountBaseUnits: row.amount_base_units, slot: lookup.slot } });
       return saved ?? row;
     }
-    if (await chain.failed(row.signature) || await chain.neverLanded(row.signature, p.lastValidBlockHeight, p.recentBlockhash)) {
+    // FAILED only on proof: the chain says it failed, or the RPC answered that
+    // it has no such transaction AND its blockhash can no longer land it. An
+    // RPC that could not answer (or pruned history) is never proof.
+    if (await chain.failed(row.signature) ||
+        (lookup.status === "missing" && await chain.neverLanded(row.signature, p.lastValidBlockHeight, p.recentBlockhash))) {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FAILED" });
       return saved ?? row;
     }

@@ -23,7 +23,7 @@ import { NOT_LIVE_REASON, centsToUsd, depositsOpenTo } from "../deposits/config.
 import { depositsRuntimeFor } from "../deposits/runtime.ts";
 import { collectableWinnings, buildActivity, solanaPayUri } from "../money/activity.ts";
 import { isMoneyError, MoneyError, MONEY_OFF_COPY, type MoneyErrorCode } from "../money/errors.ts";
-import { MONEY_MIN_BASE_UNITS, MONEY_PRESETS_BASE_UNITS, PENDING_TTL_MS } from "../money/MoneyCallsService.ts";
+import { MONEY_MIN_BASE_UNITS, MONEY_PRESETS_BASE_UNITS, PENDING_INITIAL_MS } from "../money/MoneyCallsService.ts";
 import { moneyRuntimeFor } from "../money/runtime.ts";
 import { moneyCallsFor } from "../money/visibility.ts";
 import { MAINNET_USDC_MINT } from "../prediction/PantaChain.ts";
@@ -53,6 +53,8 @@ const CODES: Record<MoneyErrorCode, TRPC_ERROR_CODE_KEY> = {
   MARKET_CLOSED: "PRECONDITION_FAILED",
   NOT_TRADABLE: "PRECONDITION_FAILED",
   PRICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
+  PRICE_MOVED: "PRECONDITION_FAILED",
+  TRANSFER_IN_FLIGHT: "CONFLICT",
   BAD_SIGNATURE: "BAD_REQUEST",
   EXPIRED: "PRECONDITION_FAILED",
   RATE_LIMITED: "TOO_MANY_REQUESTS",
@@ -97,7 +99,10 @@ async function run<T>(procedure: string, action: () => Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
     if (error instanceof TRPCError) throw error;
-    if (isMoneyError(error)) throw new TRPCError({ code: CODES[error.code], message: error.message });
+    if (isMoneyError(error)) {
+      // Public details (our own ids and codes) ride in the error's data.details.
+      throw new TRPCError({ code: CODES[error.code], message: error.message, ...(error.publicDetails ? { cause: error } : {}) });
+    }
     if (isCallsError(error)) throw callsTrpcError(error);
     if (isTrustError(error)) throw trustTrpcError(error);
     if (isVenueError(error)) throw new TRPCError({ code: venueCode(error.code), message: error.message });
@@ -195,7 +200,7 @@ export const moneyRouter = router({
       minBaseUnits: MONEY_MIN_BASE_UNITS.toString(),
       maxBaseUnits: max && /^[1-9][0-9]{0,15}$/.test(max) ? max : null,
       defaultAmountBaseUnits,
-      pendingTtlMs: PENDING_TTL_MS,
+      pendingTtlMs: PENDING_INITIAL_MS,
     };
   })),
 

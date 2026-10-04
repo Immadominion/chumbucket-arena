@@ -56,6 +56,11 @@ export class MoneyCallIndex implements MoneyCallVisibility {
   /** Every PENDING row, for the sweeper. */
   pending(): MoneyCallRow[] { return [...this.rows.values()].filter(r => r.state === "PENDING"); }
 
+  /** EXPIRED and FREE rows whose window ended at or after `since`, for the sweeper's late-fill repair. */
+  closed(since: number): MoneyCallRow[] {
+    return [...this.rows.values()].filter(r => (r.state === "EXPIRED" || r.state === "FREE") && Date.parse(r.expires_at) >= since);
+  }
+
   /** The newest state of a row. FUNDED leaves the index: the call is public. */
   put(row: MoneyCallRow): void {
     if (row.state === "FUNDED") this.rows.delete(row.call_id);

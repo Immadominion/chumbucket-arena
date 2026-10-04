@@ -101,14 +101,16 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       // they are relaxed so a state can be seeded without a real approval.
       sql(`ALTER TABLE public.panta_trade_sessions DROP CONSTRAINT panta_trade_prepared_binding,
         DROP CONSTRAINT panta_trade_confirmed_evidence;`);
-      const trade = (callId: string, user: string, tradeState: "SUBMITTED" | "FILLED" | "FAILED") => {
+      const trade = (callId: string, user: string, tradeState: "SUBMITTED" | "FILLED" | "FAILED",
+        quote: { key?: string; expiresAt?: number } = {}) => {
         const id = randomUUID();
         const signature = "1".repeat(40) + id.replace(/-/g, "").replace(/0/g, "2");
+        const prepared = JSON.stringify({ order: { expiresAt: quote.expiresAt ?? Date.now() } });
         sql(`SET session_replication_role = replica;
           INSERT INTO public.panta_trade_sessions(id, user_id, call_id, market_id, wallet_address, venue_market_id, side, amount_base_units,
             max_slippage_bps, idempotency_key, request_fingerprint, state, provider_order_id, prepared, signed_transaction, signature, fill_evidence)
-          VALUES ('${id}', '${user}', '${callId}', '${marketOf.get(callId)}', '${W}', 'vm-money', 'YES', 5000000, 100, 'trade-${id}', '${"b".repeat(64)}',
-            '${tradeState}', 'ord-${id}', '{}'::jsonb, 'AAAA', '${signature}', ${tradeState === "FILLED" ? "'{}'::jsonb" : "NULL"});`);
+          VALUES ('${id}', '${user}', '${callId}', '${marketOf.get(callId)}', '${W}', 'vm-money', 'YES', 5000000, 100, '${quote.key ?? `trade-${id}`}', '${"b".repeat(64)}',
+            '${tradeState}', 'ord-${id}', '${prepared}'::jsonb, 'AAAA', '${signature}', ${tradeState === "FILLED" ? "'{}'::jsonb" : "NULL"});`);
         return id;
       };
 
@@ -165,15 +167,77 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       bff(intent(Z, ANN, m5, { key: "tap-key-keptfree-abcdef" }));
       call(Z, ANN, "YES", m5);
       bff(`UPDATE public.money_calls SET state = 'FREE', ended_reason = 'kept_free' WHERE call_id = '${Z}';`);
-      trade(Z, ANN, "FILLED");
+      trade(Z, ANN, "FILLED", { key: "tap-key-keptfree-abcdef.t1" });
       bff(`UPDATE public.money_calls SET state = 'FUNDED', ended_reason = 'filled' WHERE call_id = '${Z}';`);
       expect(state(Z)).toBe("FUNDED|filled");
+
+      // ── a closed money call comes back only for its own last quote, signed in time ──
+      const closed = (reason: string, key: string, quote: { key: string; expiresAt?: number }) => {
+        const id = randomUUID(), m = market();
+        bff(intent(id, ANN, m, { key }));
+        call(id, ANN, "YES", m);
+        bff(`UPDATE public.money_calls SET state = 'EXPIRED', ended_reason = '${reason}' WHERE call_id = '${id}';`);
+        trade(id, ANN, "FILLED", quote);
+        return `UPDATE public.money_calls SET state = 'FUNDED', ended_reason = 'filled' WHERE call_id = '${id}';`;
+      };
+      refused(closed("discarded", "tap-key-discarded-abcdef", { key: "tap-key-discarded-abcdef.t1" }), /its own last quote/);
+      refused(closed("expired", "tap-key-wrongkey-abcdef", { key: "tap-key-wrongkey-abcdef.t0" }), /its own last quote/);
+      refused(closed("expired", "tap-key-latequote-abcdef", { key: "tap-key-latequote-abcdef.t1", expiresAt: Date.now() + 3_600_000 }), /its own last quote/);
+      bff(closed("expired", "tap-key-resurrect-abcdef", { key: "tap-key-resurrect-abcdef.t1" }));
+
+      // ── a money call is traded only while PENDING (the direct trade route can't resurrect one) ──
+      sql(`ALTER TABLE public.panta_trade_sessions DISABLE TRIGGER panta_trade_sessions_guard;`); // its own rules are proven elsewhere
+      const tradeRow = (callId: string, key: string) => `INSERT INTO public.panta_trade_sessions(id, user_id, call_id, market_id, wallet_address,
+          venue_market_id, side, amount_base_units, max_slippage_bps, idempotency_key, request_fingerprint)
+        VALUES ('${randomUUID()}', '${ANN}', '${callId}', '${marketOf.get(callId)}', '${W}', 'vm-money', 'YES', 5000000, 100, '${key}', '${"e".repeat(64)}');`;
+      const G1 = randomUUID(), g1m = market();
+      bff(intent(G1, ANN, g1m, { key: "tap-key-guardone-abcdef" }));
+      call(G1, ANN, "YES", g1m);
+      bff(`UPDATE public.money_calls SET state = 'EXPIRED', ended_reason = 'discarded' WHERE call_id = '${G1}';`);
+      refused(tradeRow(G1, "direct-route-key-g1"), /can no longer be traded/);
+      const G2 = randomUUID(), g2m = market();
+      bff(intent(G2, ANN, g2m, { key: "tap-key-guardtwo-abcdef" }));
+      call(G2, ANN, "YES", g2m);
+      bff(tradeRow(G2, "tap-key-guardtwo-abcdef.t1"));
+      bff(`UPDATE public.panta_trade_sessions SET state = 'QUOTED', provider_order_id = 'ord-g2', prepared = '{}'::jsonb WHERE call_id = '${G2}';`);
+      bff(`UPDATE public.money_calls SET state = 'EXPIRED', ended_reason = 'expired' WHERE call_id = '${G2}';`);
+      refused(`UPDATE public.panta_trade_sessions SET state = 'SUBMITTED', signature = '${"7".repeat(64)}', signed_transaction = 'AAAA' WHERE call_id = '${G2}';`,
+        /can no longer be traded/);
+      const plain = randomUUID(), pm = market();
+      call(plain, ANN, "YES", pm);
+      bff(tradeRow(plain, "free-call-trade-key-01")); // a call made without an amount trades as before
+      sql(`ALTER TABLE public.panta_trade_sessions ENABLE TRIGGER panta_trade_sessions_guard;`);
+
+      // ── private means private, through the anon and authenticated keys too ──
+      const annAuth = randomUUID(), bobAuth = randomUUID();
+      sql(`INSERT INTO auth.users(id) VALUES ('${annAuth}'), ('${bobAuth}');
+        UPDATE public.users SET auth_user_id = '${annAuth}' WHERE id = '${ANN}';
+        UPDATE public.users SET auth_user_id = '${bobAuth}' WHERE id = '${BOB}';`);
+      const P = randomUUID(), pmk = market();
+      bff(intent(P, ANN, pmk, { key: "tap-key-pendingrls-abcdef" }));
+      call(P, ANN, "YES", pmk);
+      const sees = (role: string, sub: string | null, callId: string) => sql(`SET ROLE ${role};
+        SELECT set_config('request.jwt.claims', '${JSON.stringify(sub ? { role, sub } : { role })}', false);
+        SELECT count(*) FROM public.calls WHERE id = '${callId}';`);
+      expect(sees("anon", null, P)).toBe("0");
+      expect(sees("authenticated", bobAuth, P)).toBe("0");
+      expect(sees("authenticated", annAuth, P)).toBe("1"); // the owner
+      expect(bff(`SELECT count(*) FROM public.calls WHERE id = '${P}'`)).toBe("1"); // the BFF
+      // Existing reads are untouched: a free public call, and a funded money call.
+      expect(sees("anon", null, bobs)).toBe("1");
+      expect(sees("authenticated", annAuth, bobs)).toBe("1");
+      expect(sees("anon", null, X)).toBe("1");
+      // An ended (kept free / expired) money call stays private; its owner still sees it.
+      bff(`UPDATE public.money_calls SET state = 'EXPIRED', ended_reason = 'discarded' WHERE call_id = '${P}';`);
+      expect(sees("anon", null, P)).toBe("0");
+      expect(sees("authenticated", annAuth, P)).toBe("1");
+      expect(sql(`SELECT has_function_privilege('anon', 'public.money_call_private_v1(uuid)', 'EXECUTE')`)).toBe("t");
       // History is permanent; nobody but the BFF reads it.
       refused(`DELETE FROM public.money_calls WHERE call_id = '${Y}';`, /permission denied|permanent/);
       refused(`TRUNCATE public.money_calls;`, /permanent/, "test_admin");
       refused(`SELECT * FROM public.money_calls;`, /permission denied/, "authenticated");
       refused(`SELECT * FROM public.money_calls;`, /permission denied/, "anon");
-      expect(bff(`SELECT count(*) FROM public.money_calls WHERE user_id = '${ANN}'`)).toBe("3");
+      expect(bff(`SELECT count(*) FROM public.money_calls WHERE user_id = '${ANN}'`)).toBe("10");
 
       // ── wallet_transfers ──
       const T1 = randomUUID();
@@ -202,6 +266,14 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       refused(`DELETE FROM public.wallet_transfers WHERE id = '${T1}';`, /permission denied|permanent/);
       refused(`SELECT * FROM public.wallet_transfers;`, /permission denied/, "authenticated");
       expect(bff(`SELECT state FROM public.wallet_transfers WHERE id = '${T1}'`)).toBe("CONFIRMED");
+      // One transfer in flight per source wallet.
+      const T2 = randomUUID(), T3 = randomUUID();
+      bff(transfer(T2, prepared()).replace(`'cash-out-${T2.slice(0, 8)}-abcdef'`, "'cash-out-second-key-01'"));
+      refused(transfer(T3, prepared()).replace(`'cash-out-${T3.slice(0, 8)}-abcdef'`, "'cash-out-third-key-001'"), /wallet_transfers_one_in_flight_per_wallet/);
+      bff(`UPDATE public.wallet_transfers SET state = 'SUBMITTED', signature = '${"8".repeat(88)}', signed_transaction = 'AAAA' WHERE id = '${T2}';`);
+      refused(transfer(T3, prepared()).replace(`'cash-out-${T3.slice(0, 8)}-abcdef'`, "'cash-out-third-key-001'"), /wallet_transfers_one_in_flight_per_wallet/);
+      bff(`UPDATE public.wallet_transfers SET state = 'FAILED' WHERE id = '${T2}';`);
+      bff(transfer(T3, prepared()).replace(`'cash-out-${T3.slice(0, 8)}-abcdef'`, "'cash-out-third-key-001'"));
     } finally {
       if (started) run("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"]);
       rmSync(root, { recursive: true, force: true });

@@ -29,6 +29,7 @@ import {
   usdcDelta,
   type AccountKind,
   type TransferChainPort,
+  type TransferLookup,
 } from "../src/money/transfers.ts";
 import { FakeBalances, FakeGas } from "./moneyCallsFixtures.ts";
 
@@ -48,7 +49,7 @@ class FakeChain implements TransferChainPort {
   kinds = new Map<string, AccountKind>();
   existing = new Set<string>();
   broadcasts: string[] = [];
-  proof: { slot: number } | null = null;
+  lookup: TransferLookup = { status: "unknown" };
   failedSig = false;
   expired = false;
   verifyInputs: unknown[] = [];
@@ -60,7 +61,7 @@ class FakeChain implements TransferChainPort {
   async broadcast(tx: { signature: string }) { this.onBroadcast(); this.broadcasts.push(tx.signature); }
   async failed() { return this.failedSig; }
   async neverLanded() { return this.expired; }
-  async verifyTransfer(input: unknown) { this.verifyInputs.push(input); return this.proof; }
+  async verifyTransfer(input: unknown) { this.verifyInputs.push(input); return this.lookup; }
 }
 
 function rig() {
@@ -192,7 +193,7 @@ describe("submit and status", () => {
     expect(r.chain.broadcasts).toHaveLength(1);
     // Not proven yet: still SUBMITTED.
     expect((await r.service.status("ann", out.transfer.transferId)).state).toBe("SUBMITTED");
-    r.chain.proof = { slot: 99 };
+    r.chain.lookup = { status: "confirmed", slot: 99 };
     const done = await r.service.status("ann", out.transfer.transferId);
     expect(done).toMatchObject({ state: "CONFIRMED", signature: submitted.signature });
     expect(r.chain.verifyInputs.at(-1)).toMatchObject({ from: T, to: friend, amountBaseUnits: "10000000" });
@@ -218,25 +219,66 @@ describe("submit and status", () => {
     expect(r.chain.broadcasts).toHaveLength(0);
   });
 
-  test("FAILED only when the chain says so; the sweeper settles submitted transfers", async () => {
+  test("FAILED only on proof: the RPC answered it has no such transaction and the blockhash expired", async () => {
     const r = rig();
     const out = await cashOut(r, friend);
     if (out.status !== "READY") throw new Error(out.status);
     await r.service.submit("ann", out.transfer.transferId, sign(out.transaction.payload));
     expect(await r.service.sweep()).toEqual({ confirmed: 0, failed: 0, errors: [] });
+    // The blockhash expired, but the RPC could not answer (or pruned it): never FAILED.
     r.chain.expired = true;
+    expect(await r.service.sweep()).toEqual({ confirmed: 0, failed: 0, errors: [] });
+    expect((await r.service.status("ann", out.transfer.transferId)).state).toBe("SUBMITTED");
+    r.chain.lookup = { status: "missing" };
     expect(await r.service.sweep()).toEqual({ confirmed: 0, failed: 1, errors: [] });
     expect((await r.service.status("ann", out.transfer.transferId)).state).toBe("FAILED");
     await expect(r.service.submit("ann", out.transfer.transferId, sign(out.transaction.payload))).rejects.toMatchObject({ code: "STATE" });
   });
 
-  test("the same tap replays the same review; the same key for another transfer is refused", async () => {
+  test("the same tap replays the same review; once signed, it answers the transfer's actual state, never a fresh review", async () => {
     const r = rig();
     const first = await cashOut(r, friend);
     const again = await cashOut(r, friend);
     expect(again).toEqual(first);
     await expect(cashOut(r, friend, "9000000")).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
     expect(r.store.rows.size).toBe(1);
+    if (first.status !== "READY") throw new Error(first.status);
+    await r.service.submit("ann", first.transfer.transferId, sign(first.transaction.payload));
+    expect(await cashOut(r, friend)).toMatchObject({ status: "SENT", transfer: { transferId: first.transfer.transferId, state: "SUBMITTED" } });
+    r.chain.lookup = { status: "confirmed", slot: 5 };
+    expect(await cashOut(r, friend)).toMatchObject({ status: "SENT", transfer: { state: "CONFIRMED" } });
+    // A FAILED one too: SENT with FAILED, never READY.
+    const r2 = rig();
+    const lost = await cashOut(r2, friend);
+    if (lost.status !== "READY") throw new Error(lost.status);
+    await r2.service.submit("ann", lost.transfer.transferId, sign(lost.transaction.payload));
+    r2.chain.lookup = { status: "missing" }; r2.chain.expired = true;
+    await r2.service.status("ann", lost.transfer.transferId);
+    expect(await cashOut(r2, friend)).toMatchObject({ status: "SENT", transfer: { state: "FAILED" } });
+  });
+
+  test("one transfer in flight per source wallet, until it is confirmed, failed, or its review expired", async () => {
+    const r = rig();
+    const first = await cashOut(r, friend, "1000000", "cash-out-key-first");
+    if (first.status !== "READY") throw new Error(first.status);
+    const second = () => cashOut(r, friend, "2000000", "cash-out-key-second");
+    await expect(second()).rejects.toMatchObject({ code: "TRANSFER_IN_FLIGHT",
+      publicDetails: { reason: "TRANSFER_IN_FLIGHT", transferId: first.transfer.transferId } });
+    // Another source wallet is not held up.
+    expect((await r.service.depositFromWallet(person, tradingWallet, { fromWallet: P, amountBaseUnits: "1000000", idempotencyKey: "top-up-key-parallel" })).status).toBe("READY");
+    // Signed: still in flight. Confirmed: free again.
+    await r.service.submit("ann", first.transfer.transferId, sign(first.transaction.payload));
+    await expect(second()).rejects.toMatchObject({ code: "TRANSFER_IN_FLIGHT" });
+    r.chain.lookup = { status: "confirmed", slot: 7 };
+    await r.service.status("ann", first.transfer.transferId);
+    expect((await second()).status).toBe("READY");
+    // An expired review is retired, then the next one is built.
+    r.advance(61_000);
+    expect((await cashOut(r, friend, "3000000", "cash-out-key-third")).status).toBe("READY");
+    expect([...r.store.rows.values()].filter(row => row.state === "FAILED").map(row => row.amount_base_units)).toEqual(["2000000"]);
+    // The store refuses a second one in flight even if the service were bypassed.
+    await expect(r.store.insert({ ...[...r.store.rows.values()].find(row => row.state === "BUILT")!, id: "x", idempotency_key: "cash-out-key-fourth" }))
+      .rejects.toThrow("one_in_flight");
   });
 });
 

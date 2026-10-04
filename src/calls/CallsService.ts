@@ -26,7 +26,7 @@ import type { MarketResolutionRecord } from "../prediction/types.ts";
 import { usableSharePrice } from "../prediction/sharePrices.ts";
 import { CallsError } from "./errors.ts";
 import { acceptsNewCalls, callsCloseAt, type VenueMarketReader } from "./markets.ts";
-import type { CallFunding, CallFundingReader } from "../prediction/PantaFunding.ts";
+import { countsAsFunded, type CallFunding, type CallFundingReader } from "../prediction/PantaFunding.ts";
 import type { MoneyCallVisibility } from "../money/visibility.ts";
 import type { CallReceiptsProjection } from "./receipts.ts";
 import { PeopleDirectory, type PeopleViewOptions } from "./people.ts";
@@ -154,7 +154,7 @@ export class CallsService {
       callCutoffMs: this.callCutoffMs,
       ...(money ? {
         isPrivate: (callId: string) => money.isPrivate(callId),
-        isFunded: (callId: string) => (funding?.fundingOf(callId) ?? null) !== null,
+        isFunded: (callId: string) => countsAsFunded(funding?.fundingOf(callId)),
         showsMoney: (viewerUserId: string | null) => this.moneyFor(viewerUserId),
       } : {}),
     });
@@ -778,8 +778,8 @@ export class CallsService {
 
   /** Funded calls first, each group newest first. */
   private readonly fundedFirst = (a: CallRecord, b: CallRecord): number => {
-    const fa = (this.funding?.fundingOf(a.id) ?? null) !== null;
-    const fb = (this.funding?.fundingOf(b.id) ?? null) !== null;
+    const fa = countsAsFunded(this.funding?.fundingOf(a.id));
+    const fb = countsAsFunded(this.funding?.fundingOf(b.id));
     return Number(fb) - Number(fa) || newestFirst(a, b);
   };
 
@@ -873,6 +873,32 @@ export class CallsService {
   assertFreeReplacement(callId: string, actorUserId: string): void {
     const { input } = this.freeReplacementOf(callId, actorUserId);
     this.validateFundedCall(input, actorUserId, callId);
+  }
+
+  /**
+   * Whether the call's side still trades near the price it was locked at:
+   * within `maxSlippageBps` of the entry (Panta: the side's share price;
+   * otherwise its probability). A money call is re-quoted only then, so a
+   * pending call can't be held open to fund only the winners.
+   */
+  priceWithin(callId: string, maxSlippageBps: number): "within" | "moved" | "unreadable" {
+    const call = this.store.getCall(callId);
+    const market = call ? this.markets.getMarket(call.marketId) : undefined;
+    if (!call || !market) return "unreadable";
+    let entry: number | null = null, current: number | null = null;
+    if (call.entryPrice) {
+      const at = this.markets.latestSharePrice?.(market.id);
+      if (!usableSharePrice(at, this.clock.now())) return "unreadable";
+      entry = Number(call.side === "YES" ? call.entryPrice.yesPrice : call.entryPrice.noPrice);
+      current = Number(call.side === "YES" ? at.yesPrice : at.noPrice);
+    } else if (call.entryProbability !== null) {
+      const snapshot = this.markets.latestSnapshot(market.id);
+      if (!snapshot) return "unreadable";
+      entry = call.side === "YES" ? call.entryProbability : 1 - call.entryProbability;
+      current = call.side === "YES" ? snapshot.yesProbability : 1 - snapshot.yesProbability;
+    }
+    if (entry === null || current === null || !Number.isFinite(entry) || !Number.isFinite(current) || entry <= 0) return "unreadable";
+    return (Math.abs(current - entry) / entry) * 10_000 <= maxSlippageBps ? "within" : "moved";
   }
 
   /** A price a new call can be stamped with right now (Panta: a fresh share price). */
@@ -980,7 +1006,8 @@ const opposite = (s: Side): Side => (s === "YES" ? "NO" : "YES");
 
 const funded = (funding: CallFunding | null, withAmount: boolean): { funding?: CallFunding } => {
   if (!funding) return {};
-  if (withAmount) return { funding };
+  // The "$5 on YES" stamp only for fills that sum to at least $1.
+  if (withAmount && countsAsFunded(funding)) return { funding };
   // Money calls off: exactly the earlier marker, no amount and no side.
   return { funding: { state: funding.state, venue: funding.venue, fundedAt: funding.fundedAt } };
 };

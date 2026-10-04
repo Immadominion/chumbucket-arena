@@ -27,6 +27,7 @@ import type { CallsStore } from "../calls/store.ts";
 import type { CallFeedEntry, CallVisibility } from "../calls/types.ts";
 import type { DepositPerson, DepositWallet } from "../deposits/accounts.ts";
 import type { PantaPreparedOrder } from "../prediction/PantaExecution.ts";
+import { FUNDED_MIN_BASE_UNITS } from "../prediction/PantaFunding.ts";
 import type { PantaPrepareSession, PantaTradingService } from "../prediction/PantaTradingService.ts";
 import type { PantaTradeSession, PantaTradingLedger } from "../prediction/PantaTradingStore.ts";
 import type { VenueOrder } from "../prediction/PredictionVenue.ts";
@@ -37,17 +38,19 @@ import type { GasPort } from "./gas.ts";
 import type { MoneyCallEnd, MoneyCallRow, MoneyCallStore } from "./store.ts";
 import type { MoneyCallIndex } from "./visibility.ts";
 
-/** A pending call's life after its latest quote. */
-export const PENDING_TTL_MS = 10 * 60_000;
-/** No pending call lives longer than this. */
-export const PENDING_MAX_MS = 30 * 60_000;
-/** A signature can land until its quote expires; the call outlives it by this. */
-const QUOTE_GRACE_MS = 60_000;
-/** Panta's longest quote (PantaExecution MAX_SESSION_MS). */
-const MAX_QUOTE_MS = 300_000;
+/**
+ * A money call's window: its first quote's life plus this grace (about two
+ * minutes in all). It is never extended: a call held open longer could wait
+ * to see where the price goes and fund only the winners.
+ */
+export const PENDING_GRACE_MS = 60_000;
+/** The window before any quote has been made (about one quote's life plus the grace). */
+export const PENDING_INITIAL_MS = 2 * 60_000;
+/** How far back the sweeper looks for a closed call a late fill funds. */
+const CLOSED_REPAIR_MS = 24 * 3_600_000;
 /** An intent whose call never appeared is given up after this. */
 const NOT_CREATED_GRACE_MS = 2 * 60_000;
-export const MONEY_MIN_BASE_UNITS = 1_000_000n;
+export const MONEY_MIN_BASE_UNITS = FUNDED_MIN_BASE_UNITS;
 export const MONEY_PRESETS_BASE_UNITS = ["5000000", "10000000", "25000000"] as const;
 export const MONEY_DEFAULT_BASE_UNITS = "5000000";
 const CENT = 10_000n;
@@ -102,7 +105,8 @@ export interface MoneyCallsDeps {
   index: MoneyCallIndex;
   calls: {
     service: Pick<CallsService, "planFundedCall" | "lockFundedCall" | "publishFundedCall" | "withdrawFundedCall" |
-      "restoreFundedCall" | "takesCalls" | "getCall" | "assertFreeReplacement" | "replaceFundedCallWithFree" | "priceReadable">;
+      "restoreFundedCall" | "takesCalls" | "getCall" | "assertFreeReplacement" | "replaceFundedCallWithFree" | "priceReadable" |
+      "priceWithin">;
     store: Pick<CallsStore, "getCall" | "liveCallByUserOnMarket">;
     /** Every queued call write is durable (or this throws). */
     flush(): Promise<void>;
@@ -162,7 +166,7 @@ export class MoneyCallsService {
       call_id: plan.callId, user_id: person.userId, market_id: plan.marketId, side: plan.side, kind: plan.kind,
       target_call_id: plan.targetCallId, amount_base_units: amount.toString(), max_slippage_bps: input.maxSlippageBps,
       wallet_address: wallet.address, idempotency_key: input.idempotencyKey, request_fingerprint: fingerprint,
-      expires_at: iso(now + PENDING_TTL_MS), created_at: iso(now),
+      expires_at: iso(now + PENDING_INITIAL_MS), created_at: iso(now),
     });
     if (!row) {
       const raced = await this.deps.store.byKey(person.userId, input.idempotencyKey);
@@ -172,14 +176,15 @@ export class MoneyCallsService {
     // Private BEFORE it exists: the call is never public for an instant.
     this.deps.index.put(row);
     const entry = await this.lock(row, plan, input);
-    return this.quote(person, row, undefined, entry);
+    return this.quote(person, row, undefined, entry, true);
   }
 
   private async replay(person: DepositPerson, row: MoneyCallRow, fingerprint: string, input: PrepareCallInput): Promise<PrepareCallResult> {
     if (row.request_fingerprint !== fingerprint) {
       throw new MoneyError("IDEMPOTENCY_CONFLICT", "This tap was already used for a different call. Try again.");
     }
-    if (row.state === "PENDING" && (await this.latest(row))?.state === "FILLED") row = await this.markFunded(row);
+    const filled = row.state === "PENDING" ? await this.latest(row) : null;
+    if (filled && this.fundsIt(row, filled)) row = await this.markFunded(row);
     if (row.state !== "PENDING") {
       return { status: "SETTLED", moneyCall: await this.describe(row), call: this.entry(row) };
     }
@@ -217,11 +222,12 @@ export class MoneyCallsService {
    * The live quote for a PENDING call, or a fresh one (a new attempt): never a
    * second buy while one is going through, and never past the call's life.
    */
-  private async quote(person: DepositPerson, row: MoneyCallRow, walletHint?: string, entry?: CallFeedEntry): Promise<QuoteResult> {
+  /** `fresh`: the call was locked in this very request, at today's price. */
+  private async quote(person: DepositPerson, row: MoneyCallRow, walletHint?: string, entry?: CallFeedEntry, fresh = false): Promise<QuoteResult> {
     const ledger = this.deps.ledger();
     const latest = ledger ? await ledger.latestForCall(person.userId, row.call_id) : null;
     if (latest?.state === "FILLED") {
-      await this.markFunded(row);
+      if (this.fundsIt(row, latest)) await this.markFunded(row);
       throw new MoneyError("STATE", "This call is already funded.");
     }
     if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
@@ -240,9 +246,11 @@ export class MoneyCallsService {
     if (!this.deps.calls.service.takesCalls(row.market_id)) {
       throw new MoneyError("MARKET_CLOSED", "This market stopped taking calls, so this call can't be funded.");
     }
-    const created = Date.parse(row.created_at);
-    if (now + MAX_QUOTE_MS + QUOTE_GRACE_MS > created + PENDING_MAX_MS) {
-      throw new MoneyError("EXPIRED", "This call timed out. Make it again.");
+    if (!fresh) {
+      // A re-quote only while the price is where the call was locked.
+      const price = this.deps.calls.service.priceWithin(row.call_id, row.max_slippage_bps);
+      if (price === "moved") throw new MoneyError("PRICE_MOVED", "The price moved since you made this call. Make a new call.");
+      if (price === "unreadable") throw new MoneyError("PRICE_UNAVAILABLE", "This market's price isn't available right now. Try again in a minute.");
     }
     const blocked = await this.readiness(person, wallet, BigInt(row.amount_base_units));
     if (blocked) return blocked;
@@ -261,10 +269,11 @@ export class MoneyCallsService {
       callId: next.call_id, wallet: wallet.address, amountBaseUnits: next.amount_base_units,
       idempotencyKey: tradeKey(next), maxSlippageBps: next.max_slippage_bps,
     }, this.session(person));
-    const expires = Math.min(created + PENDING_MAX_MS, Math.max(now + PENDING_TTL_MS, prepared.order.expiresAt + QUOTE_GRACE_MS));
-    if (expires > Date.parse(next.expires_at)) {
-      const extended = await this.deps.store.update(next.call_id, { state: "PENDING", attempts: next.attempts }, { expires_at: iso(expires) });
-      if (extended) { next = extended; this.deps.index.put(next); }
+    // The window is the FIRST quote's life plus the grace, set once, never extended.
+    if (!current && next.attempts === 1) {
+      const window = await this.deps.store.update(next.call_id, { state: "PENDING", attempts: next.attempts },
+        { expires_at: iso(prepared.order.expiresAt + PENDING_GRACE_MS) });
+      if (window) { next = window; this.deps.index.put(next); }
     }
     const quoted = { state: "QUOTED", provider_order_id: prepared.order.orderId } as Pick<PantaTradeSession, "state" | "provider_order_id">;
     return { status: "READY", moneyCall: this.viewOf(next, latest, quoted), call, trade: prepared };
@@ -340,7 +349,7 @@ export class MoneyCallsService {
       try { latest = await this.deps.trading(true).reconcile(latest); }
       catch { /* still pending: the answer says SUBMITTED, the reconciler keeps checking */ }
     }
-    if (latest?.state === "FILLED" && row.state !== "FUNDED") row = await this.markFunded(row);
+    if (latest && this.fundsIt(row, latest)) row = await this.markFunded(row);
     const current = ledger ? await ledger.find(userId, tradeKey(row)) : null;
     const shown = latest && (latest.state === "SUBMITTED" || latest.state === "FILLED") ? latest
       : current?.prepared ? current : latest;
@@ -371,7 +380,22 @@ export class MoneyCallsService {
   async onFilled(trade: PantaTradeSession): Promise<void> {
     if (trade.state !== "FILLED") return;
     const row = this.deps.index.get(trade.call_id) ?? await this.deps.store.byCall(trade.user_id, trade.call_id);
-    if (row && row.state !== "FUNDED") await this.markFunded(row);
+    if (row && this.fundsIt(row, trade)) await this.markFunded(row);
+  }
+
+  /**
+   * Whether this FILLED trade funds this money call. A PENDING call: any of
+   * its fills. A closed one (EXPIRED, or FREE: replaced by a free call) comes
+   * back only for its own last quote (the current attempt's key) whose life
+   * ended before the call's did, and never once discarded. The SQL guard
+   * applies the same rule.
+   */
+  private fundsIt(row: MoneyCallRow, trade: Pick<PantaTradeSession, "state" | "idempotency_key" | "prepared">): boolean {
+    if (trade.state !== "FILLED" || row.state === "FUNDED") return false;
+    if (row.state === "PENDING") return true;
+    if (row.ended_reason === "discarded" || trade.idempotency_key !== tradeKey(row)) return false;
+    const quoteExpiry = trade.prepared?.order.expiresAt;
+    return typeof quoteExpiry === "number" && quoteExpiry <= Date.parse(row.expires_at);
   }
 
   /**
@@ -384,6 +408,15 @@ export class MoneyCallsService {
     const report = { funded: 0, expired: 0, errors: [] as string[] };
     const ledger = this.deps.ledger();
     const now = this.now();
+    // Closed calls a fill may still fund (their last quote landed late, the hook missed it): a day back.
+    for (const row of this.deps.index.closed(now - CLOSED_REPAIR_MS)) {
+      try {
+        const latest = ledger ? await ledger.latestForCall(row.user_id, row.call_id) : null;
+        if (latest && this.fundsIt(row, latest)) { await this.markFunded(row); report.funded++; }
+      } catch (error) {
+        report.errors.push(error instanceof MoneyError ? error.code : "MONEY_SWEEP_FAILED");
+      }
+    }
     for (const row of this.deps.index.pending()) {
       try {
         const latest = ledger ? await ledger.latestForCall(row.user_id, row.call_id) : null;
