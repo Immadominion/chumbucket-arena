@@ -27,11 +27,13 @@ import { join } from "node:path";
 import { checkGaslessSwap as serverSwapCheck, type ExpectedSwap as ServerExpectedSwap } from "../src/solTopUp/verify.ts";
 import { METIS, OWNER, RFQ } from "./fixtures/jupiterGasless.ts";
 import { fundedLabel } from "../web/lib/callsBff.ts";
-import { BffFailure, BffOffline, BffRejected, parseTrpcResponse } from "../web/lib/webapp/bff.ts";
+import { BffFailure, BffOffline, BffRejected, BffSignedOut, parseTrpcResponse } from "../web/lib/webapp/bff.ts";
 import { loadCache, persistable, saveCache, trimForStorage } from "../web/lib/webapp/cache.ts";
 import { checkPantaClaim, type ReviewedClaim } from "../web/lib/webapp/claimCheck.ts";
 import {
   exactUsd,
+  knownTradingWallet,
+  sessionWallet,
   activityRow,
   amountHint,
   balanceRose,
@@ -70,6 +72,7 @@ import {
   prepareTransfer,
   signTransfer,
   stepTransfer,
+  nextStepDelay,
   transferOpen,
   priceMoved,
   refusalReason,
@@ -1267,9 +1270,10 @@ describe("security review fixes", () => {
 
   test("From your wallet pays only the trading wallet this browser knows, and shows it", () => {
     const sheet = readCode(join(WEB, "components/webapp/money/DepositSheet.tsx"));
-    expect(sheet).toContain("const trading = own.enabled ? own.address : (wallet.data?.wallet?.address ?? null);");
+    expect(sheet).toContain('const trading = known.state === "known" ? known.address : null;');
+    expect(sheet).toContain("ownWallets: mine.wallets,");
+    expect(sheet).toMatch(/\) : known\.state === "refused" \|\| serverTrading !== trading \? \(/);
     expect(sheet).toContain("to={trading!}");
-    expect(sheet).toMatch(/\) : serverTrading !== trading \? \(/);
     expect(sheet).toContain('if (own.enabled && (await own.ensure()).address !== to) throw new TradeError("mismatch");');
     expect(sheet).toContain("{ from, to, amountBaseUnits: amount }");
     expect(sheet).toMatch(/<code className="wa-addr-full wa-mono" aria-label="To your wallet">\s*\{to\}\s*<\/code>/);
@@ -1412,5 +1416,76 @@ describe("contract 1e94ac3: a two-minute window, PRICE_MOVED, one transfer in fl
   test("the old Trade row is never offered for a call with money", () => {
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
     expect(market).toContain("{viewerCall && open && tradableMarket(market) && !money.enabled && money.known && !viewerCall.money ? (");
+  });
+});
+
+describe("verification QA follow-ups", () => {
+  const view = (state: "SUBMITTED" | "CONFIRMED") => ({ transferId: "t", kind: "cash_out" as const, from: "a", to: "b", amountBaseUnits: "5000000", state, signature: null, createdAt: 1, updatedAt: 1, expiresAt: Date.now() + 60_000 });
+  const run = (): TransferRun => ({ transferId: "t", signed: "c2lnbmVk", amountBaseUnits: "5000000", to: "b", view: view("SUBMITTED"), tried: true, rejected: null });
+
+  test("D2: a rate limit, a 5xx, the network or an expired session on a status read is asked again, later each time", async () => {
+    for (const e of [
+      new BffRejected("That's a lot of tries in a minute.", "TOO_MANY_REQUESTS"),
+      new BffFailure("Unexpected response", "INTERNAL_SERVER_ERROR"),
+      new BffFailure("We couldn't read your balance just now.", "SERVICE_UNAVAILABLE", { reason: "UNAVAILABLE" }),
+      new BffOffline("You’re offline.", "OFFLINE"),
+      new BffSignedOut("Sign in again.", "UNAUTHORIZED"),
+    ]) {
+      const api = { transferSubmit: async () => view("SUBMITTED"), transferStatus: async () => { throw e; } };
+      let r = await stepTransfer(api, run());
+      r = await stepTransfer(api, r);
+      expect({ code: e.code, open: transferOpen(r), rejected: r.rejected, misses: r.misses }).toEqual({ code: e.code, open: true, rejected: null, misses: 2 });
+    }
+    expect([0, 1, 2, 3, 4, 9].map((misses) => nextStepDelay({ misses }))).toEqual([3_000, 6_000, 12_000, 24_000, 30_000, 30_000]);
+    // An answer resets the wait; a definite no (not yours) closes the run.
+    const ok = await stepTransfer({ transferSubmit: async () => view("SUBMITTED"), transferStatus: async () => view("CONFIRMED") }, { ...run(), misses: 3 });
+    expect([ok.misses, transferOpen(ok)]).toEqual([0, false]);
+    const gone = await stepTransfer({ transferSubmit: async () => view("SUBMITTED"), transferStatus: async () => { throw new BffRejected("No such transfer on your account.", "NOT_FOUND", { reason: "NOT_FOUND" }); } }, run());
+    expect(transferOpen(gone)).toBe(false);
+    const runs = readCode(join(WEB, "components/webapp/money/transferRuns.ts"));
+    expect(runs).toContain("setTimeout(() => void step(key, api), nextStepDelay(next))");
+    expect(runs).not.toContain("setInterval");
+  });
+
+  test("D3: without the Chumbucket wallet, money.wallet's address is a destination only when it is one of this browser's own wallets", () => {
+    const me = owner.publicKey.toBase58();
+    const other = thief.publicKey.toBase58();
+    const off = { enabled: false, address: null };
+    expect(knownTradingWallet({ chumbucket: off, moneyWallet: me, ownWallets: [me], ownKnown: true })).toEqual({ state: "known", address: me });
+    expect(knownTradingWallet({ chumbucket: off, moneyWallet: other, ownWallets: [me], ownKnown: true })).toEqual({ state: "refused" });
+    expect(knownTradingWallet({ chumbucket: off, moneyWallet: other, ownWallets: [me], ownKnown: false })).toEqual({ state: "waiting" });
+    expect(knownTradingWallet({ chumbucket: off, moneyWallet: null, ownWallets: [me], ownKnown: true })).toEqual({ state: "waiting" });
+    // With the Chumbucket wallet on, its own address decides.
+    expect(knownTradingWallet({ chumbucket: { enabled: true, address: me }, moneyWallet: other, ownWallets: [], ownKnown: true })).toEqual({ state: "known", address: me });
+    // The wallet the session signed in with, as GoTrue records it.
+    expect(sessionWallet([{ provider: "web3", identity_data: { sub: `web3:solana:${me}`, custom_claims: { chain: "solana", address: me } } }])).toBe(me);
+    expect(sessionWallet([{ provider: "web3", identity_data: { sub: `web3:solana:${me}`, custom_claims: { chain: "solana", address: other } } }])).toBeNull();
+    expect(sessionWallet([{ provider: "twitter", identity_data: { sub: "123" } }])).toBeNull();
+    expect(sessionWallet(null)).toBeNull();
+    const signers = readCode(join(WEB, "components/webapp/money/signers.ts"));
+    expect(signers).toMatch(/export function useOwnWallets\(\)[\s\S]*?sessionWallet\(data\.session\?\.user\.identities\)[\s\S]*?walletAddress[\s\S]*?w\.accounts\.map/);
+  });
+
+  test("W5: the owner's pending money view never reaches the saved call, person, feed or market caches", () => {
+    const mine = { ...entry({ money: { state: "PENDING", amountBaseUnits: "5000000", side: "YES", expiresAt: 1 } }), call: { ...entry().call, id: "pending-1" } };
+    const pub = { ...entry(), call: { ...entry().call, id: "public-1" } };
+    const state = { mutations: [], queries: [
+      { queryKey: ["feed", "global"], state: { data: { pages: [{ entries: [mine, pub], nextCursor: null }], pageParams: [null] } } },
+      { queryKey: ["person", "ada"], state: { data: { person: {}, calls: [pub, mine] } } },
+      { queryKey: ["call", "pending-1"], state: { data: { entry: mine, parent: null, responses: [] } } },
+      { queryKey: ["call", "public-1"], state: { data: { entry: pub, parent: mine, responses: [] } } },
+      { queryKey: ["market", "m1"], state: { data: { market: {}, viewerCall: mine, crowdSplit: null } } },
+    ] };
+    const kept = trimForStorage(state) as { queries: Array<{ queryKey: string[]; state: { data: Record<string, unknown> } }> };
+    expect(kept.queries.map((q) => q.queryKey.join(":"))).toEqual(["feed:global", "person:ada", "call:public-1", "market:m1"]);
+    const json = JSON.stringify(kept);
+    expect(json).not.toContain("pending-1");
+    expect(json).not.toContain('"money"');
+    expect(kept.queries[3]!.state.data.viewerCall).toBeNull();
+    expect(kept.queries[2]!.state.data.parent).toBeNull();
+    // An older save holding one is cleaned on restore too.
+    const storage = memoryStorage();
+    storage.setItem("cb.app.cache.v1.u9", JSON.stringify({ v: 1, savedAt: 1_000, state }));
+    expect(JSON.stringify(loadCache(storage, "u9", 2_000))).not.toContain("pending-1");
   });
 });

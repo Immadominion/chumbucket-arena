@@ -9,7 +9,10 @@
  * BFF checks the signed bytes and broadcasts them.
  */
 
-import { useCallback, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { sessionWallet } from "@/lib/webapp/money";
+import { authClient } from "../authClient";
+import { useMe } from "../queries";
 import { BffFailure } from "@/lib/webapp/bff";
 import { shortWallet } from "@/lib/webapp/format";
 import { refusalReason, stopLine, type SignerFor } from "@/lib/webapp/moneyFlow";
@@ -91,4 +94,31 @@ function snapshot(): StandardWallet[] {
 /** Browser wallets that can sign a transaction, as they register. */
 export function useTransactionWallets(): StandardWallet[] {
   return useSyncExternalStore(onWalletsChange, snapshot, () => NONE);
+}
+
+/**
+ * This browser's own wallets, read without asking any money.* procedure: the
+ * wallet the Supabase session signed in with, the wallets connected in this
+ * browser's wallet apps, and the account's own wallet (its profile).
+ */
+export function useOwnWallets(): { wallets: string[]; known: boolean } {
+  const browser = useTransactionWallets();
+  const me = useMe();
+  const [signedIn, setSignedIn] = useState<{ read: boolean; address: string | null }>({ read: false, address: null });
+  useEffect(() => {
+    let alive = true;
+    authClient()
+      .auth.getSession()
+      .then(({ data }) => alive && setSignedIn({ read: true, address: sessionWallet(data.session?.user.identities) }))
+      .catch(() => alive && setSignedIn({ read: true, address: null }));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const profile = me.data?.profile.walletAddress ?? null;
+  const wallets = useMemo(
+    () => [...new Set([signedIn.address, profile, ...browser.flatMap((w) => w.accounts.map((a) => a.address))].filter((a): a is string => !!a))],
+    [browser, profile, signedIn.address],
+  );
+  return { wallets, known: signedIn.read && (me.isSuccess || me.isError) };
 }

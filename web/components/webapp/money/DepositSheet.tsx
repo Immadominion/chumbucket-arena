@@ -27,6 +27,7 @@ import {
   depositTiles,
   exactUsd,
   fundsLanded,
+  knownTradingWallet,
   parseUsd,
   usd,
   usdDecimal,
@@ -41,7 +42,7 @@ import { Icon } from "../Icon";
 import { useApi, useViewer } from "../session";
 import { Sheet, Spinner, StateScreen } from "../ui";
 import { moneyKeys, useMoneyWallet } from "./moneyContext";
-import { moneyLine as lineOf, useSignerFor, useTransactionWallets } from "./signers";
+import { moneyLine as lineOf, useOwnWallets, useSignerFor, useTransactionWallets } from "./signers";
 import { clearTransferRun, startTransferRun, transferKey, useTransferRun } from "./transferRuns";
 
 /* eslint-disable @next/next/no-img-element */
@@ -71,12 +72,19 @@ export function DepositSheet({
   const wallet = useMoneyWallet(open, true);
   const runKey = transferKey(viewer.userId, "deposit");
   const run = useTransferRun(runKey);
+  const mine = useOwnWallets();
   /**
    * The trading wallet as this browser knows it on its own: the Chumbucket
-   * wallet's address when it is on, else money.wallet's. Deposits go there
-   * and nowhere else.
+   * wallet's address when it is on, else money.wallet's only when it is one
+   * of this browser's own wallets. Deposits go there and nowhere else.
    */
-  const trading = own.enabled ? own.address : (wallet.data?.wallet?.address ?? null);
+  const known = knownTradingWallet({
+    chumbucket: { enabled: own.enabled, address: own.address },
+    moneyWallet: wallet.data?.wallet?.address,
+    ownWallets: mine.wallets,
+    ownKnown: mine.known,
+  });
+  const trading = known.state === "known" ? known.address : null;
   const balance = wallet.data?.balance?.usdcBaseUnits ?? null;
   const shortfall = need
     ? (need.shortfallBaseUnits ??
@@ -170,7 +178,7 @@ export function DepositSheet({
             {run.amountBaseUnits ? <p>{exactUsd(run.amountBaseUnits)}</p> : null}
           </div>
         )
-      ) : options.isPending || (options.data?.tradingWallet && !trading) ? (
+      ) : options.isPending || (options.data?.tradingWallet && known.state === "waiting") ? (
         <div className="wa-state wa-state--compact" aria-busy="true">
           <Spinner />
         </div>
@@ -184,7 +192,7 @@ export function DepositSheet({
         ) : (
           <StateScreen art="search" line="Link a wallet first" full={false} compact action={{ label: "Link a wallet", href: appPath.signInMethods }} />
         )
-      ) : serverTrading !== trading ? (
+      ) : known.state === "refused" || serverTrading !== trading ? (
         // The server named another wallet than the one this browser knows: no address, no QR, nothing to sign.
         <StateScreen art="error" line="Adding funds isn’t available right now" full={false} compact />
       ) : view.v === "choose" ? (

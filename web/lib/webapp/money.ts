@@ -471,6 +471,50 @@ export function depositTiles(options: DepositOptions | null | undefined, browser
   return tiles;
 }
 
+/**
+ * The Solana wallet this browser's own session signed in with: GoTrue's web3
+ * identity (`web3:solana:<address>`, and its custom claims when present; if
+ * both are there they must agree). Null for an X or Google session.
+ */
+export function sessionWallet(identities: unknown): string | null {
+  if (!Array.isArray(identities)) return null;
+  for (const raw of identities) {
+    if (!raw || typeof raw !== "object") continue;
+    const identity = raw as Record<string, unknown>;
+    if (identity.provider !== "web3") continue;
+    const data = (identity.identity_data ?? {}) as Record<string, unknown>;
+    const claims = (data.custom_claims ?? {}) as Record<string, unknown>;
+    const providerId = typeof data.sub === "string" ? data.sub : typeof identity.id === "string" ? identity.id : undefined;
+    const fromId = providerId?.startsWith("web3:solana:") ? providerId.slice("web3:solana:".length) : undefined;
+    const fromClaims = claims.chain === "solana" && typeof claims.address === "string" ? claims.address : undefined;
+    if (fromId && fromClaims && fromId !== fromClaims) continue;
+    const address = fromId ?? fromClaims;
+    if (address && isAddress(address)) return address;
+  }
+  return null;
+}
+
+/**
+ * The trading wallet a deposit may go to, as this browser knows it on its
+ * own. With the Chumbucket wallet on, its own address. Otherwise money.wallet's
+ * answer only when it is one of this browser's own wallets (the wallet the
+ * session signed in with, a wallet connected here, or the account's own
+ * wallet); anything else is refused, and an answer still missing waits.
+ */
+export function knownTradingWallet(input: {
+  chumbucket: { enabled: boolean; address: string | null };
+  moneyWallet: string | null | undefined;
+  ownWallets: readonly string[];
+  /** The browser's own wallets have all been read (session, profile). */
+  ownKnown: boolean;
+}): { state: "known"; address: string } | { state: "waiting" } | { state: "refused" } {
+  if (input.chumbucket.enabled) return input.chumbucket.address ? { state: "known", address: input.chumbucket.address } : { state: "waiting" };
+  const candidate = input.moneyWallet ?? null;
+  if (!candidate) return { state: "waiting" };
+  if (input.ownWallets.includes(candidate)) return { state: "known", address: candidate };
+  return input.ownKnown ? { state: "refused" } : { state: "waiting" };
+}
+
 /** The funds a call waited for have landed: the balance now covers what it needs. */
 export function fundsLanded(wallet: MoneyWallet | null | undefined, neededBaseUnits: string): boolean {
   return !!wallet?.balance && parseUnits(wallet.balance.usdcBaseUnits) >= parseUnits(neededBaseUnits) && parseUnits(neededBaseUnits) > 0n;
