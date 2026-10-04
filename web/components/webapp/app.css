@@ -2085,3 +2085,86 @@
     transition-duration: 1ms !important;
   }
 }
+
+/* sign-in methods (settings) */
+.wa-signins {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--wa-line);
+}
+.wa-signins-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 12px 8px;
+  color: var(--wa-faint);
+  font-size: 12.5px;
+}
+.wa-signins-now b {
+  color: var(--wa-ink);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-signin {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 4px 0 12px;
+  border-radius: 14px;
+  font-weight: 600;
+}
+.wa-signin-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-signin .wa-signin-now {
+  color: var(--wa-pink-ink);
+  flex: none;
+}
+.wa-signin-off {
+  margin-left: auto;
+  color: var(--wa-faint);
+}
+.wa-signin .wa-signin-now + .wa-signin-off {
+  margin-left: 0;
+}
+.wa-signin > .wa-signin-now:last-child {
+  margin-left: auto;
+  margin-right: 12px;
+}
+.wa-signins-loading {
+  display: grid;
+  place-items: center;
+  min-height: 52px;
+}
+.wa-signins-line {
+  margin: 6px 12px 0;
+  color: var(--wa-pink-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.wa-move {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px 16px;
+  text-align: center;
+}
+.wa-move-pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+.wa-move-line {
+  margin: 0;
+  color: var(--wa-faint);
+  font-size: 14px;
+  max-width: 320px;
+}

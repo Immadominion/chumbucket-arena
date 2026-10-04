@@ -16,6 +16,7 @@ import { actionError, useToast } from "../data";
 import { Icon } from "../Icon";
 import { keys, useMe, usePerson } from "../queries";
 import { useApi, useAuth, useViewer } from "../session";
+import { SignInMethods } from "../SignInMethods";
 import { Avatar, Segmented, Sheet, Spinner, StateScreen, TopBar } from "../ui";
 import { screenError } from "./common";
 
@@ -26,12 +27,26 @@ export function MeScreen() {
   return <PersonScreen personRef={viewer.handle ?? viewer.userId} mine />;
 }
 
+/** Back from linking X or Google (`/app/me?signin=x`): Settings opens where it left off. */
+function useSettingsReturn(mine: boolean): boolean {
+  const [back] = useState(() => {
+    if (!mine || typeof window === "undefined") return false;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("signin")) return false;
+    url.searchParams.delete("signin");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    return true;
+  });
+  return back;
+}
+
 export function PersonScreen({ personRef, mine = false }: { personRef: string; mine?: boolean }) {
   const viewer = useViewer();
   const q = usePerson(personRef);
   const share = useShare();
   const [editing, setEditing] = useState(false);
-  const [settings, setSettings] = useState(false);
+  const back = useSettingsReturn(mine);
+  const [settings, setSettings] = useState(back);
   const d = q.data;
   const self = mine || (d ? d.person.id === viewer.userId : false);
 
@@ -252,6 +267,7 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
   const wallet = useMe().data?.profile.walletAddress ?? null;
   return (
     <Sheet open={open} onClose={onClose} title="Settings">
+      <SignInMethods />
       <ul className="wa-menu">
         {wallet ? (
           <li>

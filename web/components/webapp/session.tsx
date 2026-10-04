@@ -30,6 +30,7 @@ import { safeReturnPath } from "@/lib/webapp/paths";
 import { signInMessage } from "@/lib/webapp/siws";
 import { accessToken, authClient } from "./authClient";
 import { browserStorage } from "./data";
+import { noteLinkReturn } from "./linking";
 import { connect, signMessage, WalletDeclined, type StandardWallet } from "./wallets";
 
 export type AuthStatus = "loading" | "signedOut" | "needsAccount" | "needsHandle" | "ready" | "offline";
@@ -203,12 +204,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setLastMethod(readJson<SignInMethod>(LAST_METHOD_KEY));
     // An OAuth error comes back on the URL: say it once, then clean the URL.
+    // Back from linking X or Google in Settings, Settings says what happened
+    // (an identity already on another account is the start of a move).
     try {
       const url = new URL(window.location.href);
       const params = new URLSearchParams(url.hash.replace(/^#/, ""));
       const desc = url.searchParams.get("error_description") ?? params.get("error_description");
+      const code = url.searchParams.get("error_code") ?? params.get("error_code");
+      const linking = noteLinkReturn(desc ? (code ?? "cancelled") : null);
       if (desc) {
-        setError("Sign-in was cancelled. Nothing changed.");
+        if (!linking) setError("Sign-in was cancelled. Nothing changed.");
         for (const k of ["error", "error_code", "error_description"]) url.searchParams.delete(k);
         window.history.replaceState(null, "", `${url.pathname}${url.search}`);
       }
