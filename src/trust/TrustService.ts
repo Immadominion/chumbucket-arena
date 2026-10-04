@@ -9,6 +9,7 @@
  * a canonical id or a handle, never a wallet.
  */
 
+import type { FundsGuard } from "../wallet/deletionGuard.ts";
 import type { CallsRuntime } from "../calls/runtime.ts";
 import type { CallRecord, Person } from "../calls/types.ts";
 import { toCall } from "../calls/types.ts";
@@ -69,7 +70,13 @@ export interface TrustServiceDeps {
   now?: () => number;
   /** How long a person's block/mute lists are reused before re-reading. */
   relationsTtlMs?: number;
+  /** Refuses deletion while the account's Chumbucket wallet holds money. */
+  funds?: FundsGuard;
 }
+
+/** Short on purpose: the app leads with a wallet icon. */
+export const CASH_OUT_FIRST = "Cash out first";
+export const FUNDS_UNREADABLE = "We couldn't check your wallet. Try again in a moment.";
 
 const DELETED_NAME = "Deleted account";
 const deletedHandle = (userId: string) => `deleted_${userId.replace(/-/g, "").slice(0, 12)}`;
@@ -358,6 +365,18 @@ export class TrustService {
     const prior = await this.deps.store.deletionFor(input.authUserId);
     if (prior?.authDeletedAt) {
       return { status: "deleted", userId: prior.userId, alreadyDeleted: true, completedAt: prior.authDeletedAt };
+    }
+    // Never strand money the account alone can reach. Unreadable = refused.
+    const account = input.userId ?? prior?.userId ?? null;
+    if (account && this.deps.funds) {
+      let verdict: Awaited<ReturnType<FundsGuard["verdict"]>>;
+      try {
+        verdict = await this.deps.funds.verdict(account);
+      } catch {
+        verdict = "unknown";
+      }
+      if (verdict === "funds") throw new TrustError("TRUST_FUNDS_REMAIN", CASH_OUT_FIRST);
+      if (verdict === "unknown") throw new TrustError("TRUST_FUNDS_REMAIN", FUNDS_UNREADABLE);
     }
     const outcome = await this.deps.store.deleteAccount(
       { userId: input.userId ?? prior?.userId ?? null, authUserId: input.authUserId },

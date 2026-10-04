@@ -15,6 +15,10 @@ import { WriteRateLimiter } from "./rateLimit.ts";
 import { InMemoryTrustStore, UnconfiguredAuthUserAdmin, type AuthUserAdmin, type TrustStore } from "./store.ts";
 import { GoTrueAuthUserAdmin, SupabaseTrustStore } from "./supabaseStore.ts";
 import { TrustService } from "./TrustService.ts";
+import { SupabaseLinkedWalletReader } from "../deposits/accounts.ts";
+import { depositsRuntimeFor } from "../deposits/runtime.ts";
+import { pantaLifecycleFor } from "../prediction/PantaTradingRuntime.ts";
+import { ChumbucketFundsGuard, type FundsGuard } from "../wallet/deletionGuard.ts";
 
 export interface TrustRuntime {
   config: TrustConfig;
@@ -29,6 +33,22 @@ export interface BuildTrustRuntimeOverrides {
   store?: TrustStore;
   authAdmin?: AuthUserAdmin;
   now?: () => number;
+  funds?: FundsGuard;
+}
+
+/** Deletion waits for an empty Chumbucket wallet (src/wallet/deletionGuard.ts). */
+function chumbucketFundsGuard(appConfig: AppConfig, social: NonNullable<AppConfig["social"]>): FundsGuard {
+  return new ChumbucketFundsGuard({
+    links: new SupabaseLinkedWalletReader(social),
+    balances: depositsRuntimeFor(appConfig).balances,
+    positions: () => {
+      try {
+        return pantaLifecycleFor(appConfig, true).positions;
+      } catch {
+        return null;
+      }
+    },
+  });
 }
 
 export function buildTrustRuntime(appConfig: AppConfig, overrides: BuildTrustRuntimeOverrides = {}): TrustRuntime {
@@ -45,6 +65,7 @@ export function buildTrustRuntime(appConfig: AppConfig, overrides: BuildTrustRun
     limiter,
     calls: () => callsRuntimeFor(appConfig),
     now,
+    funds: overrides.funds ?? (social ? chumbucketFundsGuard(appConfig, social) : undefined),
   });
   if (social && !overrides.store) {
     console.log(
