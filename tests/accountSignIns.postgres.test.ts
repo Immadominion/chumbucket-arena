@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createHash, randomInt } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,26 +152,30 @@ const LATER = String.raw`
     publisher_id uuid NOT NULL REFERENCES public.users(id), wallet_address text);
   CREATE TABLE public.prediction_positions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
-  CREATE TABLE public.claims(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- claims, as production has it (4 Oct 2026).
+  CREATE TABLE public.claims(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), amount_base_units numeric(30,0),
+    claim_tx_signature text, claimed_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+    network text NOT NULL DEFAULT 'devnet', position_id uuid, status text NOT NULL DEFAULT 'PENDING',
     user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
   GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 `;
 
-/** The legacy SOL escrow exactly as database_migrations/001_complete_schema.sql
- *  creates it (challenges, challenge_transactions, challenge_participants),
- *  plus witness_address, which the live table carries and the app reads
- *  (realtime_service.dart filters on it). */
-function legacyEscrowDdl(migrations: string): string {
-  const schema = readFileSync(join(migrations, "../../database_migrations/001_complete_schema.sql"), "utf8");
-  const blocks = ["challenges", "challenge_transactions", "challenge_participants"].map((t) => {
-    const m = schema.match(new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${t} \\([\\s\\S]*?\\n\\);`));
-    if (!m) throw new Error(`001_complete_schema.sql has no ${t}`);
-    return m[0];
-  });
-  return [...blocks, "ALTER TABLE public.challenges ADD COLUMN IF NOT EXISTS witness_address TEXT;",
-    "GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;"]
-    .join("\n").replace(/uuid_generate_v4\(\)/g, "gen_random_uuid()");
-}
+/** The legacy SOL escrow as production has it (4 Oct 2026): challenges only
+ *  — no challenge_participants, no challenge_transactions, no witness_address. */
+const LIVE_ESCROW = String.raw`
+  CREATE TABLE public.challenges(
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    amount numeric(20,9), amount_in_sol numeric(20,9), blockchain_id text, completed_at timestamptz,
+    created_at timestamptz DEFAULT now(), creator_id uuid REFERENCES public.users(id), creator_privy_id text,
+    creator_wallet_address text, description text, escrow_address text, expires_at timestamptz,
+    fee_transaction_signature text, member1_address text, member2_address text, metadata jsonb,
+    multisig_address text, network text, participant_email text, participant_id uuid REFERENCES public.users(id),
+    participant_privy_id text, platform_fee numeric(20,9), platform_fee_sol numeric(20,9), resolution_tx text,
+    status text NOT NULL DEFAULT 'pending', title text, transaction_signature text, updated_at timestamptz DEFAULT now(),
+    vault_address text, winner_amount numeric(20,9), winner_amount_sol numeric(20,9), winner_id text,
+    winner_privy_id text, witness_display_name text, witness_id uuid REFERENCES public.users(id));
+  GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+`;
 
 test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
   "account_sign_ins: link, wallet sign-in, unlink, fold and deletion, with every refusal, service-role only",
@@ -214,7 +218,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         "20261002120000_lock_profile_identity_columns.sql",
       ]) apply(file);
       sql(LATER);
-      sql(legacyEscrowDdl(dir));
+      sql(LIVE_ESCROW);
       apply("20261002180000_trust_safety_and_account.sql");
 
       // Refuses to install before find-person.
@@ -287,8 +291,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            INSERT INTO public.push_tokens(token, user_id, platform) VALUES ('${"t".repeat(24)}', '${DOMINION}', 'ios');
            INSERT INTO public.linked_identities(user_id, provider, provider_subject, provider_username)
              VALUES ('${DOMINION}', 'x', 'legacy-x-dominion', 'ownerx');
-           INSERT INTO public.challenges(title, description, amount, expires_at, creator_id)
-             VALUES ('t', 'd', 1, now(), '${ESCROW}');`);
+           INSERT INTO public.challenges(title, creator_id, status) VALUES ('t', '${ESCROW}', 'funded');`);
 
       const resolve = (auth: string) => json(`public.resolve_auth_user_v1('${auth}')`).user_id ?? null;
       expect(resolve(A.dev)).toBe(DEV);
@@ -388,52 +391,64 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(resolve(A.money)).toBe(MONEY);
       const money = (user: string) => sql(`SELECT coalesce(public.account_money_activity_v1('${user}'), 'none')`);
       expect(money(ESCROW)).toBe("escrow_challenge");
-      const challenge = sql(`SELECT id FROM public.challenges LIMIT 1`);
-      sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at) VALUES ('${ESCROW_W}', '${W.escrow}', 1, now());
-           INSERT INTO public.challenge_participants(challenge_id, role, wallet_address) VALUES ('${challenge}', 'participant', '${W.escrow}');`);
-      expect(money(ESCROW_W)).toBe("escrow_participant");
-      // The legacy escrow also keyed people by Privy id and email.
+      // Only while its escrow may still hold SOL: settled ones don't count;
+      // any status the app doesn't call settled does.
+      for (const [status, counts] of [["completed", false], ["failed", false], ["CANCELLED", false],
+        ["expired", true], ["accepted", true], ["something_new", true]] as const) {
+        sql(`UPDATE public.challenges SET status = '${status}' WHERE creator_id = '${ESCROW}'`);
+        expect(money(ESCROW)).toBe(counts ? "escrow_challenge" : "none");
+      }
+      // By Privy id, by email (any case) and by wallet, as the legacy escrow keyed people.
       sql(`UPDATE public.users SET privy_id = 'did:privy:plain-old' WHERE id = '${PLAIN}'`);
       expect(money(PLAIN)).toBe("none");
-      sql(`INSERT INTO public.challenges(title, description, amount, expires_at, winner_privy_id)
-             VALUES ('t', 'd', 1, now(), 'did:privy:plain-old')`);
-      expect(money(PLAIN)).toBe("escrow_challenge");
-      sql(`DELETE FROM public.challenges WHERE winner_privy_id IS NOT NULL;
-           INSERT INTO public.challenges(title, description, amount, expires_at, participant_email)
-             VALUES ('t', 'd', 1, now(), 'PLAIN@example.com')`);
-      expect(money(PLAIN)).toBe("escrow_challenge"); // the Google sign-in's email, any case
-      sql(`DELETE FROM public.challenges WHERE participant_email IS NOT NULL;
-           INSERT INTO public.challenge_participants(challenge_id, role, wallet_address, user_privy_id)
-             VALUES ('${challenge}', 'witness', 'NotPlainsWa11et', 'did:privy:plain-old')`);
+      for (const set of ["winner_privy_id = 'did:privy:plain-old'", "participant_email = 'PLAIN@example.com'",
+        "member2_address = 'did:privy:plain-old'"]) {
+        sql(`INSERT INTO public.challenges(title, status) VALUES ('probe', 'pending');
+             UPDATE public.challenges SET ${set} WHERE title = 'probe';`);
+        expect(money(PLAIN)).toBe("escrow_challenge");
+        sql(`DELETE FROM public.challenges WHERE title = 'probe'`);
+      }
+      sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at)
+             VALUES ('${ESCROW_W}', '${W.escrow}', 1, now());
+           INSERT INTO public.challenges(title, member1_address, status) VALUES ('w', '${W.escrow}', 'active');`);
+      expect(money(ESCROW_W)).toBe("escrow_challenge");
+      sql(`UPDATE public.users SET privy_id = NULL WHERE id = '${PLAIN}'`);
+      // Production has no challenge_participants, challenge_transactions or
+      // witness_address: their absence refuses nothing…
+      expect(money(PLAIN)).toBe("none");
+      // …but when they appear they are checked.
+      sql(`ALTER TABLE public.challenges ADD COLUMN witness_address text;
+           CREATE TABLE public.challenge_participants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_privy_id text);
+           INSERT INTO public.challenges(title, witness_address, status) VALUES ('x', '${W.escrow}', 'pending');`);
+      sql(`DELETE FROM public.challenges WHERE title = 'w'`);
+      expect(money(ESCROW_W)).toBe("escrow_challenge");
+      sql(`UPDATE public.users SET privy_id = 'did:privy:plain-old' WHERE id = '${PLAIN}';
+           INSERT INTO public.challenge_participants(user_privy_id) VALUES ('did:privy:plain-old');`);
       expect(money(PLAIN)).toBe("escrow_participant");
-      sql(`DELETE FROM public.challenge_participants WHERE user_privy_id IS NOT NULL;
-           INSERT INTO public.challenges(title, description, amount, expires_at, witness_address)
-             VALUES ('t', 'd', 1, now(), '${W.bare}');
-           INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at, revoked_at)
-             VALUES ('${PLAIN}', 'P1ainOldWa11etKKKKKKKKKKKKKKKKKKKKKKKKKKKKK', 1, now(), now());`);
-      expect(money(PLAIN)).toBe("none"); // not one of its wallets (yet)
-      sql(`DELETE FROM public.challenges WHERE witness_address IS NOT NULL;
-           UPDATE public.users SET privy_id = NULL WHERE id = '${PLAIN}';
-           DELETE FROM public.linked_wallets WHERE wallet_address LIKE 'P1ainOld%';`);
-      // A column it knows to check that isn't there refuses, it is not skipped.
-      sql(`ALTER TABLE public.challenges RENAME COLUMN witness_address TO witness_address_away`);
+      sql(`DROP TABLE public.challenge_participants; ALTER TABLE public.challenges DROP COLUMN witness_address;
+           DELETE FROM public.challenges WHERE title = 'x'; UPDATE public.users SET privy_id = NULL WHERE id = '${PLAIN}';`);
+      expect(money(PLAIN)).toBe("none");
+      // A table or column production has that isn't there refuses (fail closed).
+      for (const [tbl, col] of [["challenges", "participant_email"], ["challenges", "status"], ["claims", "wallet_address"]]) {
+        sql(`ALTER TABLE public.${tbl} RENAME COLUMN ${col} TO ${col}_away`);
+        expect(money(PLAIN)).toBe("unverifiable");
+        sql(`ALTER TABLE public.${tbl} RENAME COLUMN ${col}_away TO ${col}`);
+      }
+      sql(`ALTER TABLE public.challenges RENAME TO challenges_away`);
       expect(money(PLAIN)).toBe("unverifiable");
-      sql(`ALTER TABLE public.challenges RENAME COLUMN witness_address_away TO witness_address`);
-      sql(`ALTER TABLE public.challenge_participants RENAME COLUMN user_privy_id TO user_privy_id_away`);
-      expect(money(PLAIN)).toBe("unverifiable");
-      sql(`ALTER TABLE public.challenge_participants RENAME COLUMN user_privy_id_away TO user_privy_id`);
+      sql(`ALTER TABLE public.challenges_away RENAME TO challenges`);
       // The wallet workstream's app-held wallet type is money-bearing.
       sql(`ALTER TABLE public.linked_wallets DROP CONSTRAINT IF EXISTS linked_wallets_wallet_type_check;
            INSERT INTO public.linked_wallets(user_id, wallet_address, wallet_type, siws_proof_version, verified_at)
              VALUES ('${APP}', '${W.app}', 'chumbucket', 1, now());`);
       expect(money(APP)).toBe("app_wallet");
       expect(money(PLAIN)).toBe("none");
-      for (const tbl of ["claims", "challenge_transactions"]) {
-        sql(`ALTER TABLE public.${tbl} RENAME TO ${tbl}_away`);
-        expect(money(PLAIN)).toBe("unverifiable");
-        sql(`ALTER TABLE public.${tbl}_away RENAME TO ${tbl}`);
-      }
+      sql(`ALTER TABLE public.claims RENAME TO claims_away`);
+      expect(money(PLAIN)).toBe("unverifiable");
+      sql(`ALTER TABLE public.claims_away RENAME TO claims`);
       sql(`INSERT INTO public.claims(wallet_address) VALUES ('${W.wal2}')`);
+      expect(money(WAL2)).toBe("prediction_claim");
+      sql(`DELETE FROM public.claims; INSERT INTO public.claims(user_id, wallet_address) VALUES ('${WAL2}', 'elsewhere')`);
       expect(money(WAL2)).toBe("prediction_claim");
       sql(`DELETE FROM public.claims`);
 
