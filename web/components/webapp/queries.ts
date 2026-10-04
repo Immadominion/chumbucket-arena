@@ -9,7 +9,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { catalogInput, type MarketFilters } from "@/lib/webapp/filters";
-import type { CallFeedEntry, FeedPage, PersonDetail } from "@/lib/webapp/types";
+import type { CallFeedEntry, FeedPage, MarketDetail, PersonDetail } from "@/lib/webapp/types";
 import { useApi } from "./session";
 
 export const keys = {
@@ -153,10 +153,17 @@ export function useFollow() {
   });
 }
 
-/** After a new call: every list that could show it learns about it. */
+/**
+ * After a new call: the market shows "You called …" at once (no flash of the
+ * YES / NO picks while it re-reads), and every list that could show the call
+ * learns about it.
+ */
 export function useAfterCall() {
   const qc = useQueryClient();
   return (entry: CallFeedEntry | null, marketId: string) => {
+    if (entry) {
+      qc.setQueryData<MarketDetail>(keys.market(marketId), (old) => (old && !old.viewerCall ? { ...old, viewerCall: entry } : old));
+    }
     void qc.invalidateQueries({ queryKey: keys.market(marketId) });
     void qc.invalidateQueries({ queryKey: ["feed"] });
     void qc.invalidateQueries({ queryKey: ["call"] });

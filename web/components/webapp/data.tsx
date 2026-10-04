@@ -19,6 +19,7 @@ import {
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BffRejected, BffSignedOut } from "@/lib/webapp/bff";
 import { CACHE_MAX_AGE_MS, clearCache, loadCache, saveCache, type KeyValueStorage } from "@/lib/webapp/cache";
+import { isPriceRefusal, PRICE_UPDATING } from "@/lib/webapp/prices";
 
 export function browserStorage(): KeyValueStorage | null {
   try {
@@ -129,6 +130,8 @@ export const useToast = () => useContext(ToastContext);
 
 /** The line a failed action shows: the BFF's own words for a refusal, a plain one otherwise. */
 export function actionError(e: unknown): string {
+  // A lapsed Panta price is an internal state: never "missing or stale".
+  if (isPriceRefusal(e)) return PRICE_UPDATING;
   if (e instanceof BffRejected) return e.message;
   if (e instanceof BffSignedOut) return "Sign in again to do that.";
   return "Couldn’t reach Chumbucket. Try again.";

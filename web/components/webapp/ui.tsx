@@ -12,6 +12,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { avatarSrc } from "@/lib/callsBff";
 import { initials, outcomeLabel } from "@/lib/webapp/format";
+import { appPath, canGoBack, nextTrail } from "@/lib/webapp/paths";
 import type { CallOutcome, Side } from "@/lib/webapp/types";
 import { Icon } from "./Icon";
 
@@ -304,13 +305,13 @@ export function TopBar({
   );
 }
 
-/** How many screens this visit has shown (the Shell counts them). */
-let screensSeen = 0;
+/** The screens this visit has walked through in the app (the Shell keeps it; see `nextTrail`). */
+let trail: string[] = [];
 
-/** Count screens as the path changes, so Back knows whether there is one to go back to. */
-export function useCountScreens(path: string) {
+/** Follow the path, so Back knows whether there is a screen in the app to go back to. */
+export function useTrail(path: string) {
   useEffect(() => {
-    screensSeen += 1;
+    trail = nextTrail(trail, path);
   }, [path]);
 }
 
@@ -322,9 +323,9 @@ function BackButton() {
       className="wa-iconbtn"
       aria-label="Back"
       onClick={() => {
-        // Back within the app; a page opened straight from a link goes Home instead of leaving.
-        if (screensSeen > 1) window.history.back();
-        else router.push("/app");
+        // Back within the app only; a page opened straight from a link goes Home instead of leaving the site.
+        if (canGoBack(trail)) window.history.back();
+        else router.push(appPath.home);
       }}
     >
       <Icon name="arrow-left" size={22} />

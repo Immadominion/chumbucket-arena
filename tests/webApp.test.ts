@@ -58,7 +58,8 @@ import {
   topicLabel,
 } from "../web/lib/webapp/format.ts";
 import { USERNAME_FORMAT, identityCopy, nameHint, normaliseUsername, suggestUsername, xUsernameHint } from "../web/lib/webapp/identity.ts";
-import { APP_BASE, appPath, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
+import { APP_BASE, TRAIL_MAX, appPath, canGoBack, nextTrail, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
+import { PRICE_UPDATING, isPriceRefusal, retryAfterPriceRefresh } from "../web/lib/webapp/prices.ts";
 import { SIGN_IN_STATEMENT, sameBytes, signInMessage } from "../web/lib/webapp/siws.ts";
 import type { CallFeedEntry, PublicRecord, SharePrice } from "../web/lib/webapp/types.ts";
 import { webAppHref } from "../web/lib/webAppLink.ts";
@@ -362,6 +363,71 @@ describe("web app formatting", () => {
 
 // ── markets filters ──────────────────────────────────────────────────────────
 
+describe("web app price refusals", () => {
+  // The BFF's own words (CallsService.lockCall), as a 400 the screens can read.
+  const lapsed = () => new BffRejected("Panta prices are missing or stale. Refresh before locking your call.", "BAD_REQUEST");
+
+  test("a lapsed price is re-read and the call locked once more, with nothing said", async () => {
+    let attempts = 0;
+    let refreshes = 0;
+    const out = await retryAfterPriceRefresh(
+      async () => {
+        attempts++;
+        if (attempts === 1) throw lapsed();
+        return "locked";
+      },
+      async () => {
+        refreshes++;
+      },
+    );
+    expect({ out, attempts, refreshes }).toEqual({ out: "locked", attempts: 2, refreshes: 1 });
+  });
+
+  test("a second refusal comes back to the screen, which says only that prices are updating", async () => {
+    let attempts = 0;
+    const failed = await retryAfterPriceRefresh(
+      async () => {
+        attempts++;
+        throw lapsed();
+      },
+      async () => undefined,
+    ).catch((e: unknown) => e);
+    expect(attempts).toBe(2);
+    expect(isPriceRefusal(failed)).toBe(true);
+    expect(PRICE_UPDATING).not.toMatch(/stale|missing|incomplete|refresh/i);
+  });
+
+  test("any other refusal is not retried, and a failed re-read still gets its one retry", async () => {
+    let attempts = 0;
+    let refreshes = 0;
+    const closed = await retryAfterPriceRefresh(
+      async () => {
+        attempts++;
+        throw new BffRejected("This market has closed.", "BAD_REQUEST");
+      },
+      async () => {
+        refreshes++;
+      },
+    ).catch((e: unknown) => e);
+    expect({ message: (closed as Error).message, attempts, refreshes }).toEqual({ message: "This market has closed.", attempts: 1, refreshes: 0 });
+
+    attempts = 0;
+    const out = await retryAfterPriceRefresh(
+      async () => {
+        attempts++;
+        if (attempts === 1) throw lapsed();
+        return "locked";
+      },
+      async () => {
+        throw new BffOffline("You’re offline.", "OFFLINE");
+      },
+    );
+    expect({ out, attempts }).toEqual({ out: "locked", attempts: 2 });
+    expect(isPriceRefusal("Panta prices are missing or stale")).toBe(false);
+    expect(isPriceRefusal(new Error("Nothing to do with prices"))).toBe(false);
+  });
+});
+
 describe("web app market filters", () => {
   const ms = [
     { id: "a", closesAt: NOW + 5 * H },
@@ -506,6 +572,29 @@ describe("web app paths", () => {
     expect(appPath.market("m1")).toBe("/app/m/m1");
     expect(publicPath.receipt("c1")).toBe("/c/c1");
     expect(publicPath.profile("@ada")).toBe("/u/ada");
+  });
+
+  test("Back goes back only to a screen this visit saw in the app, never off the site", () => {
+    // Opened straight from a link (on X, say): nothing in the app to go back to.
+    let trail = nextTrail([], "/app/c/c1");
+    expect(canGoBack(trail)).toBe(false);
+    // A step into a profile: Back returns to the call.
+    trail = nextTrail(trail, "/app/u/ada");
+    expect(trail).toEqual(["/app/c/c1", "/app/u/ada"]);
+    expect(canGoBack(trail)).toBe(true);
+    // The browser's own Back to the call: the trail shortens, so the top bar's
+    // Back now goes Home instead of history.back() off the site (a screen
+    // counter got this wrong: it had seen three screens).
+    trail = nextTrail(trail, "/app/c/c1");
+    expect(trail).toEqual(["/app/c/c1"]);
+    expect(canGoBack(trail)).toBe(false);
+    // The same path again (a re-render, a query string change) is not a step.
+    expect(nextTrail(trail, "/app/c/c1")).toEqual(["/app/c/c1"]);
+    // A long visit stays bounded.
+    let long: string[] = [];
+    for (let i = 0; i < TRAIL_MAX + 25; i++) long = nextTrail(long, `/app/c/${i}`);
+    expect(long.length).toBe(TRAIL_MAX);
+    expect(long[long.length - 1]).toBe(`/app/c/${TRAIL_MAX + 24}`);
   });
 
   test("sign-in only ever returns inside the web app", () => {

@@ -14,7 +14,7 @@ import { RecordChip } from "./cards";
 import { Icon } from "./Icon";
 import { useLeaderboard, useMe, useSuggested, useUnread } from "./queries";
 import { useViewer } from "./session";
-import { Avatar, useCountScreens } from "./ui";
+import { Avatar, useTrail } from "./ui";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -53,7 +53,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const viewer = useViewer();
   const path = usePathname() ?? appPath.home;
   const here = placeOf(path, viewer.handle);
-  useCountScreens(path);
+  useTrail(path);
   const unread = useUnread().data ?? 0;
   const me = useMe().data?.profile;
   const meCard = {

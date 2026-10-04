@@ -41,6 +41,28 @@ export function safeReturnPath(path: string | null | undefined): string {
   return path;
 }
 
+/**
+ * The screens this visit has walked through inside the web app, newest last,
+ * so the top bar's Back can go back only to one of them and never off the
+ * site (a call opened from a link on X has nothing in the app to go back to).
+ *
+ * A path change to the screen just before the current one is read as going
+ * back (the browser's Back, or ours): the trail shortens. Anything else is a
+ * step forward. The same path again changes nothing. Capped, so a long visit
+ * cannot grow it without bound.
+ */
+export const TRAIL_MAX = 50;
+
+export function nextTrail(trail: readonly string[], path: string): string[] {
+  const last = trail[trail.length - 1];
+  if (last === path) return [...trail];
+  if (trail.length >= 2 && trail[trail.length - 2] === path) return trail.slice(0, -1);
+  return [...trail, path].slice(-TRAIL_MAX);
+}
+
+/** Back has somewhere inside the app to go; otherwise it goes Home. */
+export const canGoBack = (trail: readonly string[]): boolean => trail.length > 1;
+
 /** A route segment, decoded once; a malformed escape is kept as it came. */
 export function safeDecode(segment: string): string {
   try {
