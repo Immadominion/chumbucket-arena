@@ -11,11 +11,15 @@ import { join } from "node:path";
 // REAL 20261004120000_account_sign_ins.sql — judged on the owner's case
 // (@dev links X, which is on @dominion; @dominion folds into @dev), on a
 // wallet sign-in landing on the account it was linked to, on unlinking, on
-// every refusal, and on who may call it. No DATABASE_URL, linked project or
-// existing cluster is ever read.
+// every refusal, and on who may call it. The wallet workstream's
+// 20261004130000_linked_wallets_chumbucket_type.sql is applied beside it: the
+// 'chumbucket' label is admitted, and an account holding that app-held wallet
+// is never folded. No DATABASE_URL, linked project or existing cluster is
+// ever read.
 // Run: VERIFY_LOCAL_PG=true bun test tests/accountSignIns.postgres.test.ts
 
 const MIGRATION = "20261004120000_account_sign_ins.sql";
+const CHUMBUCKET_TYPE = "20261004130000_linked_wallets_chumbucket_type.sql";
 
 function migrationsDir(): string {
   const candidates = [
@@ -50,6 +54,7 @@ const W = {
   stranger: "StrangerWa11etCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
   phil: "Phi1Wa11etDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   repointed: "RepointedWa11etEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+  chumbucket: "ChumbucketWa11etFFFFFFFFFFFFFFFFFFFFFFFFFF",
 };
 const FRIEND = "f0000000-0000-4000-8000-000000000001";
 const FAN = "f0000000-0000-4000-8000-000000000002";
@@ -183,6 +188,10 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(early.err).toContain("requires 20261003200000_find_person_identities.sql");
       apply("20261003200000_find_person_identities.sql");
       apply(MIGRATION);
+      // The Chumbucket wallet's label: refused until its own migration widens the check.
+      const chumbucketRow = (user: string) =>
+        `INSERT INTO public.linked_wallets(user_id, wallet_address, wallet_type, siws_proof_version, verified_at)
+           VALUES ('${user}', '${W.chumbucket}', 'chumbucket', 1, now());`;
 
       // ── people ──
       const web3 = (auth: string, wallet: string) =>
@@ -316,6 +325,26 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${PHIL}', 'FAILED')`);
       expect(sql(`SELECT public.account_money_activity_v1('${PHIL}')`)).toBe("panta_trade");
       sql(`DELETE FROM public.panta_trade_sessions`);
+      // The Chumbucket wallet is app-held money: an account holding one is never folded.
+      const unlabelled = run("psql", args, chumbucketRow(PHIL));
+      expect(unlabelled.ok).toBe(false);
+      expect(unlabelled.err).toContain("linked_wallets_wallet_type_check");
+      apply(CHUMBUCKET_TYPE);
+      apply(CHUMBUCKET_TYPE); // re-runnable
+      sql(chumbucketRow(PHIL));
+      expect(sql(`SELECT public.account_money_activity_v1('${PHIL}')`)).toBe("app_wallet");
+      expect(issue(DEV, A.dev, "google", "t-dev-chumbucket").ok).toBe(true);
+      expect(json(`public.preview_account_link_v1('${hash("t-dev-chumbucket")}', '${A.phil}')`))
+        .toMatchObject({ outcome: "fold", other_user_id: PHIL, refusal: "has_money", money: "app_wallet" });
+      expect(json(`public.complete_account_link_v1('${hash("t-dev-chumbucket")}', '${A.phil}', true, true)`))
+        .toMatchObject({ ok: false, reason: "has_money", money: "app_wallet" });
+      expect(resolve(A.phil)).toBe(PHIL);
+      expect(sql(`SELECT user_id FROM public.linked_wallets WHERE wallet_address = '${W.chumbucket}'`)).toBe(PHIL);
+      // Settings lists it with its label.
+      expect((json(`public.account_sign_ins_v1('${PHIL}')`).wallets as { wallet_type: string }[]).map((w) => w.wallet_type))
+        .toEqual(["chumbucket"]);
+      sql(`DELETE FROM public.linked_wallets WHERE wallet_address = '${W.chumbucket}'`);
+      expect(sql(`SELECT coalesce(public.account_money_activity_v1('${PHIL}'), 'none')`)).toBe("none");
 
       // ── a wallet linked to an X account: its first sign-in lands there ──
       expect(json(`public.attach_verified_wallet_v1('${XONLY}', '${W.xonly}', 1::smallint)`).outcome).toBe("linked");

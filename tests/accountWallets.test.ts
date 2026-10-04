@@ -36,3 +36,23 @@ test("no row, another address, or malformed input is not ownership; a failed rea
   await expect(new SupabaseAccountWallets(cfg, rest({ message: "refused" }, 500).fetchImpl).owns(user, wallet)).rejects.toThrow("linked_wallets read failed");
   await expect(new SupabaseAccountWallets(cfg, rest({ not: "rows" }).fetchImpl).owns(user, wallet)).rejects.toThrow("linked_wallets read failed");
 });
+
+test("with linking, a linked wallet that signs in to another account is not this account's", async () => {
+  const asked: Array<[string, string]> = [];
+  const links = (conflict: boolean | Error) => ({
+    async walletSignInConflict(userId: string, address: string) {
+      asked.push([userId, address]);
+      if (conflict instanceof Error) throw conflict;
+      return conflict;
+    },
+  });
+  const row = () => rest([{ wallet_address: wallet }]).fetchImpl;
+  expect(await new SupabaseAccountWallets(cfg, row(), links(false)).owns(user, wallet)).toBe(true);
+  expect(await new SupabaseAccountWallets(cfg, row(), links(true)).owns(user, wallet)).toBe(false);
+  expect(asked).toEqual([[user, wallet], [user, wallet]]);
+  // No row here: linking is never asked, and its answer could not make one.
+  expect(await new SupabaseAccountWallets(cfg, rest([]).fetchImpl, links(false)).owns(user, wallet)).toBe(false);
+  expect(asked).toHaveLength(2);
+  // An unreadable answer is never "no conflict".
+  await expect(new SupabaseAccountWallets(cfg, row(), links(new Error("down"))).owns(user, wallet)).rejects.toThrow("down");
+});

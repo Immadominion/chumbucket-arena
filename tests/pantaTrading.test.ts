@@ -13,6 +13,7 @@ import { pantaTradingRouter } from "../src/api/pantaTrading.ts";
 import { predictionsRouter } from "../src/api/predictions.ts";
 import { primeAuthIdentityRuntime, resolveAuthIdentityPolicy } from "../src/auth/AuthIdentityRuntime.ts";
 import { FakeIdentityStore, FakeJwtVerifier } from "./authIdentityFixtures.ts";
+import { SupabaseIdentityStore } from "../src/auth/IdentityStore.ts";
 import { TestClock } from "./predictionFixtures.ts";
 import { asWallet } from "../src/domain/ids.ts";
 import { buildTrustRuntime, setTrustRuntime } from "../src/trust/runtime.ts";
@@ -273,6 +274,33 @@ test("the router hands prepare only the issuer-verified sign-in wallet, so an un
   expect(h.operations).toEqual([]);
   const signedIn=pantaTradingRouter.createCaller({app,supabaseAccessToken:"wallet-session"});
   expect((await signedIn.prepare(h.input)).order.owner).toBe(wallet);
+});
+test("an additional sign-in's session reaches the same account through linking, and only that account's wallets sign",async()=>{
+  const h=rig();const cfg=loadConfig({PANTA_API_KEY:"pk_live_synthetic_router_test",PANTA_PARTNER_USER_ID:"usr_synthetic_partner",PANTA_PROGRAM_ID:PANTA_MAINNET_PROGRAM_ID,PANTA_SCHEMA_READY:"true",FUNDED_POSITIONS:"true",SUPABASE_URL:"https://synthetic.invalid",SUPABASE_SERVICE_ROLE_KEY:"synthetic-only",SOLANA_NETWORK:"mainnet-beta"});
+  const app=await createApp({config:cfg});
+  // The real store: a primary sign-in is a users row; any other asks resolve_auth_user_v1 (20261004120000).
+  const primary:Record<string,string>={"auth-primary":user};const additional:Record<string,string>={"auth-x":user,"auth-other":other};
+  const asked:string[]=[];
+  const fetchImpl=Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>{
+    const url=new URL(String(input));
+    if(url.pathname.endsWith("/rest/v1/users")){const auth=(url.searchParams.get("auth_user_id")??"").replace(/^eq\./,"");return new Response(JSON.stringify(primary[auth]?[{id:primary[auth]}]:[]));}
+    const auth=String((JSON.parse(String(init?.body)) as {p_auth_user_id:string}).p_auth_user_id);asked.push(auth);
+    return new Response(JSON.stringify({ok:true,user_id:additional[auth]??null,via:additional[auth]?"additional":null}));
+  },{preconnect:fetch.preconnect}) as typeof fetch;
+  const store=new SupabaseIdentityStore({supabaseUrl:"https://synthetic.invalid",serviceRoleKey:"synthetic-only",network:"mainnet-beta"},fetchImpl);
+  const verifier=new FakeJwtVerifier().issue("x-session","auth-x").issue("other-session","auth-other").issue("nobody-session","auth-nobody");
+  primeAuthIdentityRuntime(cfg,{store,verifier,policy:resolveAuthIdentityPolicy(cfg)});setPantaTradingRuntime(cfg,h.service);
+  const trust=buildTrustRuntime(cfg,{store:new InMemoryTrustStore(),authAdmin:new RecordingAuthUserAdmin()});setTrustRuntime(cfg,trust);
+  await trust.service.acceptFundedTrading(user,trust.config.termsVersion);await trust.service.acceptFundedTrading(other,trust.config.termsVersion);
+  // X linked to the account: its session trades from the account's linked wallet.
+  const x=pantaTradingRouter.createCaller({app,supabaseAccessToken:"x-session"});
+  const stranger=Keypair.fromSeed(new Uint8Array(32).fill(23)).publicKey.toBase58();
+  await expect(x.prepare({...h.input,wallet:stranger,idempotencyKey:"x-stranger-key"})).rejects.toMatchObject({code:"UNPROCESSABLE_CONTENT",message:WALLET_NOT_LINKED_COPY});
+  expect((await x.prepare(h.input)).order.owner).toBe(wallet);
+  // Another account's sign-in never signs with this account's wallet; a sign-in that reaches no account trades nowhere.
+  await expect(pantaTradingRouter.createCaller({app,supabaseAccessToken:"other-session"}).prepare({...h.input,idempotencyKey:"other-account-key"})).rejects.toMatchObject({code:"UNPROCESSABLE_CONTENT"});
+  await expect(pantaTradingRouter.createCaller({app,supabaseAccessToken:"nobody-session"}).prepare({...h.input,idempotencyKey:"nobody-key"})).rejects.toMatchObject({code:"FORBIDDEN"});
+  expect(asked).toEqual(["auth-x","auth-x","auth-other","auth-nobody"]);
 });
 test("a broadcast that can never land is FAILED by chain evidence and frees the call for a fresh funding",async()=>{
   const h=rig();const prepared=await h.service.prepare(user,h.input);
