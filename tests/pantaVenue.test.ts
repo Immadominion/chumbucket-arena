@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { PantaVenue } from "../src/prediction/PantaVenue.ts";
-import { PantaCatalogVenue } from "../src/prediction/PantaCatalogVenue.ts";
 import { TestClock, jsonResponse, stubFetch, hangingFetch } from "./predictionFixtures.ts";
 import { CircuitBreaker } from "../src/prediction/circuit.ts";
 import { InMemoryPredictionStore } from "../src/prediction/store.ts";
@@ -274,7 +273,7 @@ test("config selects Panta, honors the native emergency switch and refuses missi
   const app = loadConfig({ PREDICTION_VENUE: 'panta', PANTA_API_KEY: key, FUNDED_POSITIONS: 'true' });
   const cfg = resolvePredictionConfig(app, {});
   expect(cfg.venue).toBe('panta'); expect(cfg.flags.fundedPositions).toBe(true);
-  expect((buildPredictionRuntime(app).venue as PantaCatalogVenue).live).toBeInstanceOf(PantaVenue);
+  expect(buildPredictionRuntime(app).venue).toBeInstanceOf(PantaVenue);
   const described = describePredictionConfig(cfg);
   expect(described.pantaConfigured).toBe(true); expect(JSON.stringify(described)).not.toContain(key);
   for (const apiKey of [undefined, 'pk_test_synthetic_only']) {

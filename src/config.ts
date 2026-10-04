@@ -294,9 +294,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     pantaSchemaReady: env.PANTA_SCHEMA_READY === "true",
     maxAmountBaseUnits: env.PANTA_MAX_AMOUNT_BASE_UNITS ?? "100000000",
     flags: { fundedPositions: env.FUNDED_POSITIONS === "true" },
-    // On unless PANTA_SOL_MARKETS=false. Read-only; may use its own RPC.
+    // Off unless exactly PANTA_SOL_MARKETS=true. Read-only; may use its own RPC.
+    // Opt-in like PANTA_SCHEMA_READY: the SOL prices it writes are refused by
+    // market_share_price_snapshots until 20261004090000_panta_sol_quoted_prices
+    // .sql is applied, and one refused write quarantines the shared durable
+    // queue (src/index.ts restarts the process to rehydrate), so a default-on
+    // deploy ahead of that migration would restart-loop the whole BFF. App
+    // builds before SOL support also reject a SOL price inside calls.feed.
     pantaSolMarkets: {
-      enabled: env.PANTA_SOL_MARKETS !== "false",
+      enabled: env.PANTA_SOL_MARKETS === "true",
       rpcUrl: env.PANTA_CATALOG_RPC_URL ?? cfg.solana.rpcUrl,
     },
   };
