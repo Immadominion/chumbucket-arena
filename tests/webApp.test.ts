@@ -48,6 +48,7 @@ import {
   closingSoon,
   joined,
   livePrice,
+  livePriceParts,
   lockedPrice,
   recordA11y,
   recordToken,
@@ -57,6 +58,7 @@ import {
   takesCalls,
   topicIcon,
   topicLabel,
+  tradableMarket,
 } from "../web/lib/webapp/format.ts";
 import { USERNAME_FORMAT, identityCopy, nameHint, normaliseUsername, suggestUsername, xUsernameHint } from "../web/lib/webapp/identity.ts";
 import { APP_BASE, TRAIL_MAX, appPath, canGoBack, nextTrail, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
@@ -314,6 +316,25 @@ describe("web app formatting", () => {
   test("the locked price is the call's own side", () => {
     expect(lockedPrice({ side: "NO", entryPrice: price({ noPrice: "0.47" }) })).toBe("47¢");
     expect(lockedPrice({ side: "YES", entryPrice: null })).toBeNull();
+  });
+
+  test("a SOL-quoted market's price reads in SOL, never as cents or dollars", () => {
+    const sol = price({ currency: "SOL", yesPrice: "0.671739755", noPrice: "0.328260245" });
+    expect(livePrice(sol, "YES", NOW)).toBe("0.67 SOL");
+    expect(livePriceParts(sol, "NO", NOW)).toEqual({ value: "0.33", unit: "SOL" });
+    expect(livePriceParts(price(), "YES", NOW)).toEqual({ value: "62¢", unit: null });
+    expect(livePrice({ ...sol, observedAt: NOW - 11 * 60_000 }, "YES", NOW)).toBeNull();
+    expect(lockedPrice({ side: "YES", entryPrice: sol })).toBe("0.67 SOL");
+    for (const label of [livePrice(sol, "YES", NOW), lockedPrice({ side: "NO", entryPrice: sol })]) {
+      expect(label).not.toMatch(/[¢$]|USDC/);
+    }
+  });
+
+  test("a trade is offered only on a Panta market the BFF does not mark untradable", () => {
+    expect(tradableMarket({ venue: "panta" })).toBe(true); // an older BFF: USDC only
+    expect(tradableMarket({ venue: "panta", tradable: true })).toBe(true);
+    expect(tradableMarket({ venue: "panta", tradable: false })).toBe(false); // SOL-quoted
+    expect(tradableMarket({ venue: "fixture", tradable: true })).toBe(false);
   });
 
   test("time is one short token", () => {
@@ -743,9 +764,10 @@ describe("web app rules", () => {
     for (const m of screen.matchAll(/<button[^>]*wa-respond-btn[^>]*>/g)) expect(m[0]).not.toContain("disabled");
   });
 
-  test("a settled or closed market offers no trade, and shows your result", () => {
+  test("a settled, closed or SOL-quoted market offers no trade, and shows your result", () => {
     const screen = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
-    expect(screen).toMatch(/\{viewerCall && open && market\.venue === "panta"/);
+    expect(screen).toMatch(/\{viewerCall && open && tradableMarket\(market\)/);
+    expect(screen).not.toMatch(/market\.venue === "panta" \? \(\s*<button/);
     expect(screen).toContain("{outcomeLabel(mine)}");
   });
 

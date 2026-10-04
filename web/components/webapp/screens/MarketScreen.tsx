@@ -17,6 +17,7 @@ import {
   closesIn,
   closingSoon,
   livePrice,
+  livePriceParts,
   lockedPrice,
   outcomeLabel,
   outcomeOf,
@@ -26,6 +27,7 @@ import {
   takesCalls,
   topicIcon,
   topicLabel,
+  tradableMarket,
 } from "@/lib/webapp/format";
 import { appPath, publicPath } from "@/lib/webapp/paths";
 import { retryAfterPriceRefresh } from "@/lib/webapp/prices";
@@ -116,6 +118,9 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
 
   const big = (side: Side) => {
     const price = livePrice(sharePrice, side, now);
+    // In the market's own unit: a SOL price sets its unit small beside the
+    // figure (under it where the box is narrow), never as cents.
+    const parts = livePriceParts(sharePrice, side, now);
     return (
       <button
         type="button"
@@ -127,7 +132,16 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
       >
         <span className="wa-bigpick-side">{side}</span>
         {sideLabel(market, side).toUpperCase() !== side ? <span className="wa-bigpick-label">{sideLabel(market, side)}</span> : null}
-        <span className="wa-bigpick-price">{price ?? "—"}</span>
+        <span className="wa-bigpick-price">
+          {parts ? (
+            <>
+              <span>{parts.value}</span>
+              {parts.unit ? <span className="wa-price-unit"> {parts.unit}</span> : null}
+            </>
+          ) : (
+            "—"
+          )}
+        </span>
       </button>
     );
   };
@@ -278,8 +292,9 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
         </div>
       </details>
 
-      {/* Trading is offered only while the market is open: a settled or closed market has nothing to trade. */}
-      {viewerCall && open && market.venue === "panta" ? (
+      {/* Trading is offered only while the market is open (a settled or closed market has nothing to trade),
+          and only where Chumbucket can trade: a SOL-quoted Panta market takes free calls, never a trade. */}
+      {viewerCall && open && tradableMarket(market) ? (
         <button type="button" className="wa-disclosure" style={{ width: "100%", textAlign: "left" }} onClick={() => setTrading(true)}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "0 16px", fontWeight: 600, width: "100%" }}>
             <Icon name="wallet" size={20} />

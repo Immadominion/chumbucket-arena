@@ -15,6 +15,7 @@ import {
   closingSoon,
   isSettled,
   livePrice,
+  livePriceParts,
   lockedPrice,
   outcomeOf,
   recordA11y,
@@ -182,6 +183,7 @@ export function MarketCard({ market }: { market: Market }) {
 
   const pick = (side: Side) => {
     const price = livePrice(snapshot, side, now);
+    const parts = livePriceParts(snapshot, side, now);
     return (
       <Link
         href={`${appPath.market(market.id)}?pick=${side}`}
@@ -189,7 +191,16 @@ export function MarketCard({ market }: { market: Market }) {
         aria-label={`Call ${side} on ${market.question}${price ? `, ${price} a share on Panta` : ""}`}
       >
         <span>{sideLabel(market, side)}</span>
-        <span className="wa-pick-price">{price ?? "—"}</span>
+        <span className="wa-pick-price">
+          {parts ? (
+            <>
+              {parts.value}
+              {parts.unit ? <span className="wa-price-unit"> {parts.unit}</span> : null}
+            </>
+          ) : (
+            "—"
+          )}
+        </span>
       </Link>
     );
   };

@@ -4,32 +4,50 @@
  * that depends on time takes `now`), so it is tested in the BFF repo.
  */
 
-import { centsLabel } from "../callsBff";
+import { centsLabel, priceLabel, priceParts } from "../callsBff";
 import type { Call, CallFeedEntry, CallOutcome, Market, PublicRecord, SharePrice, Side } from "./types";
 
-export { centsLabel };
+export { centsLabel, priceLabel, priceParts };
 
 /** A Panta price is only shown while it is this fresh (the BFF's own limit). */
 export const PRICE_MAX_AGE_MS = 10 * 60_000;
 
+/** A price split for display: the figure, and the unit it does not carry (SOL). */
+export type PriceParts = NonNullable<ReturnType<typeof priceParts>>;
+
 /**
- * The price for one side, as a short label ("62¢", "$1.20"), or null when it
- * should not be shown: no snapshot, a missing side, or a snapshot older than
- * the BFF would call on. Screens show a quiet "—" for null; they never say
- * the price is stale.
+ * The price for one side in its market's own unit, split for display: USDC as
+ * cents ({ value: "62¢", unit: null }), a SOL-quoted market in SOL
+ * ({ value: "0.67", unit: "SOL" }) — never converted to cents or dollars. Null
+ * when it should not be shown: no snapshot, a missing side, or a snapshot
+ * older than the BFF would call on. Screens show a quiet "—" for null; they
+ * never say the price is stale.
  */
-export function livePrice(snapshot: SharePrice | null | undefined, side: Side, now: number): string | null {
+export function livePriceParts(snapshot: SharePrice | null | undefined, side: Side, now: number): PriceParts | null {
   if (!snapshot) return null;
   if (snapshot.observedAt > now + 60_000 || now - snapshot.observedAt > PRICE_MAX_AGE_MS) return null;
-  return centsLabel(side === "YES" ? snapshot.yesPrice : snapshot.noPrice);
+  return priceParts(side === "YES" ? snapshot.yesPrice : snapshot.noPrice, snapshot.currency);
 }
 
-/** The price a call locked at, for its own side ("50¢"), or null. */
+/** `livePriceParts` as one label ("62¢", "0.67 SOL"), or null. */
+export function livePrice(snapshot: SharePrice | null | undefined, side: Side, now: number): string | null {
+  const parts = livePriceParts(snapshot, side, now);
+  return parts && (parts.unit ? `${parts.value} ${parts.unit}` : parts.value);
+}
+
+/** The price a call locked at, for its own side, in its own unit ("50¢", "0.67 SOL"), or null. */
 export function lockedPrice(call: Pick<Call, "side" | "entryPrice">): string | null {
   const p = call.entryPrice;
   if (!p) return null;
-  return centsLabel(call.side === "YES" ? p.yesPrice : p.noPrice);
+  return priceLabel(call.side === "YES" ? p.yesPrice : p.noPrice, p.currency);
 }
+
+/**
+ * Whether a trade can be offered on this market: a Panta market the BFF does
+ * not mark untradable. A SOL-quoted market takes free calls, never a trade.
+ */
+export const tradableMarket = (market: Pick<Market, "venue" | "tradable">): boolean =>
+  market.venue === "panta" && market.tradable !== false;
 
 export function sideLabel(market: Pick<Market, "outcomes">, side: Side): string {
   return market.outcomes.find((o) => o.side === side)?.label ?? (side === "YES" ? "Yes" : "No");

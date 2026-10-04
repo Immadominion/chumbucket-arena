@@ -924,6 +924,13 @@
 .wa-pick-price {
   font-size: 16px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The unit a figure does not carry (SOL), set small so a SOL price fits where
+   a USDC one ("62¢") does. */
+.wa-price-unit {
+  font-size: 12px;
+  font-weight: 700;
 }
 
 /* the big YES/NO on a market */
@@ -965,6 +972,17 @@
   font-size: 30px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  /* A SOL price: the figure, then its unit small; the unit drops under the
+     figure when a phone-narrow box cannot hold both. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 4px;
+  row-gap: 2px;
+}
+.wa-bigpick-price .wa-price-unit {
+  font-size: 14px;
+  line-height: 1.2;
 }
 .wa-bigpick--YES {
   background: var(--wa-yes-bg);

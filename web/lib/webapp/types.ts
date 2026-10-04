@@ -29,7 +29,8 @@ export type FundingState =
 export interface SharePrice {
   marketId: string;
   venue: "panta";
-  currency: "USDC";
+  /** The market's own quote asset: USDC, or SOL for a SOL-quoted Panta market. Never converted. */
+  currency: "USDC" | "SOL";
   unit: "per_share";
   yesPrice: string | null;
   noPrice: string | null;
@@ -49,6 +50,10 @@ export interface Market {
   closesAt: number | null;
   resolvesAt: number | null;
   resolutionSource: string | null;
+  /** The market's quote asset. Null/absent from an older BFF, which only served USDC markets. */
+  quoteCurrency?: "USDC" | "SOL" | null;
+  /** Whether Chumbucket can trade it. A SOL-quoted market takes free calls only. Absent: tradable. */
+  tradable?: boolean;
 }
 
 /** predictions.catalog rows: a market plus Panta's own reported volume. */
