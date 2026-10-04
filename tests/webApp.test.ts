@@ -801,6 +801,18 @@ describe("web app rules", () => {
     expect(css).toMatch(/\.wa-chip--funded \{[^}]*background: var\(--wa-coral\)/);
   });
 
+  test("pink is money: a free call's action is the strong ink button", () => {
+    const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
+    expect(css).toMatch(/\.wa-btn--ink \{[^}]*min-height: 56px[^}]*background: var\(--wa-ink\)/);
+    // The lock bar, the response sheet and the rail's "Make a call" are free calls.
+    const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
+    expect(market).toMatch(/className="wa-btn wa-btn--ink"[\s\S]*?Call \{sideLabel\(market, pick\)\}\s*<FreeChip \/>/);
+    const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
+    expect(respond).toMatch(/className="wa-btn wa-btn--ink wa-btn--block"[\s\S]*?<FreeChip \/>/);
+    expect(respond).not.toContain("wa-btn--primary");
+    expect(readCode(join(WEB, "components/webapp/Shell.tsx"))).toMatch(/wa-btn--ink wa-railcta" aria-label="Make a call"/);
+  });
+
   test("a settled, closed or SOL-quoted market offers no trade, and shows your result", () => {
     const screen = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
     expect(screen).toMatch(/\{viewerCall && open && tradableMarket\(market\)/);

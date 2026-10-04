@@ -248,9 +248,10 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
               >
                 <Icon name={visibility === "public" ? "globe" : "group-151"} size={22} />
               </button>
+              {/* A free call: the strong ink button, never pink (pink is money). */}
               <button
                 type="button"
-                className="wa-btn wa-btn--primary"
+                className="wa-btn wa-btn--ink"
                 disabled={lock.isPending || thesis.length > MAX}
                 onClick={() => lock.mutate()}
               >

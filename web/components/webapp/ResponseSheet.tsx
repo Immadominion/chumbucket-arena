@@ -67,9 +67,10 @@ export function ResponseSheet({
       title={title}
       subtitle={kind === "challenge" ? "A dare to call it." : undefined}
       footer={
+        // Back, Fade and a dare are all free: ink, never pink (pink is money).
         <button
           type="button"
-          className="wa-btn wa-btn--primary wa-btn--block"
+          className="wa-btn wa-btn--ink wa-btn--block"
           disabled={send.isPending || text.length > MAX}
           onClick={() => send.mutate()}
         >

@@ -84,7 +84,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </div>
-        <Link href={appPath.markets} className="wa-btn wa-btn--primary wa-railcta" aria-label="Make a call" title="Make a call">
+        <Link href={appPath.markets} className="wa-btn wa-btn--ink wa-railcta" aria-label="Make a call" title="Make a call">
           <Icon name="plus" size={22} />
           <span className="wa-navlabel">Make a call</span>
         </Link>
