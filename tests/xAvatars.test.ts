@@ -228,7 +228,7 @@ describe("SupabasePersonIdentityReader", () => {
       ]),
     );
     const found = await r.reader.byXHandle("Irfan");
-    expect(r.seen[0]).toMatchObject({ name: "person_x_identities_v1", body: { p_x_handle: "irfan", p_user_ids: null } });
+    expect(r.seen[0]).toMatchObject({ name: "person_x_identities_v2", body: { p_x_handle: "irfan", p_user_ids: null } });
     expect(found).toEqual([
       { userId: B, xHandle: "irfan", xAvatarUrl: null, seenAt: Date.parse("2026-10-01T00:00:00Z") },
       {
@@ -251,6 +251,17 @@ describe("SupabasePersonIdentityReader", () => {
     expect(found.map((x) => x.userId)).toEqual([A]);
     expect(await r.reader.xIdentitiesOf(["nope"])).toEqual([]);
     expect(r.seen).toHaveLength(1);
+  });
+
+  test("before 20261004120000 (no v2): v1, remembered", async () => {
+    const r = reader((name) =>
+      name === "person_x_identities_v2"
+        ? new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function" }), { status: 404 })
+        : ok([{ user_id: A, x_username: "irfan", x_avatar_url: null, seen_at: null }]),
+    );
+    expect((await r.reader.byXHandle("irfan")).map((x) => x.userId)).toEqual([A]);
+    expect((await r.reader.byXHandle("irfan")).map((x) => x.userId)).toEqual([A]);
+    expect(r.seen.map((s) => s.name)).toEqual(["person_x_identities_v2", "person_x_identities_v1", "person_x_identities_v1"]);
   });
 
   test("a wallet: the person's canonical id, or null", async () => {

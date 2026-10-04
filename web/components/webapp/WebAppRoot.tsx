@@ -6,8 +6,10 @@
  * and the next is either the app on its saved data or the way in.
  */
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { DataProvider, ToastProvider } from "./data";
+import { LINK_CALLBACK_PATH } from "@/lib/webapp/linking";
 import { useAuth, AuthProvider } from "./session";
 import { ClaimScreen, SignInScreen } from "./screens/DoorScreens";
 import { Shell } from "./Shell";
@@ -61,9 +63,14 @@ function Gate({ children }: { children: React.ReactNode }) {
 export function WebAppRoot({ className, children }: { className: string; children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // A sign-in proof window (/app/link) must never start this site's own
+  // auth client: it would read the proof's tokens off the URL.
+  const proofWindow = usePathname() === LINK_CALLBACK_PATH;
   return (
     <div className={`wa ${className}`}>
-      {mounted ? (
+      {mounted && proofWindow ? (
+        children
+      ) : mounted ? (
         <AuthProvider>
           <Gate>{children}</Gate>
         </AuthProvider>

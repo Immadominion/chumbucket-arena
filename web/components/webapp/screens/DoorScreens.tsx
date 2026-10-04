@@ -36,7 +36,7 @@ function Consent() {
   );
 }
 
-function useWallets(): StandardWallet[] {
+export function useWallets(): StandardWallet[] {
   const [list, setList] = useState<StandardWallet[]>([]);
   useEffect(() => {
     const read = () => setList([...solanaWallets()]);
@@ -222,7 +222,7 @@ function LivePreview() {
 }
 
 /** Google's "G", in its own colours. */
-function GoogleMark() {
+export function GoogleMark() {
   return (
     <svg width="22" height="22" viewBox="0 0 48 48" aria-hidden focusable="false">
       <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" />

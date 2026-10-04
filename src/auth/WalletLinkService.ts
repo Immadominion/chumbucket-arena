@@ -28,8 +28,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { utils } from "@coral-xyz/anchor";
 import { AuthIdentityError, codeForStoreReason, failAuth } from "./AuthIdentityError.ts";
 import type { AuthIdentityPolicy } from "./AuthIdentityRuntime.ts";
+import type { AccountLinkStore } from "./AccountLinkStore.ts";
 import type { ClaimLegacyInput, IdentityStore } from "./IdentityStore.ts";
-import type { SupabaseJwtVerifier } from "./SupabaseJwt.ts";
+import type { SupabaseJwtVerifier, SupabaseSession } from "./SupabaseJwt.ts";
 import {
   buildSiwsMessage,
   CHAIN_IDS,
@@ -124,6 +125,10 @@ export interface WalletLinkDeps {
   makeNonce?: () => string;
   /** See `resolveWalletProfileCarry`. Default off. */
   walletProfileCarry?: boolean;
+  /** Additional sign-ins (20261004120000_account_sign_ins.sql). */
+  accountLinks?: AccountLinkStore;
+  /** ACCOUNT_LINKING_ENABLED: a linked wallet's sign-in lands on its account. Default off. */
+  accountLinking?: boolean;
 }
 
 export interface CreateProfileInput {
@@ -161,6 +166,12 @@ export class WalletLinkService {
    * an account that has never been linked to a canonical row.
    */
   async authenticate(accessToken: string): Promise<AuthedIdentity> {
+    const { authUserId, userId } = await this.authenticateSession(accessToken);
+    return { authUserId, userId };
+  }
+
+  /** `authenticate`, plus the verified session it resolved (for Settings). */
+  async authenticateSession(accessToken: string): Promise<AuthedIdentity & { session: SupabaseSession }> {
     if (!this.deps.store.enabled) failAuth("IDENTITY_NOT_CONFIGURED");
     const token = (accessToken ?? "").trim();
     if (!token) failAuth("AUTH_TOKEN_MISSING");
@@ -168,7 +179,16 @@ export class WalletLinkService {
     const session = await this.deps.verifier.verify(token);
     if (!session) failAuth("AUTH_TOKEN_INVALID");
 
+    // The account's primary sign-in, or an additional one (a linked wallet's,
+    // or a folded account's).
     let userId = await this.deps.store.userIdForAuthUser(session.authUserId);
+    // A wallet linked to an account with a SIWS proof signs in to that account
+    // on any device. The database re-checks the wallet against this session's
+    // own Web3 identity, and trusts only a link its audit trail backs.
+    if (!userId && session.solanaWallet && this.deps.accountLinking === true && this.deps.accountLinks) {
+      const linked = await this.deps.accountLinks.resolveWalletSignIn(session.authUserId, session.solanaWallet);
+      if (linked.ok && typeof linked.user_id === "string") userId = linked.user_id;
+    }
     // A wallet sign-in reaches the account that wallet already has — once the
     // old client-writable wallet mappings are closed (see the runtime flag).
     if (!userId && session.solanaWallet && this.deps.walletProfileCarry === true) {
@@ -177,7 +197,7 @@ export class WalletLinkService {
     }
     if (!userId) failAuth("AUTH_USER_UNLINKED");
 
-    return { authUserId: session.authUserId, userId };
+    return { authUserId: session.authUserId, userId, session };
   }
 
   /**
@@ -192,6 +212,11 @@ export class WalletLinkService {
     if (!token) failAuth("AUTH_TOKEN_MISSING");
     const session = await this.deps.verifier.verify(token);
     if (!session) failAuth("AUTH_TOKEN_INVALID");
+
+    // A sign-in that already reaches an account (its primary, or an
+    // additional sign-in) is that account: never a second one.
+    const existing = await this.deps.store.userIdForAuthUser(session.authUserId);
+    if (existing) return { authUserId: session.authUserId, userId: existing };
 
     const result = await this.deps.store.createPersonWithUsername({
       authUserId: session.authUserId,
@@ -340,6 +365,14 @@ export class WalletLinkService {
       address: input.address,
       now: this.now(),
     });
+
+    // A wallet that already signs in to another account (its own Web3
+    // sign-in, or a link there) is never linked here as well: it would sign in
+    // to one account while linked to another. Moving it is a fold, with proof
+    // of both accounts. Checked before the nonce is spent.
+    if (this.deps.accountLinks && (await this.deps.accountLinks.walletSignInConflict(identity.userId, fields.address))) {
+      failAuth("WALLET_OWNED_BY_ANOTHER_USER");
+    }
 
     // Atomic single-use redemption. Every binding is re-asserted server-side
     // against the row that was issued, including which user it was issued to —

@@ -15,7 +15,7 @@
  * that no one exists.
  */
 
-import { Pgrest, type FetchImpl, type PgrestConfig } from "../prediction/pgrest.ts";
+import { Pgrest, PgrestError, type FetchImpl, type PgrestConfig } from "../prediction/pgrest.ts";
 import type { PersonIdentityReader, XIdentity } from "./personFinder.ts";
 import { safeXAvatarUrl, X_HANDLE } from "./xAvatars.ts";
 
@@ -69,8 +69,24 @@ export class SupabasePersonIdentityReader implements PersonIdentityReader {
     return typeof id === "string" && UUID.test(id) ? id.toLowerCase() : null;
   }
 
+  /**
+   * v2 (20261004120000) also counts an X account on an additional sign-in for
+   * the account it reaches — after a fold, the folded account's X is the
+   * surviving account's. Until that migration is applied, v1.
+   */
+  private v2 = true;
+
   private async identities(body: Record<string, unknown>): Promise<XIdentity[]> {
-    const rows = await this.pg.rpc<unknown>("person_x_identities_v1", body);
+    let rows: unknown;
+    if (this.v2) {
+      try {
+        rows = await this.pg.rpc<unknown>("person_x_identities_v2", body);
+      } catch (err) {
+        if (!(err instanceof PgrestError && err.status === 404)) throw err;
+        this.v2 = false;
+      }
+    }
+    if (!this.v2) rows = await this.pg.rpc<unknown>("person_x_identities_v1", body);
     if (!Array.isArray(rows)) return [];
     const out: XIdentity[] = [];
     for (const row of rows) {

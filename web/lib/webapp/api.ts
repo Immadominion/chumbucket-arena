@@ -26,6 +26,7 @@ import type {
   SuggestedPeople,
   ThesisUpdate,
 } from "./types";
+import type { LinkMethod, LinkPreview, LinkTicket, SignInMethods } from "./linking";
 
 export type Caller = <T>(path: string, input: unknown, kind: "query" | "mutation") => Promise<T>;
 
@@ -94,6 +95,24 @@ export function makeApi(call: Caller) {
     claimUsername: (supabaseAccessToken: string, handle: string) =>
       m<{ userId: string; handle: string }>("auth.claimUsername", { supabaseAccessToken, handle }),
     usernameStatus: (handle: string) => q<{ handle: string; status: UsernameStatus }>("auth.usernameStatus", { handle }),
+
+    // ── sign-in methods (Settings). preview/complete take the OTHER side's token ──
+    signInMethods: (supabaseAccessToken: string) => m<SignInMethods>("auth.signInMethods", { supabaseAccessToken }),
+    unlinkSignIn: (supabaseAccessToken: string, ref: string) =>
+      m<{ signIns: number; wallets: number }>("auth.unlinkSignIn", { supabaseAccessToken, ref }),
+    startSignInLink: (supabaseAccessToken: string, method: LinkMethod) =>
+      m<LinkTicket>("auth.startSignInLink", { supabaseAccessToken, method }),
+    previewSignInLink: (otherAccessToken: string, ticket: string) =>
+      m<LinkPreview>("auth.previewSignInLink", { supabaseAccessToken: otherAccessToken, ticket }),
+    completeSignInLink: (otherAccessToken: string, ticket: string) =>
+      m<{ outcome: "already" | "linked" | "folded"; userId: string }>("auth.completeSignInLink", {
+        supabaseAccessToken: otherAccessToken,
+        ticket,
+      }),
+    requestWalletNonce: (supabaseAccessToken: string, address: string, domain: string, uri: string) =>
+      m<{ message: string; expiresAt: string }>("auth.requestWalletNonce", { supabaseAccessToken, address, domain, uri }),
+    linkWallet: (supabaseAccessToken: string, address: string, message: string, signature: string) =>
+      m<{ address: string; outcome: string }>("auth.linkWallet", { supabaseAccessToken, address, message, signature }),
   };
 }
 

@@ -64,6 +64,7 @@ import { USERNAME_FORMAT, identityCopy, nameHint, normaliseUsername, suggestUser
 import { APP_BASE, TRAIL_MAX, appPath, canGoBack, nextTrail, publicPath, safeDecode, safeReturnPath } from "../web/lib/webapp/paths.ts";
 import { PRICE_UPDATING, isPriceRefusal, retryAfterPriceRefresh } from "../web/lib/webapp/prices.ts";
 import { SIGN_IN_STATEMENT, sameBytes, signInMessage } from "../web/lib/webapp/siws.ts";
+import { KINDS, LINK_CALLBACK_PATH, accountName, linkCopy, methodLabel } from "../web/lib/webapp/linking.ts";
 import type { CallFeedEntry, PublicRecord, SharePrice } from "../web/lib/webapp/types.ts";
 import { webAppHref } from "../web/lib/webAppLink.ts";
 
@@ -829,5 +830,66 @@ describe("web app rules", () => {
   test("the web app is not indexed (it is per account)", () => {
     const layout = readFileSync(join(WEB, "app/app/layout.tsx"), "utf8");
     expect(layout).toMatch(/robots:\s*\{\s*index:\s*false/);
+  });
+});
+
+describe("web app: sign-in methods", () => {
+  function recorder() {
+    const calls: Array<{ path: string; input: unknown; kind: string }> = [];
+    const api = makeApi(async <T,>(path: string, input: unknown, kind: "query" | "mutation") => {
+      calls.push({ path, input, kind });
+      return {} as T;
+    });
+    return { api, calls };
+  }
+
+  test("every link procedure is a mutation; the only identity input is a session token", async () => {
+    const { api, calls } = recorder();
+    await api.signInMethods("tok");
+    await api.unlinkSignIn("tok", "w:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
+    await api.startSignInLink("tok", "x");
+    await api.previewSignInLink("other-tok", "ab".repeat(32));
+    await api.completeSignInLink("other-tok", "ab".repeat(32));
+    await api.requestWalletNonce("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "chumbucket.fun", "https://chumbucket.fun");
+    await api.linkWallet("tok", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "message", "signature");
+    expect(calls.map((c) => [c.path, c.kind])).toEqual([
+      ["auth.signInMethods", "mutation"],
+      ["auth.unlinkSignIn", "mutation"],
+      ["auth.startSignInLink", "mutation"],
+      ["auth.previewSignInLink", "mutation"],
+      ["auth.completeSignInLink", "mutation"],
+      ["auth.requestWalletNonce", "mutation"],
+      ["auth.linkWallet", "mutation"],
+    ]);
+    // The other side's token is the procedure's own input, never a header swap.
+    expect(calls[3]!.input).toEqual({ supabaseAccessToken: "other-tok", ticket: "ab".repeat(32) });
+    for (const banned of ["userId", "authUserId", "viewerUserId"]) {
+      expect(calls.flatMap((c) => Object.keys(c.input as object))).not.toContain(banned);
+    }
+  });
+
+  test("rows read as @x, an email or a short wallet; refusals as one line", () => {
+    expect(KINDS).toEqual(["wallet", "x", "google"]);
+    expect(methodLabel({ kind: "x", label: "ownerx" })).toBe("@ownerx");
+    expect(methodLabel({ kind: "wallet", label: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU" })).toBe("7xKX…gAsU");
+    expect(methodLabel({ kind: "google", label: null })).toBe("Google");
+    expect(accountName({ userId: "u", handle: "dev", displayName: "Dev" })).toBe("@dev");
+    expect(linkCopy("ACCOUNT_HAS_MONEY")).toContain("stays separate");
+    expect(linkCopy("identity_already_exists")).toContain("another account");
+    expect(linkCopy("anything else")).toBe("That didn’t work. Try again.");
+  });
+
+  test("the proof window never starts this site's auth client, and drops its tokens", () => {
+    const root = readCode(join(WEB, "components/webapp/WebAppRoot.tsx"));
+    expect(root).toContain("LINK_CALLBACK_PATH");
+    expect(LINK_CALLBACK_PATH).toBe("/app/link");
+    expect(existsSync(join(WEB, "app/app/link/page.tsx"))).toBe(true);
+    const callback = readCode(join(WEB, "components/webapp/LinkCallback.tsx"));
+    expect(callback).not.toMatch(/authClient|from "\.\/session"|refresh_token/);
+    expect(callback).toContain("history.replaceState");
+    const plumbing = readCode(join(WEB, "components/webapp/linking.ts"));
+    // A separate, unpersisted client for proofs; the page's own session is untouched.
+    expect(plumbing).toMatch(/persistSession: false/);
+    expect(plumbing).toMatch(/BroadcastChannel/);
   });
 });

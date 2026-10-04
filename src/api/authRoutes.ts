@@ -30,6 +30,7 @@ import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdent
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
 import { WalletLinkService } from "../auth/WalletLinkService.ts";
 import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
+import { AccountLinkService, type LinkCompletion } from "../auth/AccountLinkService.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
 import { existingCallsRuntime } from "../calls/runtime.ts";
@@ -90,6 +91,16 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   PROFILE_NAME_INVALID: "BAD_REQUEST",
   WALLET_HAS_PROFILE: "CONFLICT",
   HANDLE_ALREADY_SET: "CONFLICT",
+
+  ACCOUNT_LINKING_DISABLED: "PRECONDITION_FAILED",
+  ACCOUNT_FOLD_DISABLED: "PRECONDITION_FAILED",
+  LINK_TICKET_INVALID: "BAD_REQUEST",
+  LINK_METHOD_MISMATCH: "BAD_REQUEST",
+  LINK_RATE_LIMITED: "TOO_MANY_REQUESTS",
+  ACCOUNT_HAS_MONEY: "CONFLICT",
+  ACCOUNT_NOT_FOLDABLE: "CONFLICT",
+  SIGN_IN_IN_USE: "CONFLICT",
+  SIGN_IN_NOT_FOUND: "NOT_FOUND",
 };
 
 /** Run a procedure body: DomainError -> transport via guard(), then our own
@@ -114,6 +125,8 @@ function serviceFor(config: AppConfig): WalletLinkService {
     verifier: rt.verifier,
     policy: rt.policy,
     walletProfileCarry: rt.walletProfileCarry === true,
+    ...(rt.accountLinks ? { accountLinks: rt.accountLinks } : {}),
+    accountLinking: rt.accountLinking === true,
   });
 }
 
@@ -123,6 +136,37 @@ function existingAccountService(config: AppConfig): ExistingAccountClaimService 
     enabled: config.authIdentity?.existingAccountClaimsEnabled === true,
     store: rt.existingAccounts, verifier: rt.verifier, policy: rt.policy,
   });
+}
+
+function accountLinkService(config: AppConfig): AccountLinkService {
+  const rt = authIdentityRuntimeFor(config);
+  return new AccountLinkService({
+    identity: serviceFor(config),
+    ...(rt.accountLinks ? { links: rt.accountLinks } : {}),
+    verifier: rt.verifier,
+    linking: rt.accountLinking === true,
+    fold: rt.accountFold === true,
+  });
+}
+
+/**
+ * After a fold, tell an already-running calls mirror what changed: both
+ * people's directory rows (sign-in, wallet) and the follows the fold copied.
+ * Best effort, like refreshCallsPerson: the database is already right, and
+ * the next hydration reads it.
+ */
+async function refreshCallsAfterLink(config: AppConfig, done: LinkCompletion): Promise<void> {
+  if (done.outcome !== "folded") return;
+  try {
+    const calls = existingCallsRuntime(config);
+    if (!calls) return;
+    for (const id of [done.userId, done.foldedUserId]) {
+      if (id && calls.durable) await calls.durable.refreshPerson(id);
+    }
+    for (const [follower, followee] of done.follows) calls.store.follow(follower, followee);
+  } catch {
+    // Never fails the link, and never surfaces a store error to the caller.
+  }
 }
 
 /**
@@ -151,6 +195,7 @@ const accessToken = z.string().min(1).max(8192);
 // WalletLinkService; this only keeps obvious junk out of the service.
 const solanaAddress = z.string().min(32).max(44);
 const purpose = z.enum(["link_wallet", "transfer_wallet"]);
+const linkTicket = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const authRouter = router({
   /** auth.deleteAccount and auth.exportData (src/api/trust.ts). */
@@ -203,6 +248,9 @@ export const authRouter = router({
       if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
       const session = await rt.verifier.verify(input.supabaseAccessToken);
       if (!session) throw new AuthIdentityError("AUTH_TOKEN_INVALID");
+      // A sign-in that already reaches an account is that account.
+      const existing = await rt.store.userIdForAuthUser(session.authUserId);
+      if (existing) return { userId: existing, authUserId: session.authUserId };
       const userId = await rt.store.createPersonForAuthUser(session.authUserId, input.displayName);
       return { userId, authUserId: session.authUserId };
     })),
@@ -274,6 +322,10 @@ export const authRouter = router({
       /** A wallet sign-in carries over the account already at that wallet. */
       walletProfileCarry: rt.walletProfileCarry === true,
       existingAccountClaimsEnabled: ctx.app.config.authIdentity?.existingAccountClaimsEnabled === true && !!rt.existingAccounts,
+      /** Settings can link and unlink sign-ins; a linked wallet signs in to its account. */
+      accountLinking: rt.accountLinking === true && !!rt.accountLinks,
+      /** A sign-in already on another account can fold that account in. */
+      accountFold: rt.accountLinking === true && rt.accountFold === true && !!rt.accountLinks,
       network: rt.policy.network,
       proofVersion: SIWS_PROOF_VERSION,
       allowedDomains: [...rt.policy.allowedDomains],
@@ -375,6 +427,58 @@ export const authRouter = router({
           ...(input.walletType ? { walletType: input.walletType } : {}),
         }),
       ),
+    ),
+
+  /**
+   * Settings → Sign-in methods: every way into the caller's account, which
+   * one this session used, and how each one can be unlinked. Reads only; a
+   * mutation so the token travels in the body.
+   */
+  signInMethods: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken }).strict())
+    .mutation(({ ctx, input }) => run(() => accountLinkService(ctx.app.config).signInMethods(input.supabaseAccessToken))),
+
+  /**
+   * Unlink an additional sign-in (`s:<id>`) or a linked wallet (`w:<address>`)
+   * from the caller's own account. Never the sign-in in use, never the
+   * account's first one — so the last way in can never go.
+   */
+  unlinkSignIn: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken, ref: z.string().min(3).max(64) }).strict())
+    .mutation(({ ctx, input }) => run(() => accountLinkService(ctx.app.config).unlink(input.supabaseAccessToken, input.ref))),
+
+  /**
+   * The caller's account starts a link: a single-use ticket, valid ten
+   * minutes, for the other side to complete with its own sign-in. Used when
+   * Supabase cannot link (the identity already belongs to another sign-in, or
+   * it is a wallet that already signs in somewhere).
+   */
+  startSignInLink: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken, method: z.enum(["wallet", "x", "google"]) }).strict())
+    .mutation(({ ctx, input }) =>
+      run(() => accountLinkService(ctx.app.config).startLink(input.supabaseAccessToken, input.method)),
+    ),
+
+  /**
+   * What completing the ticket with THIS session (the other side's) would do,
+   * so the person confirms it knowing: nothing, add a sign-in, or fold that
+   * account in — or why it can't. Reads only.
+   */
+  previewSignInLink: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken, ticket: linkTicket }).strict())
+    .mutation(({ ctx, input }) =>
+      run(() => accountLinkService(ctx.app.config).previewLink(input.supabaseAccessToken, input.ticket)),
+    ),
+
+  /** Complete the ticket with the other side's session. Audited. */
+  completeSignInLink: publicProcedure
+    .input(z.object({ supabaseAccessToken: accessToken, ticket: linkTicket }).strict())
+    .mutation(({ ctx, input }) =>
+      run(async () => {
+        const done = await accountLinkService(ctx.app.config).completeLink(input.supabaseAccessToken, input.ticket);
+        await refreshCallsAfterLink(ctx.app.config, done);
+        return { outcome: done.outcome, userId: done.userId };
+      }),
     ),
 
   /**

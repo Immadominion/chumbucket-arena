@@ -32,6 +32,38 @@ export interface SupabaseSession {
    * issuer's own answer, never from the client.
    */
   solanaWallet?: string;
+  /**
+   * How this session was last authenticated ("web3", "oauth", …): the newest
+   * entry of the token's `amr` claim, read only after GoTrue accepted the
+   * token. Display only (Settings' "signed in with"); never authorises.
+   */
+  signInMethod?: string;
+}
+
+/**
+ * The newest `amr` method of a token GoTrue has ALREADY accepted. Never call
+ * this on an unverified token: it decodes, it does not verify.
+ */
+export function latestAmrMethod(token: string): string | undefined {
+  const body = token.split(".")[1];
+  if (!body) return undefined;
+  try {
+    const claims = JSON.parse(Buffer.from(body.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as {
+      amr?: unknown;
+    };
+    if (!Array.isArray(claims.amr)) return undefined;
+    let best: { method: string; at: number } | undefined;
+    for (const entry of claims.amr) {
+      if (!entry || typeof entry !== "object") continue;
+      const { method, timestamp } = entry as { method?: unknown; timestamp?: unknown };
+      if (typeof method !== "string" || !/^[a-z0-9_/-]{1,48}$/.test(method)) continue;
+      const at = typeof timestamp === "number" ? timestamp : 0;
+      if (!best || at >= best.at) best = { method, at };
+    }
+    return best?.method;
+  } catch {
+    return undefined;
+  }
 }
 
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -126,7 +158,12 @@ export class GoTrueJwtVerifier implements SupabaseJwtVerifier {
       // key whose "signature" can be forged) is not a session at all.
       if (hasUnusableSolanaIdentity(user.identities)) return null;
       const solanaWallet = solanaWalletOf(user.identities);
-      return solanaWallet ? { authUserId: user.id, solanaWallet } : { authUserId: user.id };
+      const signInMethod = latestAmrMethod(token);
+      return {
+        authUserId: user.id,
+        ...(solanaWallet ? { solanaWallet } : {}),
+        ...(signInMethod ? { signInMethod } : {}),
+      };
     } catch (_) {
       // whoami/onboarding also use this verifier; all callers get only a
       // fixed safe code, never a native exception containing headers/body.
