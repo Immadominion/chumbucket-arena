@@ -29,7 +29,7 @@ import type {
   WalletRef,
   WinningsItem,
 } from "./money";
-import { BffRejected } from "./bff";
+import { BffError, BffRejected } from "./bff";
 import { UnsafeTransaction } from "./pantaBuyCheck";
 import { base64ToBytes, bytesToBase64 } from "./solanaTx";
 import { confirmTrade, reviewPrepared, TradeError, type ReviewedTrade, type TradeOrder, type TradeSigner } from "./trade";
@@ -196,21 +196,22 @@ export type TransferStep =
 
 /** `CONFLICT` "Another transfer from this wallet is still going through": the one to follow, if it is. */
 export function transferInFlight(e: unknown): string | null {
-  if (!(e instanceof BffRejected) || e.code !== "CONFLICT" || e.details?.reason !== "TRANSFER_IN_FLIGHT") return null;
-  const id = e.details.transferId;
+  if (!(e instanceof BffRejected) || refusalReason(e) !== "TRANSFER_IN_FLIGHT") return null;
+  const id = e.details?.transferId;
   return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
 }
 
 /**
- * `PRECONDITION_FAILED` "The price moved since you made this call. Make a
- * new call." (`PRICE_MOVED`): this call can't be funded any more; the person
- * makes a new one at today's price. Read from `data.details.reason` when the
- * BFF sends it, else from its words.
+ * The stable code every `money.*` refusal carries in `data.details.reason`
+ * (docs/money-api.md, "Refusal reasons"): the app branches on it and shows
+ * the message. Null for anything else (never read from the wording).
  */
-export function priceMoved(e: unknown): boolean {
-  if (!(e instanceof BffRejected) || e.code !== "PRECONDITION_FAILED") return false;
-  return e.details?.reason === "PRICE_MOVED" || /^The price moved\b/.test(e.message);
+export function refusalReason(e: unknown): string | null {
+  return e instanceof BffError ? (e.details?.reason ?? null) : null;
 }
+
+/** `PRICE_MOVED`: this call can't be funded any more; the person makes a new one at today's price. */
+export const priceMoved = (e: unknown): boolean => refusalReason(e) === "PRICE_MOVED";
 
 /** What the person asked to move: from which wallet, to which, how much. */
 export interface TransferIntent {

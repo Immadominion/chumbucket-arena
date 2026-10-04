@@ -12,7 +12,7 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { BffFailure } from "@/lib/webapp/bff";
 import { shortWallet } from "@/lib/webapp/format";
-import { stopLine, type SignerFor } from "@/lib/webapp/moneyFlow";
+import { refusalReason, stopLine, type SignerFor } from "@/lib/webapp/moneyFlow";
 import { checkedSigner, type TradeSigner } from "@/lib/webapp/trade";
 import { useChumbucketWallet } from "../chumbucketWallet";
 import { actionError } from "../data";
@@ -36,8 +36,8 @@ export class NoSigner extends Error {
 /** One plain line for whatever stopped a money flow: our words, never a provider's. */
 export function moneyLine(e: unknown, what: "trade" | "transfer" = "trade"): string {
   if (e instanceof NoSigner) return e.message;
-  // money.* writes its "can't read that right now" answers as copy too ("This market's price isn't available…").
-  if (e instanceof BffFailure && e.code === "SERVICE_UNAVAILABLE" && /^[A-Z][^{}[\]<>]{2,200}[.!]$/.test(e.message)) return e.message;
+  // A money.* refusal with a reason (PRICE_UNAVAILABLE, UNAVAILABLE, …) is our copy even as a 5xx.
+  if (e instanceof BffFailure && refusalReason(e)) return e.message;
   if (e instanceof WalletDeclined) return what === "trade" ? "Not signed. Nothing was spent." : "Not signed. Nothing was sent.";
   return stopLine(e, actionError(e), what);
 }

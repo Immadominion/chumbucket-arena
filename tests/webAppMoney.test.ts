@@ -72,6 +72,7 @@ import {
   stepTransfer,
   transferOpen,
   priceMoved,
+  refusalReason,
   transferInFlight,
   watchRun,
   MAX_TOPUP_BASE_UNITS,
@@ -1316,7 +1317,7 @@ describe("security review fixes", () => {
 describe("contract 1e94ac3: a two-minute window, PRICE_MOVED, one transfer in flight, $1 funded", () => {
   const conflict = { error: { json: { message: "Another transfer from this wallet is still going through. Try again when it's done.", code: -32009,
     data: { code: "CONFLICT", details: { reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000009", junk: 5 } } } } };
-  const moved = { error: { json: { message: "The price moved since you made this call. Make a new call.", code: -32012, data: { code: "PRECONDITION_FAILED" } } } };
+  const moved = { error: { json: { message: "The price moved since you made this call. Make a new call.", code: -32012, data: { code: "PRECONDITION_FAILED", details: { reason: "PRICE_MOVED" } } } } };
   const caught = (body: unknown, status: number) => {
     try {
       parseTrpcResponse(status, body);
@@ -1335,8 +1336,16 @@ describe("contract 1e94ac3: a two-minute window, PRICE_MOVED, one transfer in fl
     const m = caught(moved, 412);
     expect(priceMoved(m)).toBe(true);
     expect(transferInFlight(m)).toBeNull();
-    expect(priceMoved(new BffRejected("This call expired.", "PRECONDITION_FAILED"))).toBe(false);
+    expect(priceMoved(new BffRejected("This call expired.", "PRECONDITION_FAILED", { reason: "CALL_EXPIRED" }))).toBe(false);
     expect(priceMoved(new BffRejected("x", "PRECONDITION_FAILED", { reason: "PRICE_MOVED" }))).toBe(true);
+    // The reason code decides, never the wording.
+    expect(priceMoved(new BffRejected("The price moved since you made this call. Make a new call.", "PRECONDITION_FAILED"))).toBe(false);
+    expect(transferInFlight(new BffRejected("Another transfer…", "CONFLICT", { transferId: "40000000-0000-4000-8000-000000000009" }))).toBeNull();
+    expect(refusalReason(new BffFailure("This market's price isn't available right now. Try again in a minute.", "SERVICE_UNAVAILABLE", { reason: "PRICE_UNAVAILABLE" }))).toBe("PRICE_UNAVAILABLE");
+    expect(refusalReason(new Error("x"))).toBeNull();
+    for (const f of ["lib/webapp/moneyFlow.ts", "components/webapp/money/signers.ts", "components/webapp/money/MoneyCallSheet.tsx", "components/webapp/money/WalletSheet.tsx", "components/webapp/money/DepositSheet.tsx"]) {
+      expect({ f, wording: /\.test\(e\.message\)|e\.message ===|message\.startsWith/.test(readCode(join(WEB, f))) }).toEqual({ f, wording: false });
+    }
   });
 
   test("a second cash out while one is in flight follows that transfer instead of failing; a signed replay (SENT) too", async () => {
