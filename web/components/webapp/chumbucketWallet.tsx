@@ -23,7 +23,7 @@
 import dynamic from "next/dynamic";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { linkChumbucketWallet } from "@/lib/webapp/chumbucketLink";
-import type { TradeSigner } from "@/lib/webapp/trade";
+import { checkedSigner, type TradeSigner } from "@/lib/webapp/trade";
 import { accessToken } from "./authClient";
 import { useAuth } from "./session";
 
@@ -160,16 +160,15 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Checked before signing, on its own copy (checkedSigner): nothing else can reach the wallet.
   const signerFor = useCallback(
-    (owner: string, wallet: string): TradeSigner => ({
-      address: wallet,
-      async sign(unsigned) {
+    (owner: string, wallet: string): TradeSigner =>
+      checkedSigner(wallet, async (bytes) => {
         if (account.current !== owner) throw new Error("account changed");
         const b = await getBridge(owner);
         if ((await b.ready()) !== wallet || account.current !== owner) throw new Error("wallet changed");
-        return b.signTransaction(wallet, unsigned);
-      },
-    }),
+        return b.signTransaction(wallet, bytes);
+      }),
     [getBridge],
   );
 

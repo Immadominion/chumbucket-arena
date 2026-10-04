@@ -15,6 +15,7 @@ import { BffRejected } from "@/lib/webapp/bff";
 import { sideLabel } from "@/lib/webapp/format";
 import { appPath } from "@/lib/webapp/paths";
 import {
+  checkedSigner,
   confirmTrade,
   isFinal,
   reviewTrade,
@@ -78,6 +79,18 @@ export function TradeSheet({
   const intent = useRef<{ key: string; usd: number; payWith: string } | null>(null);
   const side = sideLabel(market, call.call.side);
 
+  // A closed sheet keeps no review: reopening asks for a fresh price.
+  useEffect(() => {
+    if (open) return;
+    setReviewed(null);
+    setStage((st) => (st === "review" || st === "quoting" ? "idle" : st));
+  }, [open]);
+  const close = () => {
+    setReviewed(null);
+    setStage((st) => (st === "review" || st === "quoting" ? "idle" : st));
+    onClose();
+  };
+
   // An order already placed for this call shows instead of a second buy.
   useEffect(() => {
     if (!open) return;
@@ -119,7 +132,8 @@ export function TradeSheet({
     const wallet = browser.find((w) => w.name === payWith);
     if (!wallet) throw new WalletDeclined("gone");
     const account = await connect(wallet);
-    return { address: account.address, sign: (bytes) => signTransaction(wallet, account, bytes) };
+    // Checked before signing, on its own copy, like the Chumbucket wallet.
+    return checkedSigner(account.address, (bytes) => signTransaction(wallet, account, bytes));
   }
 
   function failed(e: unknown) {
@@ -195,12 +209,12 @@ export function TradeSheet({
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={close}
       busy={busy}
       title={done ? side : "Trade"}
       footer={
         done ? (
-          <button type="button" className="wa-btn wa-btn--soft wa-btn--block" onClick={onClose}>
+          <button type="button" className="wa-btn wa-btn--soft wa-btn--block" onClick={close}>
             Done
           </button>
         ) : stage === "review" || stage === "signing" ? (
