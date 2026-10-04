@@ -41,7 +41,17 @@ function Face({ src, name, size }: { src: string | null; name: string; size: num
   return <Image src={src} alt="" fill sizes={`${Math.ceil(size)}px`} unoptimized={src.startsWith("https://")} />;
 }
 
+/** The app's own preset avatars (the cartoon faces people pick in the app). */
+const PRESETS = [1, 2, 3, 4, 5];
+
 function Seats({ callers }: { callers: Caller[] }) {
+  // Open seats wear the app's preset avatar art, never a real person's
+  // photo, with a plus badge: room for someone. Art a real caller already
+  // uses is skipped so the two never read as the same person.
+  const used = new Set(
+    callers.map((c) => Number(/^\/img\/profile\/(\d)\.png$/.exec(c.avatar ?? "")?.[1] ?? NaN)).filter((n) => !Number.isNaN(n)),
+  );
+  const art = [...PRESETS.filter((n) => !used.has(n)), ...PRESETS.filter((n) => used.has(n))];
   return (
     <>
       {/* Seats nobody is in yet: decoration only. */}
@@ -49,10 +59,13 @@ function Seats({ callers }: { callers: Caller[] }) {
         {SEATS.slice(callers.length).map((s, i) => (
           <span
             key={s.id}
-            className={`cb-proof__seat cb-at${callers.length ? " cb-proof__seat--open" : ""}`}
+            className="cb-proof__seat cb-at cb-proof__seat--open cb-proof__seat--art"
             style={{ ...at(s.x, s.y, { w: s.d }), ["--i" as string]: callers.length + i }}
             data-el={`proof.circle.${s.id}`}
-          />
+          >
+            <Image src={`/img/profile/${art[i % art.length]}.png`} alt="" fill sizes={`${Math.ceil(s.d)}px`} />
+            <span className="cb-proof__plus" />
+          </span>
         ))}
       </span>
       {callers.length ? (

@@ -310,6 +310,50 @@
 .cb-proof__seat--open::after {
   rotate: 90deg;
 }
+/* Open seats with the app's preset art: the face fills the ring, softened,
+   and the plus moves to a small badge on the rim. */
+.cb-proof__open > .cb-proof__seat--art {
+  border: 0;
+  overflow: visible;
+  background: var(--cb-mist);
+  box-shadow: 0 0 0 calc(4 * var(--u)) var(--cb-white);
+}
+.cb-proof__seat--art img {
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: 0.78;
+}
+.cb-proof__seat--art::before,
+.cb-proof__seat--art::after {
+  content: none;
+}
+.cb-proof__plus {
+  position: absolute;
+  right: 4%;
+  bottom: 4%;
+  width: 30%;
+  max-width: 34px;
+  min-width: 20px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--cb-white);
+  box-shadow: 0 2px 8px rgb(17 24 39 / 0.18);
+}
+.cb-proof__plus::before,
+.cb-proof__plus::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46%;
+  height: 2px;
+  margin: -1px 0 0 -23%;
+  border-radius: 2px;
+  background: #e0294d;
+}
+.cb-proof__plus::after {
+  rotate: 90deg;
+}
 .cb-proof__face {
   position: relative;
   display: grid;
