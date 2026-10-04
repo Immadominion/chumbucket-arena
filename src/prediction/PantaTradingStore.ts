@@ -1,4 +1,5 @@
 /** Async, private intent ledger. No in-memory success ahead of durability. */
+import { pantaTradable } from "./marketQuote.ts";
 import { Pgrest, type PgrestConfig } from "./pgrest.ts";
 import type { PantaPreparedOrder } from "./PantaExecution.ts";
 import type { Side } from "./types.ts";
@@ -13,7 +14,12 @@ export interface PantaTradeSession {
   signed_transaction: string | null; signature: string | null; fill_evidence: VenueOrder | null;
   created_at: string; updated_at: string;
 }
-export interface PantaCallIntent { callId: string; marketId: string; venueMarketId: string; side: Side; }
+export interface PantaCallIntent {
+  callId: string; marketId: string; venueMarketId: string; side: Side;
+  /** False for a market Chumbucket's trade path cannot trade (a SOL-quoted
+   *  Panta market read from its program account). Absent means tradable. */
+  tradable?: boolean;
+}
 export interface PantaTradingStore {
   callIntent(userId: string, callId: string): Promise<PantaCallIntent | null>;
   find(userId: string, idempotencyKey: string): Promise<PantaTradeSession | null>;
@@ -44,8 +50,10 @@ export class SupabasePantaTradingStore implements PantaTradingLedger {
   async callIntent(userId: string, callId: string): Promise<PantaCallIntent | null> {
     const calls = await this.pg.select<{ id: string; market_id: string; side: Side }>("calls", new URLSearchParams({ id: `eq.${callId}`, user_id: `eq.${userId}`, select: "id,market_id,side", limit: "1" }));
     const call = calls[0]; if (!call) return null;
-    const markets = await this.pg.select<{ venue_market_id: string }>("venue_markets", new URLSearchParams({ id: `eq.${call.market_id}`, venue: "eq.panta", is_public: "eq.true", select: "venue_market_id", limit: "1" }));
-    return markets[0] ? { callId, marketId: call.market_id, venueMarketId: markets[0].venue_market_id, side: call.side } : null;
+    const markets = await this.pg.select<{ venue_market_id: string; payload_version: number }>("venue_markets", new URLSearchParams({ id: `eq.${call.market_id}`, venue: "eq.panta", is_public: "eq.true", select: "venue_market_id,payload_version", limit: "1" }));
+    const market = markets[0];
+    return market ? { callId, marketId: call.market_id, venueMarketId: market.venue_market_id, side: call.side,
+      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }) } : null;
   }
   async find(userId: string, idempotencyKey: string) {
     return (await this.pg.select<PantaTradeSession>("panta_trade_sessions", new URLSearchParams({ user_id: `eq.${userId}`, idempotency_key: `eq.${idempotencyKey}`, select: columns, limit: "1" })))[0] ?? null;

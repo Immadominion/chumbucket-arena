@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
 import { harness, market, person } from "./socialCallsFixtures.ts";
 import {
-  buildPredictionRuntime, describePredictionConfig, FixtureVenue, PantaVenue,
+  buildPredictionRuntime, describePredictionConfig, FixtureVenue, PantaCatalogVenue, PantaVenue,
   predictionRuntimeFor, resetPredictionRuntimes, resolvePredictionConfig,
   withPredictionConfig, type VenueId,
 } from "../src/prediction/index.ts";
@@ -18,6 +18,16 @@ describe("Panta is the only live provider", () => {
     expect(cfg.jupiter).toBeNull(); expect(cfg.polymarket).toBeNull();
     expect(app.predictions?.jupiter).toBeUndefined();
     expect(cfg.flags.fundedPositions).toBe(true);
+    // The whole Panta catalog: the partner adapter plus SOL-quoted markets
+    // read from the program. Still Panta and nothing else.
+    const venue = buildPredictionRuntime(app).venue;
+    expect(venue).toBeInstanceOf(PantaCatalogVenue);
+    expect((venue as PantaCatalogVenue).live).toBeInstanceOf(PantaVenue);
+  });
+
+  test("PANTA_SOL_MARKETS=false serves the partner catalog alone", () => {
+    const app = loadConfig({ PANTA_API_KEY: key, PANTA_SOL_MARKETS: "false" });
+    expect(resolvePredictionConfig(app, {}).pantaSolMarkets).toBeNull();
     expect(buildPredictionRuntime(app).venue).toBeInstanceOf(PantaVenue);
   });
 
@@ -48,10 +58,10 @@ describe("Panta is the only live provider", () => {
   test("memoized production runtime is Panta and exposes no key", () => {
     const app = loadConfig({ PANTA_API_KEY: key });
     const rt = predictionRuntimeFor(app);
-    expect(rt.venue).toBeInstanceOf(PantaVenue);
+    expect((rt.venue as PantaCatalogVenue).live).toBeInstanceOf(PantaVenue);
     expect(predictionRuntimeFor(app)).toBe(rt);
     expect(describePredictionConfig(rt.config)).toMatchObject({
-      venue: "panta", demo: false, pantaConfigured: true,
+      venue: "panta", demo: false, pantaConfigured: true, pantaSolMarkets: true,
       jupiterConfigured: false, polymarketConfigured: false, fundedPositions: false,
     });
     expect(JSON.stringify(describePredictionConfig(rt.config))).not.toContain(key);

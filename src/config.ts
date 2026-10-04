@@ -100,6 +100,9 @@ export interface AppConfig {
     pantaSchemaReady?: boolean;
     maxAmountBaseUnits?: string;
     flags?: { fundedPositions?: boolean };
+    /** Panta's SOL-quoted markets, read from the program over a read-only RPC
+     *  (src/prediction/PantaProgram.ts). Callable, never tradable. */
+    pantaSolMarkets?: { enabled: boolean; rpcUrl: string };
   };
   /** TxLINE — live World Cup data + on-chain settlement verification. Unset → mock data, verification stubbed to always-pass. */
   txline?: {
@@ -291,6 +294,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     pantaSchemaReady: env.PANTA_SCHEMA_READY === "true",
     maxAmountBaseUnits: env.PANTA_MAX_AMOUNT_BASE_UNITS ?? "100000000",
     flags: { fundedPositions: env.FUNDED_POSITIONS === "true" },
+    // On unless PANTA_SOL_MARKETS=false. Read-only; may use its own RPC.
+    pantaSolMarkets: {
+      enabled: env.PANTA_SOL_MARKETS !== "false",
+      rpcUrl: env.PANTA_CATALOG_RPC_URL ?? cfg.solana.rpcUrl,
+    },
   };
   if (env.TXLINE_API_BASE_URL && env.TXLINE_PROGRAM_ID && env.TXLINE_API_TOKEN && env.TXLINE_JWT) {
     cfg.txline = {
