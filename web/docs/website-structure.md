@@ -28,6 +28,7 @@ code that draws it, so motion can be added one element at a time.
 | `lib/landingPeople.ts` | Who the "See who’s calling it" circles show, and the line under the title (tested there too). |
 | `components/public/*` | Share pages `/c`, `/u`, `/m` (now inside `SiteShell`, styled by `public.css`). |
 | `components/legal/*` | `/terms`, `/privacy`, `/delete-account` (inside `SiteShell`, styled by `legal.css`). |
+| `app/app/**`, `components/webapp/*`, `lib/webapp/*` | The signed-in web app at `/app` (see `docs/web-app.md`). The hero's "open web app" points here once `NEXT_PUBLIC_WEB_APP_URL=/app`. |
 
 Assets: `public/site/phone-frame.png` (the Figma device frame),
 `public/img/bucket.png` (the Chum Bucket logo, served through `next/image`),
