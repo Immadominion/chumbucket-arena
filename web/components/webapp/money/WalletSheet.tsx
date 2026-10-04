@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { BffRejected } from "@/lib/webapp/bff";
 import { ago } from "@/lib/webapp/format";
 import { activityRow, balanceUsd, cashOutForm, exactUsd, explorerTx, usd } from "@/lib/webapp/money";
-import { prepareTransfer, signTransfer, transferOpen, type TransferReady } from "@/lib/webapp/moneyFlow";
+import { prepareTransfer, signTransfer, transferOpen, watchRun, type TransferReady } from "@/lib/webapp/moneyFlow";
 import { TradeError } from "@/lib/webapp/trade";
 import { useNow, useToast } from "../data";
 import { Icon } from "../Icon";
@@ -87,6 +87,8 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
         { api, signerFor },
       );
       if (step.step === "invalid") setLine(step.message);
+      // Already on its way (a signed replay, or another transfer in flight): follow it, never a second.
+      else if (step.step === "watch") startTransferRun(runKey, api, watchRun(step.transferId, step.view));
       else setView({ v: "review", ready: step.ready });
     } catch (e) {
       // A refusal (an expired review among them) is an answer: start afresh. A lost reply keeps the key.
@@ -118,7 +120,7 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
 
   const done = () => {
     if (open_) return onClose();
-    if (run?.view?.state === "CONFIRMED") toast(`Sent ${exactUsd(run.amountBaseUnits)}`);
+    if (run?.view?.state === "CONFIRMED" && run.amountBaseUnits) toast(`Sent ${exactUsd(run.amountBaseUnits)}`);
     clearTransferRun(runKey);
     setAddress("");
     setAmount("");
@@ -130,7 +132,7 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
   // Never a made-up number: no answer yet reads "Wallet", not $0.00.
   const balance = w ? balanceUsd(w.balance?.usdcBaseUnits) : null;
   const sending = run !== null;
-  const title = sending ? exactUsd(run.amountBaseUnits) : view.v === "home" ? (balance ?? "Wallet") : "Cash out";
+  const title = sending ? (run.amountBaseUnits ? exactUsd(run.amountBaseUnits) : "Cash out") : view.v === "home" ? (balance ?? "Wallet") : "Cash out";
   const items = activity.data?.items ?? [];
 
   return (
@@ -165,7 +167,7 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
             <span className="wa-wait">
               <Icon name={run.view?.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
             </span>
-            <p className="wa-state-sub wa-mono wa-addr-full">{run.to}</p>
+            {run.to ? <p className="wa-state-sub wa-mono wa-addr-full">{run.to}</p> : null}
           </div>
         )
       ) : view.v === "home" ? (

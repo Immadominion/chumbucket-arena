@@ -30,6 +30,8 @@ export class BffError extends Error {
     message: string,
     /** The tRPC code (`UNAUTHORIZED`, `CONFLICT`, …) or `OFFLINE`. */
     readonly code: string,
+    /** The BFF's public, machine-readable facts (`data.details`): only its own ids and codes, strings only. */
+    readonly details: Readonly<Record<string, string>> | null = null,
   ) {
     super(message);
     this.name = new.target.name;
@@ -65,6 +67,16 @@ function readable(message: unknown): string {
   return m;
 }
 
+/** `data.details`: a flat object of short strings, or nothing. */
+function detailsOf(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string" && v.length <= 200 && /^[A-Za-z0-9_]{1,40}$/.test(k)) out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export function queryUrl(base: string, path: string, input: unknown): string {
   const url = `${base}/${path}`;
   if (input === undefined) return url;
@@ -73,13 +85,14 @@ export function queryUrl(base: string, path: string, input: unknown): string {
 
 /** Map a tRPC response body (and its HTTP status) to data, or throw the right kind. */
 export function parseTrpcResponse<T>(status: number, body: unknown): T {
-  const err = (body as { error?: { json?: { message?: unknown; data?: { code?: unknown } } } } | null)?.error;
+  const err = (body as { error?: { json?: { message?: unknown; data?: { code?: unknown; details?: unknown } } } } | null)?.error;
   if (err) {
     const code = typeof err.json?.data?.code === "string" ? err.json.data.code : status >= 500 ? "INTERNAL_SERVER_ERROR" : "BAD_REQUEST";
     const message = err.json?.message;
-    if (code === "UNAUTHORIZED") throw new BffSignedOut(readable(message), code);
-    if (READABLE.has(code)) throw new BffRejected(readable(message), code);
-    throw new BffFailure(typeof message === "string" ? message : FALLBACK, code);
+    const details = detailsOf(err.json?.data?.details);
+    if (code === "UNAUTHORIZED") throw new BffSignedOut(readable(message), code, details);
+    if (READABLE.has(code)) throw new BffRejected(readable(message), code, details);
+    throw new BffFailure(typeof message === "string" ? message : FALLBACK, code, details);
   }
   const data = (body as { result?: { data?: unknown } } | null)?.result?.data;
   if (data === undefined) throw new BffFailure("Unexpected response", "PARSE_ERROR");

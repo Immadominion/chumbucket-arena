@@ -32,7 +32,7 @@ import {
   usdDecimal,
   type DepositTile,
 } from "@/lib/webapp/money";
-import { prepareTransfer, signTransfer, transferOpen } from "@/lib/webapp/moneyFlow";
+import { prepareTransfer, signTransfer, transferOpen, watchRun, type TransferRun } from "@/lib/webapp/moneyFlow";
 import { TradeError } from "@/lib/webapp/trade";
 import { appPath } from "@/lib/webapp/paths";
 import { useChumbucketWallet } from "../chumbucketWallet";
@@ -167,7 +167,7 @@ export function DepositSheet({
             <span className="wa-wait">
               <Icon name={run.view?.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
             </span>
-            <p>{exactUsd(run.amountBaseUnits)}</p>
+            {run.amountBaseUnits ? <p>{exactUsd(run.amountBaseUnits)}</p> : null}
           </div>
         )
       ) : options.isPending || (options.data?.tradingWallet && !trading) ? (
@@ -291,7 +291,7 @@ function FromWallet({
   to: string;
   suggested: string | null;
   onBack: () => void;
-  onSigned: (run: Awaited<ReturnType<typeof signTransfer>>) => void;
+  onSigned: (run: TransferRun) => void;
 }) {
   const api = useApi();
   const own = useChumbucketWallet();
@@ -322,6 +322,12 @@ function FromWallet({
       );
       if (step.step === "invalid") {
         setLine(step.message);
+        return;
+      }
+      if (step.step === "watch") {
+        // Already on its way (a signed replay, or another transfer from this wallet): follow it.
+        onSigned(watchRun(step.transferId, step.view));
+        intent.current = null;
         return;
       }
       // Signed: from here the same bytes are pushed until the chain decides; the key is spent.

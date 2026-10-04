@@ -184,7 +184,33 @@ export function confirmCall(api: Pick<MoneyFlowApi, "submitTrade">, reviewed: Re
 
 export type TransferReady = Extract<TransferPrepareResult, { status: "READY" }>;
 
-export type TransferStep = { step: "invalid"; reason: string; message: string } | { step: "review"; ready: TransferReady };
+export type TransferStep =
+  | { step: "invalid"; reason: string; message: string }
+  | { step: "review"; ready: TransferReady }
+  /**
+   * A transfer from this wallet is already on its way (this key's own after it
+   * was signed, `SENT`; or another one, `TRANSFER_IN_FLIGHT`): follow it, never
+   * build a second.
+   */
+  | { step: "watch"; transferId: string; view: TransferView | null };
+
+/** `CONFLICT` "Another transfer from this wallet is still going through": the one to follow, if it is. */
+export function transferInFlight(e: unknown): string | null {
+  if (!(e instanceof BffRejected) || e.code !== "CONFLICT" || e.details?.reason !== "TRANSFER_IN_FLIGHT") return null;
+  const id = e.details.transferId;
+  return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+}
+
+/**
+ * `PRECONDITION_FAILED` "The price moved since you made this call. Make a
+ * new call." (`PRICE_MOVED`): this call can't be funded any more; the person
+ * makes a new one at today's price. Read from `data.details.reason` when the
+ * BFF sends it, else from its words.
+ */
+export function priceMoved(e: unknown): boolean {
+  if (!(e instanceof BffRejected) || e.code !== "PRECONDITION_FAILED") return false;
+  return e.details?.reason === "PRICE_MOVED" || /^The price moved\b/.test(e.message);
+}
 
 /** What the person asked to move: from which wallet, to which, how much. */
 export interface TransferIntent {
@@ -200,8 +226,16 @@ export async function prepareTransfer(
   deps: { api: Pick<MoneyFlowApi, "topUpOrder" | "topUpExecute">; signerFor: SignerFor; now?: () => number },
 ): Promise<TransferStep> {
   for (let round = 0; ; round++) {
-    const answer = await ask();
+    let answer: TransferPrepareResult;
+    try {
+      answer = await ask();
+    } catch (e) {
+      const flying = transferInFlight(e);
+      if (flying) return { step: "watch", transferId: flying, view: null };
+      throw e;
+    }
     if (answer.status === "INVALID") return { step: "invalid", reason: answer.reason, message: answer.message };
+    if (answer.status === "SENT") return { step: "watch", transferId: answer.transfer.transferId, view: answer.transfer };
     if (answer.status === "NEEDS_GAS") {
       if (!answer.topUp || round >= GAS_ROUNDS) throw new MoneyStop("gas", "This can’t go through right now. Nothing was sent.");
       const done = await topUp(deps, answer.wallet.address, answer.topUp.amountBaseUnits);
@@ -231,8 +265,8 @@ export async function prepareTransfer(
  */
 export interface TransferRun {
   transferId: string;
-  /** Base64: exactly what the wallet signed. */
-  signed: string;
+  /** Base64: exactly what the wallet signed. Null: a transfer this browser follows but didn't sign here (it is only read). */
+  signed: string | null;
   amountBaseUnits: string;
   to: string;
   /** The BFF's last answer about it; null before any arrived. */
@@ -275,9 +309,26 @@ export const transferSettled = (view: Pick<TransferView, "state"> | null | undef
 
 /**
  * Still open: no outcome known yet. While a run is open nothing new may be
- * prepared or signed; only a settled or refused run lets the person start again.
+ * prepared or signed; only a settled or refused run lets the person start
+ * again. A followed transfer still BUILT past its review's life was never
+ * signed: it is over (the BFF retires it).
  */
-export const transferOpen = (run: TransferRun | null | undefined): boolean => !!run && !run.rejected && !transferSettled(run.view);
+export const transferOpen = (run: TransferRun | null | undefined, now: number = Date.now()): boolean =>
+  !!run &&
+  !run.rejected &&
+  !transferSettled(run.view) &&
+  !(run.signed === null && run.view?.state === "BUILT" && run.view.expiresAt <= now);
+
+/** Follow a transfer that is already on its way (`SENT`, `TRANSFER_IN_FLIGHT`): read only, never re-signed or re-sent. */
+export const watchRun = (transferId: string, view: TransferView | null): TransferRun => ({
+  transferId,
+  signed: null,
+  amountBaseUnits: view?.amountBaseUnits ?? "",
+  to: view?.to ?? "",
+  view,
+  tried: true,
+  rejected: null,
+});
 
 /**
  * One step toward the chain's answer, safe to repeat. The first step submits;
@@ -290,7 +341,7 @@ export async function stepTransfer(api: Pick<MoneyFlowApi, "transferSubmit" | "t
   if (!transferOpen(run)) return run;
   try {
     let view: TransferView;
-    if (run.view && run.view.state !== "BUILT") {
+    if (run.signed === null || (run.view && run.view.state !== "BUILT")) {
       view = await api.transferStatus(run.transferId);
     } else if (run.tried) {
       const now = await api.transferStatus(run.transferId);
@@ -298,7 +349,7 @@ export async function stepTransfer(api: Pick<MoneyFlowApi, "transferSubmit" | "t
     } else {
       view = await api.transferSubmit(run.transferId, run.signed);
     }
-    return { ...run, tried: true, view };
+    return { ...run, tried: true, view, amountBaseUnits: view.amountBaseUnits, to: view.to };
   } catch (e) {
     if (e instanceof BffRejected) return { ...run, tried: true, rejected: e.message };
     return { ...run, tried: true };

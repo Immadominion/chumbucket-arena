@@ -129,6 +129,8 @@ export interface TransferView {
 export type TransferPrepareResult =
   | { status: "INVALID"; reason: string; message: string }
   | { status: "NEEDS_GAS"; wallet: WalletRef; topUp: { amountBaseUnits: string } | null }
+  /** The same key after it was signed: its actual state, never a new review. */
+  | { status: "SENT"; transfer: TransferView }
   | {
       status: "READY";
       transfer: TransferView;
@@ -413,12 +415,19 @@ export function pendingMark(entry: Pick<CallFeedEntry, "money">): { amount: stri
   return { amount: usd(m.amountBaseUnits), state: m.state === "PENDING" ? "pending" : m.state === "FREE" ? "replaced" : "expired" };
 }
 
-/** "$5 on YES" for a FILLED call whose amount the BFF sends; null otherwise. */
+/** A call counts as funded (the $ stamp, the ordering) only once its confirmed fills reach $1. */
+export const FUNDED_MIN_BASE_UNITS = 1_000_000n;
+
+/**
+ * "$5 on YES" for a FILLED call whose amount the BFF sends and that reached
+ * $1; null otherwise (the plain mark: a dust fill buys no stamp).
+ */
 export function fundedStamp(entry: Pick<CallFeedEntry, "funding" | "money">, sideName: (side: Side) => string): string | null {
   const f = entry.funding;
   if (!f || entry.money?.state === "PENDING") return null;
   if (f.state !== undefined && f.state !== "FILLED") return null;
   if (!f.amountBaseUnits || !/^[1-9][0-9]{0,15}$/.test(f.amountBaseUnits) || (f.side !== "YES" && f.side !== "NO")) return null;
+  if (BigInt(f.amountBaseUnits) < FUNDED_MIN_BASE_UNITS) return null;
   return onSide(f.amountBaseUnits, sideName(f.side));
 }
 
