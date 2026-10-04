@@ -26,6 +26,7 @@ import type {
   SuggestedPeople,
   ThesisUpdate,
 } from "./types";
+import type { PreparedTrade, TradeOrder } from "./trade";
 
 export type Caller = <T>(path: string, input: unknown, kind: "query" | "mutation") => Promise<T>;
 
@@ -37,6 +38,23 @@ export interface Whoami {
 }
 
 export type UsernameStatus = "available" | "invalid" | "reserved" | "taken";
+
+/** `wallet.status`: whether this server runs the Chumbucket wallet, and the account's wallets. */
+export interface WalletStatus {
+  enabled: boolean;
+  account: {
+    tradingWallet: { address: string; walletType: string } | null;
+    chumbucketWallet: string | null;
+  } | null;
+}
+
+/** `wallet.balance`: the trading wallet's real mainnet balance, as integer strings. */
+export interface WalletBalance {
+  wallet: string;
+  walletType: string;
+  lamports: string;
+  usdcBaseUnits: string;
+}
 
 export function makeApi(call: Caller) {
   const q = <T>(path: string, input: unknown = {}) => call<T>(path, input, "query");
@@ -86,6 +104,15 @@ export function makeApi(call: Caller) {
     me: () => q<{ profile: OwnProfile }>("account.me", {}),
     updateProfile: (patch: { displayName?: string; bio?: string; avatarId?: number }) =>
       m<{ profile: OwnProfile }>("account.updateProfile", patch),
+
+    // ── trading and the Chumbucket wallet (POST: private, session-keyed) ──
+    walletStatus: () => m<WalletStatus>("wallet.status", {}),
+    walletBalance: () => m<WalletBalance>("wallet.balance", {}),
+    prepareTrade: (input: { callId: string; wallet: string; amountBaseUnits: string; idempotencyKey: string; maxSlippageBps: number }) =>
+      m<PreparedTrade>("pantaTrading.prepare", input),
+    submitTrade: (orderId: string, signedTransaction: string) => m<TradeOrder>("pantaTrading.submit", { orderId, signedTransaction }),
+    tradeOrder: (orderId: string) => m<TradeOrder>("pantaTrading.order", { orderId }),
+    callOrder: (callId: string) => m<{ order: TradeOrder | null }>("pantaTrading.callOrder", { callId }),
 
     // ── identity (the token is an input here, so these are POSTs) ──
     whoami: (supabaseAccessToken: string) => m<Whoami>("auth.whoami", { supabaseAccessToken }),

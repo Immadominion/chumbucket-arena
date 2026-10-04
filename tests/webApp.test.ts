@@ -737,10 +737,14 @@ describe("web app rules", () => {
     }
   });
 
-  test("it never asks a wallet to sign a transaction", () => {
+  test("a wallet only ever signs a trade the BFF built; the browser never sends one", () => {
     for (const { file, text } of files) {
-      expect({ file, match: text.match(/signTransaction|signAndSendTransaction|sendTransaction/)?.[0] ?? null }).toEqual({ file, match: null });
+      expect({ file, match: text.match(/signAndSendTransaction|sendTransaction|sendRawTransaction/)?.[0] ?? null }).toEqual({ file, match: null });
     }
+    // The one Wallet Standard signing path, and it checks the bytes it got back.
+    const wallets = readCode(join(WEB, "components/webapp/wallets.ts"));
+    expect(wallets).toContain('"solana:signTransaction"');
+    expect(wallets).toContain("signedOnlyInSlot(transaction, signed, 0)");
   });
 
   test("the retired Arena pages are gone and their paths lead to the web app", () => {
