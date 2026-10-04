@@ -276,7 +276,21 @@ export interface TransferRun {
   tried: boolean;
   /** The BFF refused it (our words): nothing more is sent. */
   rejected: string | null;
+  /** Steps in a row that got no answer (offline, rate limited, a 5xx): the next waits longer. */
+  misses?: number;
 }
+
+/** How long before the next step: 3 s, doubling with each step that got no answer, at most 30 s. */
+export function nextStepDelay(run: Pick<TransferRun, "misses">): number {
+  return Math.min(30_000, 3_000 * 2 ** Math.min(run.misses ?? 0, 4));
+}
+
+/**
+ * A refusal that settles a transfer: the BFF looked and said no (expired,
+ * not yours, not the reviewed approval). Being rate limited, a 5xx, a lost
+ * connection or an expired session is not an answer: ask again later.
+ */
+export const definitiveRefusal = (e: unknown): boolean => e instanceof BffRejected && e.code !== "TOO_MANY_REQUESTS";
 
 /** After the person confirmed: the wallet signs exactly the reviewed transfer (checked inside the signer). Nothing is sent yet. */
 export async function signTransfer(signer: TradeSigner, ready: TransferReady, now: () => number = Date.now): Promise<TransferRun> {
@@ -350,10 +364,11 @@ export async function stepTransfer(api: Pick<MoneyFlowApi, "transferSubmit" | "t
     } else {
       view = await api.transferSubmit(run.transferId, run.signed);
     }
-    return { ...run, tried: true, view, amountBaseUnits: view.amountBaseUnits, to: view.to };
+    return { ...run, tried: true, view, amountBaseUnits: view.amountBaseUnits, to: view.to, misses: 0 };
   } catch (e) {
-    if (e instanceof BffRejected) return { ...run, tried: true, rejected: e.message };
-    return { ...run, tried: true };
+    // Only the BFF's definite no closes the run; anything else is asked again, a little later each time.
+    if (definitiveRefusal(e)) return { ...run, tried: true, rejected: (e as BffRejected).message };
+    return { ...run, tried: true, misses: (run.misses ?? 0) + 1 };
   }
 }
 

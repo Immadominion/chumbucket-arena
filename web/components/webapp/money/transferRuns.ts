@@ -9,12 +9,10 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { stepTransfer, transferOpen, type MoneyFlowApi, type TransferRun } from "@/lib/webapp/moneyFlow";
-
-const STEP_MS = 3_000;
+import { nextStepDelay, stepTransfer, transferOpen, type MoneyFlowApi, type TransferRun } from "@/lib/webapp/moneyFlow";
 
 const runs = new Map<string, TransferRun>();
-const timers = new Map<string, ReturnType<typeof setInterval>>();
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const stepping = new Set<string>();
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -23,11 +21,14 @@ export const transferKey = (userId: string, kind: "cash_out" | "deposit") => `${
 
 function stop(key: string) {
   const t = timers.get(key);
-  if (t) clearInterval(t);
+  if (t) clearTimeout(t);
   timers.delete(key);
 }
 
-async function step(key: string, api: Pick<MoneyFlowApi, "transferSubmit" | "transferStatus">) {
+type Api = Pick<MoneyFlowApi, "transferSubmit" | "transferStatus">;
+
+/** One step, then the next after `nextStepDelay` (longer while answers don't come), until the run closes. */
+async function step(key: string, api: Api) {
   const run = runs.get(key);
   if (!run || !transferOpen(run)) return stop(key);
   if (stepping.has(key)) return;
@@ -38,20 +39,20 @@ async function step(key: string, api: Pick<MoneyFlowApi, "transferSubmit" | "tra
     if (runs.get(key)?.transferId !== run.transferId) return;
     runs.set(key, next);
     emit();
-    if (!transferOpen(next)) stop(key);
+    stop(key);
+    if (transferOpen(next)) timers.set(key, setTimeout(() => void step(key, api), nextStepDelay(next)));
   } finally {
     stepping.delete(key);
   }
 }
 
 /** Start pushing a freshly signed transfer: the first step submits it now. */
-export function startTransferRun(key: string, api: Pick<MoneyFlowApi, "transferSubmit" | "transferStatus">, run: TransferRun) {
+export function startTransferRun(key: string, api: Api, run: TransferRun) {
   if (transferOpen(runs.get(key))) return; // one in flight at a time
   stop(key);
   runs.set(key, run);
   emit();
   void step(key, api);
-  timers.set(key, setInterval(() => void step(key, api), STEP_MS));
 }
 
 /** Forget a run once its outcome is known (Done). An open run is never dropped. */
