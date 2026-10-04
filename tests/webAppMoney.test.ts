@@ -20,6 +20,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -215,6 +216,22 @@ describe("the transfer check (contract §c), before any wallet signs a cash out"
       ["trailing byte", Uint8Array.from([...transferTx(), 0])],
     ];
     for (const [name, tx, t] of cases) expect({ name, refused: await refusedTransfer(tx, t) }).toEqual({ name, refused: true });
+  });
+
+  test("passes the transfer exactly as the BFF builds it with @solana/spl-token (contract §c)", async () => {
+    for (const createsAccount of [false, true]) {
+      const from = owner.publicKey;
+      const to = friend.publicKey;
+      const toAta = getAssociatedTokenAddressSync(USDC, to, true);
+      const instructions = [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }),
+        ...(createsAccount ? [createAssociatedTokenAccountIdempotentInstruction(from, toAta, to, USDC)] : []),
+        createTransferCheckedInstruction(getAssociatedTokenAddressSync(USDC, from, true), USDC, toAta, from, 5_000_000n, 6),
+      ];
+      const bytes = new VersionedTransaction(new TransactionMessage({ payerKey: from, recentBlockhash: blockhash, instructions }).compileToV0Message()).serialize();
+      await checkUsdcTransfer(bytes, reviewed({ createsAccount }));
+    }
   });
 
   test("checkedSigner(...).signTransfer runs the check on its own copy, before the wallet sees anything", async () => {
@@ -799,6 +816,22 @@ describe("a cash out, step by step", () => {
     await expect(sendTransfer(h.api, await h.deps.signerFor(), step.ready, () => 1_000)).rejects.toMatchObject({ kind: "unsafe" });
     expect(h.raw).toHaveLength(0);
     expect(h.submitted).toHaveLength(0);
+  });
+});
+
+describe("a lapsed transfer review", () => {
+  test("says the review timed out and nothing was sent, not that a price moved", () => {
+    expect(stopLine(new TradeError("expired"), "x", "transfer")).toBe("That took too long. Nothing was sent. Start again.");
+    expect(stopLine(new TradeError("declined"), "x", "transfer")).toBe("Not signed. Nothing was sent.");
+    expect(stopLine(new TradeError("expired"), "x")).toBe("The price moved. Try again.");
+  });
+
+  test("a READY review spends its key: the next review asks with a new one", () => {
+    for (const f of ["components/webapp/money/WalletSheet.tsx", "components/webapp/money/DepositSheet.tsx"]) {
+      const code = readFileSync(join(WEB, f), "utf8");
+      expect({ f, spent: /A review lives 60 s and its key is spent[\s\S]{0,120}intent\.current = null;/.test(code) }).toEqual({ f, spent: true });
+      expect({ f, refusal: code.includes("if (e instanceof BffRejected) intent.current = null;") }).toEqual({ f, refusal: true });
+    }
   });
 });
 

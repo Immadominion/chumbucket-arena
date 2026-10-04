@@ -272,14 +272,22 @@ export async function collectWin(
   return deps.api.claimSubmit(claim.claimId, bytesToBase64(signed));
 }
 
-/** The one line a stopped money flow shows. `fallback` is the plain line for anything unexpected. */
-export function stopLine(e: unknown, fallback: string): string {
+/**
+ * The one line a stopped money flow shows. `fallback` is the plain line for
+ * anything unexpected; `what` words a lapsed review (a trade's price moves, a
+ * transfer's review just times out).
+ */
+export function stopLine(e: unknown, fallback: string, what: "trade" | "transfer" = "trade"): string {
   if (e instanceof MoneyStop) return e.message;
   if (e instanceof TradeError) {
     return e.kind === "declined"
-      ? "Not signed. Nothing was spent."
+      ? what === "trade"
+        ? "Not signed. Nothing was spent."
+        : "Not signed. Nothing was sent."
       : e.kind === "expired"
-        ? "The price moved. Try again."
+        ? what === "trade"
+          ? "The price moved. Try again."
+          : "That took too long. Nothing was sent. Start again."
         : e.kind === "unsafe"
           ? "This didn’t check out. Nothing was signed."
           : "Something changed on the way. Nothing was sent.";

@@ -33,10 +33,10 @@ export class NoSigner extends Error {
 }
 
 /** One plain line for whatever stopped a money flow: our words, never a provider's. */
-export function moneyLine(e: unknown): string {
+export function moneyLine(e: unknown, what: "trade" | "transfer" = "trade"): string {
   if (e instanceof NoSigner) return e.message;
-  if (e instanceof WalletDeclined) return "Not signed. Nothing was spent.";
-  return stopLine(e, actionError(e));
+  if (e instanceof WalletDeclined) return what === "trade" ? "Not signed. Nothing was spent." : "Not signed. Nothing was sent.";
+  return stopLine(e, actionError(e), what);
 }
 
 const holds = (w: StandardWallet, address: string) => w.accounts.some((a) => a.address === address);

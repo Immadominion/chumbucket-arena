@@ -79,9 +79,12 @@ export type PrepareCallInput = MoneyCallTarget & {
 };
 
 export interface MoneyWallet {
+  /** The trading wallet; null: the account has no wallet yet. */
   wallet: WalletRef | null;
+  /** Null only with no wallet. */
   balance: { usdcBaseUnits: string; lamports: string; slot: number } | null;
-  gas: { needsTopUp: boolean; topUp: { amountBaseUnits: string } | null };
+  /** Null: no wallet, or the fees could not be checked just now. */
+  gas: { needsTopUp: boolean; topUp: { amountBaseUnits: string } | null } | null;
 }
 
 export type ActivityKind = "trade" | "claim" | "deposit" | "cash_out";

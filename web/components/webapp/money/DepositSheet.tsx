@@ -17,6 +17,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
+import { BffRejected } from "@/lib/webapp/bff";
 import { shortWallet } from "@/lib/webapp/format";
 import {
   balanceRose,
@@ -290,11 +291,12 @@ function FromWallet({
         setLine(step.message);
         return;
       }
-      const view = await sendTransfer(api, await signerFor(from), step.ready);
+      // A review lives 60 s and its key is spent: a second tap starts afresh.
       intent.current = null;
-      setSending(view);
+      setSending(await sendTransfer(api, await signerFor(from), step.ready));
     } catch (e) {
-      setLine(lineOf(e));
+      if (e instanceof BffRejected) intent.current = null;
+      setLine(lineOf(e, "transfer"));
     } finally {
       setBusy(false);
     }

@@ -12,6 +12,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ago, shortWallet } from "@/lib/webapp/format";
+import { BffRejected } from "@/lib/webapp/bff";
 import { activityRow, balanceUsd, cashOutForm, explorerTx, usd, type TransferView } from "@/lib/webapp/money";
 import { prepareTransfer, sendTransfer, type TransferReady } from "@/lib/webapp/moneyFlow";
 import { useNow, useToast } from "../data";
@@ -88,10 +89,17 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
         { from, to: form.destination, amountBaseUnits: form.amountBaseUnits },
         { api, signerFor },
       );
-      if (step.step === "invalid") setLine(step.message);
-      else setView({ v: "review", ready: step.ready });
+      if (step.step === "invalid") {
+        setLine(step.message);
+      } else {
+        // A review lives 60 s and its key is spent: the next review starts afresh.
+        intent.current = null;
+        setView({ v: "review", ready: step.ready });
+      }
     } catch (e) {
-      setLine(moneyLine(e));
+      // A dropped reply keeps the key (the same review comes back); a refusal starts afresh.
+      if (e instanceof BffRejected) intent.current = null;
+      setLine(moneyLine(e, "transfer"));
     } finally {
       setBusy(false);
     }
@@ -103,10 +111,9 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
     setLine(null);
     try {
       const transfer = await sendTransfer(api, await signerFor(view.ready.review.from), view.ready);
-      intent.current = null;
       setView({ v: "sending", transfer });
     } catch (e) {
-      setLine(moneyLine(e));
+      setLine(moneyLine(e, "transfer"));
       // A lapsed quote is built again from the form.
       setView({ v: "cashout" });
     } finally {
@@ -123,7 +130,9 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
     setView({ v: "home" });
   };
 
-  const title = view.v === "home" ? balanceUsd(w?.balance?.usdcBaseUnits) : view.v === "sending" ? usd(view.transfer.amountBaseUnits) : "Cash out";
+  // Never a made-up number: no answer yet reads "Wallet", not $0.00.
+  const balance = w ? balanceUsd(w.balance?.usdcBaseUnits) : null;
+  const title = view.v === "home" ? (balance ?? "Wallet") : view.v === "sending" ? usd(view.transfer.amountBaseUnits) : "Cash out";
   const items = activity.data?.items ?? [];
 
   return (
@@ -206,7 +215,7 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
         <div className="wa-form">
           <button type="button" className="wa-backrow" onClick={() => setView({ v: "home" })}>
             <Icon name="arrow-left" size={18} />
-            {balanceUsd(w?.balance?.usdcBaseUnits)}
+            {balance ?? "Wallet"}
           </button>
           <div className="wa-field">
             <label htmlFor="wa-cashout-to" className="wa-sr">

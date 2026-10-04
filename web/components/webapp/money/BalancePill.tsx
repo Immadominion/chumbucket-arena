@@ -9,11 +9,12 @@ import { useMoney } from "./moneyContext";
 export function BalancePill() {
   const money = useMoney();
   if (!money.enabled) return null;
-  const balance = balanceUsd(money.wallet?.balance?.usdcBaseUnits);
+  // Never a made-up number: until the balance is read, the pill is the wallet alone.
+  const balance = money.wallet ? balanceUsd(money.wallet.balance?.usdcBaseUnits) : null;
   return (
-    <button type="button" className="wa-balance" aria-label={`Wallet, ${balance}`} onClick={money.openWallet}>
+    <button type="button" className="wa-balance" aria-label={balance ? `Wallet, ${balance}` : "Wallet"} onClick={money.openWallet}>
       <Icon name="wallet-solid" size={16} />
-      <span aria-hidden>{balance}</span>
+      {balance ? <span aria-hidden>{balance}</span> : null}
     </button>
   );
 }

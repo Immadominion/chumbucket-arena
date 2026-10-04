@@ -356,6 +356,9 @@ describe("web app formatting", () => {
     expect(tradableMarket({ venue: "panta", tradable: true })).toBe(true);
     expect(tradableMarket({ venue: "panta", tradable: false })).toBe(false); // SOL-quoted
     expect(tradableMarket({ venue: "fixture", tradable: true })).toBe(false);
+    // A SOL-quoted market takes free calls only, whatever else it says.
+    expect(tradableMarket({ venue: "panta", quoteCurrency: "SOL" })).toBe(false);
+    expect(tradableMarket({ venue: "panta", tradable: true, quoteCurrency: "USDC" })).toBe(true);
   });
 
   test("time is one short token", () => {
