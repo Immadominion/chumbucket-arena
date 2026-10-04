@@ -166,16 +166,16 @@ test("full publish: review shows the fee, signed bytes commit before broadcast, 
   expect(h.panta.count("/markets/create/quote/")).toBe(quotes);
 });
 
-test("a reviewer can sponsor an approved market with their own wallet", async () => {
+test("a reviewer approves but never publishes or pays for someone else's market", async () => {
   const h = rig();
   const p = await approved(h);
-  const review = await h.service.preparePublish(reviewer, p.id, wallet);
-  h.chain.verified = true;
-  const live = await h.service.submitPublish(reviewer, p.id, review.sessionId, sign(review.transaction));
-  expect(live.status).toBe("live");
-  expect(h.store.proposals.get(p.id)).toMatchObject({ published_by: reviewer, proposer_id: proposer, creator_wallet: wallet });
-  // The proposer cannot submit the reviewer's session.
-  await expect(h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction))).rejects.toMatchObject({ code: "MC_NOT_FOUND" });
+  await expect(h.service.preparePublish(reviewer, p.id, wallet)).rejects.toMatchObject({
+    code: "MC_FORBIDDEN", message: "Only the person who proposed this market can publish it." });
+  expect((await h.service.get(reviewer, p.id)).canPublish).toBe(false);
+  expect(h.store.sessions.size).toBe(0);
+  // The proposer's own session cannot be submitted by anyone else either.
+  const review = await h.service.preparePublish(proposer, p.id, wallet);
+  await expect(h.service.submitPublish(reviewer, p.id, review.sessionId, sign(review.transaction))).rejects.toMatchObject({ code: "MC_NOT_FOUND" });
 });
 
 test("a foreign signature, changed message or late approval never reaches broadcast", async () => {

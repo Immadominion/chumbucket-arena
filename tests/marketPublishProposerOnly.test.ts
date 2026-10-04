@@ -1,6 +1,6 @@
 /**
- * docs/money-api.md §g: with money calls on, reviewers only approve; the
- * proposer publishes and pays, from one of their own proven wallets.
+ * docs/money-api.md §g: reviewers only approve; the proposer publishes and
+ * pays, from one of their own proven wallets. Always, whenever publishing is on.
  */
 import { expect, test } from "bun:test";
 import { MarketCreationService, type CreateChain, type ProposeInput } from "../src/marketCreation/MarketCreationService.ts";
@@ -22,7 +22,7 @@ class Chain implements CreateChain {
   async neverLanded() { return false; }
 }
 
-function rig(proposerOnly: boolean) {
+function rig(checkWallets = true) {
   const clock = new TestClock();
   let ids = 0;
   const store = new InMemoryMarketProposalStore(() => clock.now());
@@ -36,10 +36,10 @@ function rig(proposerOnly: boolean) {
     people: { get: () => undefined },
     publishing: { creator: new PantaMarketCreator({ request: panta.request, upload: panta.upload, programId: program, maxFeeBaseUnits: "100000000", clock }),
       chain, catalog: { ingest: async () => {} } },
-    proposerOnly: proposerOnly ? { wallets: { status: async (userId, address) => {
+    wallets: checkWallets ? { status: async (userId, address) => {
       if (linksDown) throw new Error("synthetic read failure");
       return links.get(`${userId}:${address}`) ?? "none";
-    } } } : null,
+    } } : null,
   });
   const input: ProposeInput = {
     question: "Will ETH close above $5,000 on 1 Jan 2027?", category: "crypto",
@@ -56,7 +56,7 @@ function rig(proposerOnly: boolean) {
 }
 
 test("a reviewer approves but cannot publish or pay; canPublish is the proposer's alone", async () => {
-  const h = rig(true);
+  const h = rig();
   const p = await h.approved();
   await expect(h.service.preparePublish(reviewer, p.id, wallet)).rejects.toMatchObject({
     code: "MC_FORBIDDEN", message: "Only the person who proposed this market can publish it." });
@@ -66,7 +66,7 @@ test("a reviewer approves but cannot publish or pay; canPublish is the proposer'
 });
 
 test("the proposer publishes from their own proven wallet", async () => {
-  const h = rig(true);
+  const h = rig();
   const p = await h.approved();
   const review = await h.service.preparePublish(proposer, p.id, wallet);
   const live = await h.service.submitPublish(proposer, p.id, review.sessionId, sign(review.transaction));
@@ -75,7 +75,7 @@ test("the proposer publishes from their own proven wallet", async () => {
 });
 
 test("a wallet that is not the proposer's is refused before any quote; a session's own sign-in wallet is accepted", async () => {
-  const h = rig(true);
+  const h = rig();
   const p = await h.approved();
   h.links.set(`${proposer}:${wallet}`, "other");
   await expect(h.service.preparePublish(proposer, p.id, wallet)).rejects.toMatchObject({ code: "MC_FORBIDDEN", message: "Link this wallet to your account first" });
@@ -87,7 +87,7 @@ test("a wallet that is not the proposer's is refused before any quote; a session
 });
 
 test("a link revoked after the review stops the signed create; unreadable links refuse", async () => {
-  const h = rig(true);
+  const h = rig();
   const p = await h.approved();
   const review = await h.service.preparePublish(proposer, p.id, wallet);
   h.links.set(`${proposer}:${wallet}`, "revoked");
@@ -98,10 +98,9 @@ test("a link revoked after the review stops the signed create; unreadable links 
   await expect(h.service.preparePublish(proposer, p.id, wallet)).rejects.toMatchObject({ code: "MC_UNVERIFIED" });
 });
 
-test("with money calls off, the earlier rule stands: a reviewer may sponsor with any wallet", async () => {
+test("proposer-only holds whatever the money flag: a reviewer is refused even with no wallet check composed", async () => {
   const h = rig(false);
   const p = await h.approved();
-  const review = await h.service.preparePublish(reviewer, p.id, wallet);
-  expect(review.wallet).toBe(wallet);
-  expect((await h.service.get(reviewer, p.id)).canPublish).toBe(true);
+  await expect(h.service.preparePublish(reviewer, p.id, wallet)).rejects.toMatchObject({ code: "MC_FORBIDDEN" });
+  expect((await h.service.get(reviewer, p.id)).canPublish).toBe(false);
 });

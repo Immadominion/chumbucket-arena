@@ -102,11 +102,11 @@ export interface MarketCreationDeps {
    */
   followUp?: { attempts: number; everyMs: number; schedule?: (run: () => void, ms: number) => void } | null;
   /**
-   * MONEY_CALLS_ENABLED (docs/money-api.md §g): only the proposer publishes,
-   * and pays from one of their own proven wallets. Reviewers only approve.
-   * Absent: the proposer or a reviewer may publish, from any wallet.
+   * The account's own proven wallets (docs/money-api.md §g): the proposer
+   * pays from one of them. Production always composes it; absent (tests),
+   * the paying wallet is not checked.
    */
-  proposerOnly?: { wallets: AccountWallets } | null;
+  wallets?: AccountWallets | null;
 }
 
 /** What the verified session proves about its own wallet: a Sign-in-with-Solana address. */
@@ -382,26 +382,28 @@ export class MarketCreationService {
     return row;
   }
   /**
-   * With proposer-only publishing, the paying wallet must be the publisher's
-   * own: an active SIWS-proven link, or (with no link row at all) the wallet
-   * this session signed in with. Unreadable links refuse, never assume.
+   * The paying wallet must be the publisher's own: an active SIWS-proven
+   * link, or (with no link row at all) the wallet this session signed in
+   * with. Unreadable links refuse, never assume.
    */
   private async assertOwnWallet(userId: string, wallet: string, session: PublishSession): Promise<void> {
-    const rule = this.deps.proposerOnly;
-    if (!rule) return;
+    const wallets = this.deps.wallets;
+    if (!wallets) return;
     let status: Awaited<ReturnType<AccountWallets["status"]>>;
-    try { status = await rule.wallets.status(userId, wallet); }
+    try { status = await wallets.status(userId, wallet); }
     catch { return refuse("MC_UNVERIFIED", "We couldn't confirm this wallet is yours. Try again in a moment."); }
     if (status === "active" || (status === "none" && session.signInWallet === wallet)) return;
     refuse("MC_FORBIDDEN", "Link this wallet to your account first", "wallet");
   }
 
-  /** Approved, still in time, and the caller may pay for it. */
+  /**
+   * Approved, still in time, and the caller is its proposer. Reviewers only
+   * approve: a reviewer paying for, and owning, someone else's market is the
+   * gap this closes (docs/money-api.md §g).
+   */
   private async publishable(userId: string, proposalId: string): Promise<ProposalRow> {
     const row = await this.visible(userId, proposalId);
-    if (this.deps.proposerOnly) {
-      if (row.proposer_id !== userId) refuse("MC_FORBIDDEN", "Only the person who proposed this market can publish it.");
-    } else if (row.proposer_id !== userId && !this.isReviewer(userId)) refuse("MC_FORBIDDEN", "Only the proposer or a reviewer can publish this market.");
+    if (row.proposer_id !== userId) refuse("MC_FORBIDDEN", "Only the person who proposed this market can publish it.");
     if (row.status !== "approved") refuse("MC_STATE", this.stateCopy(row.status));
     if (this.now() > publishDeadline(ms(row.closes_at))) refuse("MC_STATE", "Trading closes too soon to publish this market now.");
     return row;
@@ -437,8 +439,7 @@ export class MarketCreationService {
       // Who reviewed stays private; the decision and its reason do not.
       review: row.reviewed_at ? { decidedAt: ms(row.reviewed_at), reason: row.review_reason, note: row.review_note } : null,
       canWithdraw: isProposer && (status === "pending_review" || status === "approved"),
-      canPublish: status === "approved" && this.deps.publishing != null &&
-        (isProposer || (!this.deps.proposerOnly && this.isReviewer(viewerId))),
+      canPublish: status === "approved" && this.deps.publishing != null && isProposer,
       publish: row.status === "publishing" && row.creator_wallet ? { wallet: row.creator_wallet, submittedAt: ms(row.updated_at) } : null,
       live: row.status === "live" && row.venue_market_id && row.live_at && row.creator_wallet
         ? { venueMarketId: row.venue_market_id, marketId: marketUuid("panta", row.venue_market_id), creatorWallet: row.creator_wallet, liveAt: ms(row.live_at) }

@@ -82,10 +82,8 @@ export function marketCreationFor(app: AppConfig): MarketCreationRuntime {
     reviewerIds: config.reviewerIds, people, publishing: publishingDeps,
     // ~30s covers a normal Solana confirmation; well inside Panta's 40 registers/min.
     followUp: publishingDeps ? { attempts: 6, everyMs: 5_000 } : null,
-    // MONEY_CALLS_ENABLED: only the proposer publishes and pays, from their own wallet.
-    proposerOnly: app.money?.callsEnabled === true
-      ? { wallets: new SupabaseAccountWallets(app.social!, fetch, authIdentityRuntimeFor(app).accountLinks) }
-      : null,
+    // Only the proposer publishes and pays, from one of their own proven wallets.
+    wallets: new SupabaseAccountWallets(app.social!, fetch, authIdentityRuntimeFor(app).accountLinks),
   });
   const runtime = { config, proposals, publishing, service };
   runtimes.set(app, runtime);
