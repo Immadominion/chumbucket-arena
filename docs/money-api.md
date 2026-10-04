@@ -66,6 +66,41 @@ provider's). Expected, actionable outcomes are NOT errors: they come back as a
 | `TOO_MANY_REQUESTS` | per-account rate limit |
 | `SERVICE_UNAVAILABLE` / `BAD_GATEWAY` | the database, Panta or the RPC could not answer; nothing was signed or charged |
 
+## Refusal reasons (`error.data.details.reason`)
+
+Every `money.*` error carries `data.details = { reason, … }` with a stable
+code, so an app branches on `reason` and shows `message`. Expected outcomes
+are not errors at all: `NEEDS_FUNDS`, `NEEDS_GAS`, `INVALID` (with its own
+`reason`), `READY`, `SETTLED` and `SENT` come back as `status` in a normal
+answer.
+
+| reason | tRPC code | when |
+|---|---|---|
+| `DISABLED` | `PRECONDITION_FAILED` | money calls are off (for this account) |
+| `SIGNED_OUT` | `UNAUTHORIZED` | no session |
+| `NOT_LINKED` | `FORBIDDEN` | the session has no account yet |
+| `NO_WALLET` | `PRECONDITION_FAILED` | the account has no wallet yet |
+| `WALLET_NOT_LINKED` | `UNPROCESSABLE_CONTENT` | the chosen wallet is not the account's |
+| `AMOUNT` | `BAD_REQUEST` | amount outside $1 … the server limit, or not whole cents |
+| `NOT_TRADABLE` | `PRECONDITION_FAILED` | a SOL-quoted market: free calls only |
+| `MARKET_CLOSED` | `PRECONDITION_FAILED` | the market stopped taking calls |
+| `PRICE_MOVED` | `PRECONDITION_FAILED` | a re-quote outside the call's slippage of its locked price: make a new call |
+| `PRICE_UNAVAILABLE` | `SERVICE_UNAVAILABLE` | no readable price right now: try again in a minute |
+| `CALL_EXPIRED` | `PRECONDITION_FAILED` | the pending call's window passed |
+| `REVIEW_EXPIRED` | `PRECONDITION_FAILED` | a transfer review expired (prepare again with a new key) |
+| `STATE` | `PRECONDITION_FAILED` | the money call is no longer pending (funded, free or expired) |
+| `IN_FLIGHT` | `CONFLICT` | a buy for this call is still going through |
+| `TRANSFER_IN_FLIGHT` | `CONFLICT` | another transfer from this wallet is in flight; `transferId` names it |
+| `IDEMPOTENCY_CONFLICT` | `CONFLICT` | a key reused with different details |
+| `BAD_SIGNATURE` | `BAD_REQUEST` | the approval doesn't match the reviewed transaction |
+| `NOT_FOUND` | `NOT_FOUND` | not your money call / transfer |
+| `RATE_LIMITED` | `TOO_MANY_REQUESTS` | too many tries in a minute |
+| `UNAVAILABLE` | `SERVICE_UNAVAILABLE` | the database, Panta or the RPC could not answer |
+| `CALL_ALREADY_MADE`, `RESPONSE_SELF`, `RESPONSE_DUPLICATE` | `CONFLICT` / `BAD_REQUEST` | the call refusals of `calls.create` / `calls.respond` |
+| `TRADING_PAUSED` | `PRECONDITION_FAILED` | Panta trading is paused or not configured |
+
+Other refusals (content policy, blocks, generic failures) carry no `details`.
+
 ## Shapes
 
 ```ts
