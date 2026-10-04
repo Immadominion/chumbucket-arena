@@ -39,6 +39,7 @@
  */
 
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { resolveAccount } from "../auth/accountResolver.ts";
 import type { AppConfig } from "../config.ts";
 import type { CallsStore } from "./store.ts";
 
@@ -86,9 +87,8 @@ export function supabaseViewerResolver(config: AppConfig): ViewerResolver {
       const rt = authIdentityRuntimeFor(config);
       if (!rt.store.enabled) return null;
       try {
-        const session = await rt.verifier.verify(token);
-        if (!session?.authUserId) return null;
-        return await rt.store.userIdForAuthUser(session.authUserId);
+        // The one account resolver (src/auth/accountResolver.ts).
+        return (await resolveAccount(config, token)).userId;
       } catch {
         // An invalid or unverifiable token is "no session", not a 500.
         return null;

@@ -70,7 +70,15 @@ export interface AccountLinkStore {
     ttlSeconds: number;
   }): Promise<StoreResult>;
   preview(ticketHash: string, authUserId: string): Promise<StoreResult>;
-  complete(input: { ticketHash: string; authUserId: string; allowLink: boolean; allowFold: boolean }): Promise<StoreResult>;
+  complete(input: {
+    ticketHash: string;
+    authUserId: string;
+    allowLink: boolean;
+    allowFold: boolean;
+    /** What the person was shown: the database refuses if it changed. */
+    expectedOutcome: "already" | "link" | "fold";
+    expectedOtherUserId: string | null;
+  }): Promise<StoreResult>;
   /** Public profile fields (handle, name) of up to two accounts, for a confirm sheet. */
   cards(userIds: string[]): Promise<AccountCard[]>;
 }
@@ -178,12 +186,21 @@ export class SupabaseAccountLinkStore implements AccountLinkStore {
     }));
   }
 
-  async complete(input: { ticketHash: string; authUserId: string; allowLink: boolean; allowFold: boolean }): Promise<StoreResult> {
+  async complete(input: {
+    ticketHash: string;
+    authUserId: string;
+    allowLink: boolean;
+    allowFold: boolean;
+    expectedOutcome: "already" | "link" | "fold";
+    expectedOtherUserId: string | null;
+  }): Promise<StoreResult> {
     return this.asResult(await this.rpc("complete_account_link_v1", {
       p_ticket_hash: input.ticketHash,
       p_auth_user_id: input.authUserId,
       p_allow_link: input.allowLink,
       p_allow_fold: input.allowFold,
+      p_expected_outcome: input.expectedOutcome,
+      p_expected_other: input.expectedOtherUserId,
     }));
   }
 

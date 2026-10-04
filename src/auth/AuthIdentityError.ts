@@ -93,7 +93,13 @@ export type AuthIdentityErrorCode =
   | "ACCOUNT_NOT_FOLDABLE"
   /** The sign-in you are using, or the account's own first one, can't be unlinked. */
   | "SIGN_IN_IN_USE"
-  | "SIGN_IN_NOT_FOUND";
+  | "SIGN_IN_NOT_FOUND"
+  /** Only the other account's own first sign-in can fold it. */
+  | "FOLD_NEEDS_PRIMARY_SIGN_IN"
+  /** Both accounts have a legacy wallet; neither is orphaned to fold. */
+  | "FOLD_WALLET_CONFLICT"
+  /** What the person was shown changed before they confirmed. */
+  | "LINK_PREVIEW_CHANGED";
 
 export class AuthIdentityError extends Error {
   readonly code: AuthIdentityErrorCode;
@@ -166,7 +172,15 @@ export function codeForStoreReason(
       return "ACCOUNT_HAS_MONEY";
     case "already_folded":
     case "same_account":
+    case "money_unverifiable":
       return "ACCOUNT_NOT_FOLDABLE";
+    case "not_primary_sign_in":
+      return "FOLD_NEEDS_PRIMARY_SIGN_IN";
+    case "wallet_conflict":
+      return "FOLD_WALLET_CONFLICT";
+    case "preview_changed":
+    case "proof_changed":
+      return "LINK_PREVIEW_CHANGED";
     case "current_sign_in":
     case "primary_sign_in":
       return "SIGN_IN_IN_USE";

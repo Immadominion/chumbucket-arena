@@ -15,6 +15,7 @@ import { toCall } from "../calls/types.ts";
 import type { InMemoryCallsStore } from "../calls/store.ts";
 import type { TrustConfig } from "./config.ts";
 import { assertCleanText } from "./contentFilter.ts";
+import { accountDeletionGuards, type AccountDeletionGuard } from "./deletionGuards.ts";
 import { TrustError } from "./errors.ts";
 import type { WriteRateLimiter } from "./rateLimit.ts";
 import type {
@@ -69,6 +70,8 @@ export interface TrustServiceDeps {
   now?: () => number;
   /** How long a person's block/mute lists are reused before re-reading. */
   relationsTtlMs?: number;
+  /** Checks before a deletion (default: src/trust/deletionGuards.ts). */
+  deletionGuards?: readonly AccountDeletionGuard[];
 }
 
 const DELETED_NAME = "Deleted account";
@@ -359,6 +362,13 @@ export class TrustService {
     if (prior?.authDeletedAt) {
       return { status: "deleted", userId: prior.userId, alreadyDeleted: true, completedAt: prior.authDeletedAt };
     }
+    // Every check another part of the product needs first (cash out, …).
+    // A guard refuses by throwing; nothing has been written yet.
+    if (input.userId) {
+      for (const guard of this.deps.deletionGuards ?? accountDeletionGuards) {
+        await guard({ userId: input.userId, authUserId: input.authUserId });
+      }
+    }
     const outcome = await this.deps.store.deleteAccount(
       { userId: input.userId ?? prior?.userId ?? null, authUserId: input.authUserId },
       this.now(),
@@ -372,17 +382,27 @@ export class TrustService {
       );
     }
     if (outcome.userId) await this.forget(outcome.userId);
+    // Accounts folded into this one were the same person: gone with it.
+    for (const folded of outcome.foldedUserIds ?? []) await this.forget(folded);
 
-    try {
-      await this.deps.authAdmin.deleteUser(input.authUserId);
-    } catch {
-      throw new TrustError(
-        "TRUST_DELETION_RETRY",
-        "Your profile has been removed, but we couldn't finish removing your sign-in. Try again in a moment. It's safe to retry.",
-      );
+    // Every sign-in of the person, the one asking last: a retry from any of
+    // them finishes the job.
+    const signIns = [...new Set([...(outcome.authUserIds ?? []), input.authUserId])].sort(
+      (a, b) => Number(a === input.authUserId) - Number(b === input.authUserId),
+    );
+    let at = this.now();
+    for (const authUserId of signIns) {
+      try {
+        await this.deps.authAdmin.deleteUser(authUserId);
+      } catch {
+        throw new TrustError(
+          "TRUST_DELETION_RETRY",
+          "Your profile has been removed, but we couldn't finish removing your sign-in. Try again in a moment. It's safe to retry.",
+        );
+      }
+      at = this.now();
+      await this.deps.store.markAuthDeleted(authUserId, at);
     }
-    const at = this.now();
-    await this.deps.store.markAuthDeleted(input.authUserId, at);
     return { status: "deleted", userId: outcome.userId, alreadyDeleted: outcome.outcome === "already_deleted", completedAt: at };
   }
 

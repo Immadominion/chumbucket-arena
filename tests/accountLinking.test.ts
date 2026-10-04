@@ -23,6 +23,8 @@ import {
   type LinkMethod,
 } from "../src/auth/AccountLinkStore.ts";
 import { primeAuthIdentityRuntime } from "../src/auth/AuthIdentityRuntime.ts";
+import { accountRuntimeFor, setAccountRuntime } from "../src/account/runtime.ts";
+import type { PushMessage } from "../src/push/fcm.ts";
 import { SupabaseIdentityStore, type StoreResult } from "../src/auth/IdentityStore.ts";
 import { latestAmrMethod } from "../src/auth/SupabaseJwt.ts";
 import { hashNonce, WalletLinkService } from "../src/auth/WalletLinkService.ts";
@@ -160,12 +162,15 @@ class RecordingLinks implements AccountLinkStore {
   async preview(ticketHash: string, authUserId: string) {
     return this.answer("preview", { ticketHash, authUserId }, {
       ok: true, outcome: "fold", into_user_id: "user-dev", other_user_id: "user-dominion", refusal: null,
+      method: "x", proof_label: "ownerx",
     });
   }
   async complete(input: unknown) {
     return this.answer("complete", input, {
       ok: true, outcome: "folded", user_id: "user-dev", folded_user_id: "user-dominion",
       summary: { follows: [["user-dev", "user-friend"], ["bad"]] },
+      notify: [{ token: "device-token-dominion-0001", platform: "ios" }, { token: 5 }],
+      folded_handle: "dominion", into_handle: "dev",
     });
   }
   async cards(userIds: string[]): Promise<AccountCard[]> {
@@ -173,6 +178,8 @@ class RecordingLinks implements AccountLinkStore {
     return userIds.map((id) => ({ userId: id, handle: id.replace("user-", ""), displayName: null }));
   }
 }
+
+const FOLD = { outcome: "fold", otherUserId: "user-dominion" } as const;
 
 function linkRig(opts: { linking?: boolean; fold?: boolean; links?: RecordingLinks } = {}) {
   const store = new FakeIdentityStore().addUser("auth-dev", "user-dev").addUser("auth-dominion", "user-dominion");
@@ -200,7 +207,7 @@ describe("AccountLinkService", () => {
       () => service.unlink("tok-dev", `s:${SIGN_IN}`),
       () => service.startLink("tok-dev", "x"),
       () => service.previewLink("tok-dominion", "ab".repeat(32)),
-      () => service.completeLink("tok-dominion", "ab".repeat(32)),
+      () => service.completeLink("tok-dominion", "ab".repeat(32), FOLD),
     ]) expect(await codeOf(fn)).toBe("ACCOUNT_LINKING_DISABLED");
     const listed = await service.signInMethods("tok-dev");
     expect(listed).toMatchObject({ linking: false, fold: false });
@@ -233,42 +240,62 @@ describe("AccountLinkService", () => {
     const { service, links } = linkRig();
     const ticket = "ab".repeat(32);
     expect(await codeOf(() => service.previewLink("forged", ticket))).toBe("AUTH_TOKEN_INVALID");
-    expect(await codeOf(() => service.completeLink("", ticket))).toBe("AUTH_TOKEN_MISSING");
+    expect(await codeOf(() => service.completeLink("", ticket, FOLD))).toBe("AUTH_TOKEN_MISSING");
     // The other side need not have an account (a sign-in about to be added).
     const preview = await service.previewLink("tok-new", ticket);
     expect(links.calls.find((c) => c.name === "preview")!.input).toEqual({ ticketHash: hashNonce(ticket), authUserId: "auth-new" });
     expect(preview).toMatchObject({
       outcome: "fold",
+      // What the other side proved is named, before anything happens.
+      proof: { kind: "x", label: "ownerx" },
       into: { userId: "user-dev", handle: "dev" },
       from: { userId: "user-dominion", handle: "dominion" },
+      otherUserId: "user-dominion",
       refusal: null,
     });
-    links.answers.preview = { ok: true, outcome: "fold", into_user_id: "user-dev", other_user_id: "user-money", refusal: "has_money" };
-    expect((await service.previewLink("tok-new", ticket)).refusal).toBe("ACCOUNT_HAS_MONEY");
+    for (const [reason, refusal] of [
+      ["has_money", "ACCOUNT_HAS_MONEY"],
+      ["money_unverifiable", "ACCOUNT_NOT_FOLDABLE"],
+      ["not_primary_sign_in", "FOLD_NEEDS_PRIMARY_SIGN_IN"],
+      ["wallet_conflict", "FOLD_WALLET_CONFLICT"],
+      ["something_new", "ACCOUNT_NOT_FOLDABLE"],
+    ] as const) {
+      links.answers.preview = { ok: true, outcome: "fold", into_user_id: "user-dev", other_user_id: "user-money", refusal: reason, method: "google" };
+      expect((await service.previewLink("tok-new", ticket)).refusal).toBe(refusal);
+    }
     links.answers.preview = { ok: false, reason: "ticket_expired" };
     expect(await codeOf(() => service.previewLink("tok-new", ticket))).toBe("LINK_TICKET_INVALID");
 
-    const done = await service.completeLink("tok-dominion", ticket);
+    const done = await service.completeLink("tok-dominion", ticket, FOLD);
+    // What the person was shown travels with the confirm; the database refuses if it changed.
     expect(links.calls.find((c) => c.name === "complete")!.input).toEqual({
       ticketHash: hashNonce(ticket), authUserId: "auth-dominion", allowLink: true, allowFold: true,
+      expectedOutcome: "fold", expectedOtherUserId: "user-dominion",
     });
-    expect(done).toEqual({ outcome: "folded", userId: "user-dev", foldedUserId: "user-dominion", follows: [["user-dev", "user-friend"]] });
+    expect(done).toEqual({
+      outcome: "folded", userId: "user-dev", foldedUserId: "user-dominion", follows: [["user-dev", "user-friend"]],
+      notify: [{ token: "device-token-dominion-0001", platform: "ios" }], foldedHandle: "dominion", intoHandle: "dev",
+    });
     for (const [reason, code] of [
       ["has_money", "ACCOUNT_HAS_MONEY"],
       ["ticket_used", "LINK_TICKET_INVALID"],
       ["method_mismatch", "LINK_METHOD_MISMATCH"],
       ["fold_disabled", "ACCOUNT_FOLD_DISABLED"],
       ["already_folded", "ACCOUNT_NOT_FOLDABLE"],
+      ["not_primary_sign_in", "FOLD_NEEDS_PRIMARY_SIGN_IN"],
+      ["wallet_conflict", "FOLD_WALLET_CONFLICT"],
+      ["preview_changed", "LINK_PREVIEW_CHANGED"],
+      ["proof_changed", "LINK_PREVIEW_CHANGED"],
     ] as const) {
       links.answers.complete = { ok: false, reason };
-      expect(await codeOf(() => service.completeLink("tok-dominion", ticket))).toBe(code);
+      expect(await codeOf(() => service.completeLink("tok-dominion", ticket, FOLD))).toBe(code);
     }
   });
 
   test("folding is its own switch: off, the store is told so and the preview says so", async () => {
     const { service, links } = linkRig({ fold: false });
     expect((await service.previewLink("tok-dominion", "ab".repeat(32))).refusal).toBe("ACCOUNT_FOLD_DISABLED");
-    await service.completeLink("tok-dominion", "ab".repeat(32));
+    await service.completeLink("tok-dominion", "ab".repeat(32), FOLD);
     expect(links.calls.find((c) => c.name === "complete")!.input).toMatchObject({ allowLink: true, allowFold: false });
   });
 
@@ -341,7 +368,21 @@ describe("a wallet's sign-in and a wallet's link", () => {
     expect((await link()).outcome).toBe("linked");
     expect(r.store.walletOwner(r.wallet.address)).toBe("user-x");
   });
+
+  test("with linking off, linking a wallet is exactly the pre-linking path", async () => {
+    const r = walletRig(false);
+    r.links.conflict = true;
+    const issued = await r.service.requestWalletNonce({
+      accessToken: "tok-x", address: r.wallet.address, domain: TEST_DOMAIN, uri: TEST_URI,
+    });
+    const signature = signMessage(r.wallet.privateKey, issued.message);
+    expect((await r.service.linkWallet({ accessToken: "tok-x", address: r.wallet.address, message: issued.message, signature })).outcome)
+      .toBe("linked");
+    expect(r.links.calls).toHaveLength(0);
+  });
 });
+
+const FOLD_EXPECT = { outcome: "fold" as const, otherUserId: "11111111-1111-4111-8111-111111111111" };
 
 describe("routes and switches", () => {
   async function routeRig(env: Record<string, string>) {
@@ -361,7 +402,7 @@ describe("routes and switches", () => {
       accountLinking: config.authIdentity?.accountLinkingEnabled === true,
       accountFold: config.authIdentity?.accountFoldEnabled === true,
     });
-    return { caller: authRouter.createCaller({ app }), links };
+    return { caller: authRouter.createCaller({ app }), links, config };
   }
 
   test("both switches are off by default, and only the exact word turns them on", async () => {
@@ -387,9 +428,27 @@ describe("routes and switches", () => {
     const listed = await caller.signInMethods({ supabaseAccessToken: "tok-dev" });
     expect(listed.linking).toBe(true);
     expect(listed.methods.find((m) => m.current)?.kind).toBe("wallet");
-    const done = await caller.completeSignInLink({ supabaseAccessToken: "tok-dev", ticket: "ab".repeat(32) });
-    // Only the outcome and the account: no follows, no ids of other sign-ins.
+    // The confirm must say what the person was shown.
+    expect(await codeOf(() => caller.completeSignInLink({ supabaseAccessToken: "tok-dev", ticket: "ab".repeat(32) } as never)))
+      .not.toBe("NO_ERROR");
+    const done = await caller.completeSignInLink({ supabaseAccessToken: "tok-dev", ticket: "ab".repeat(32), expect: FOLD_EXPECT });
+    // Only the outcome and the account: no follows, no devices, no ids of other sign-ins.
     expect(done).toEqual({ outcome: "folded", userId: "user-dev" });
+  });
+
+  test("a fold tells the folded account's devices", async () => {
+    const { caller, config } = await routeRig({ ACCOUNT_LINKING_ENABLED: "true", ACCOUNT_FOLD_ENABLED: "true" });
+    const sent: { token: string; message: PushMessage }[] = [];
+    const rt = accountRuntimeFor(config);
+    setAccountRuntime(config, {
+      ...rt,
+      sender: { send: async (token: string, message: PushMessage) => { sent.push({ token, message }); return "ok" as const; } },
+    });
+    await caller.completeSignInLink({ supabaseAccessToken: "tok-dev", ticket: "ab".repeat(32), expect: FOLD_EXPECT });
+    expect(sent).toEqual([{
+      token: "device-token-dominion-0001",
+      message: { title: "Account moved", body: "@dominion is now part of @dev.", data: { kind: "account_folded" } },
+    }]);
   });
 });
 
@@ -408,20 +467,25 @@ describe("transport", () => {
   }
   const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
   const missing = () => new Response(JSON.stringify({ code: "PGRST202" }), { status: 404 });
+  const on = { additionalSignIns: true };
 
   test("an additional sign-in resolves through the database; before the migration, none", async () => {
     const id = "77777777-7777-4777-8777-777777777777";
     const s = stub((name) => (name === "users" ? ok([]) : ok({ ok: true, user_id: id, via: "additional" })));
-    expect(await new SupabaseIdentityStore(cfg, s.fetchImpl).userIdForAuthUser("auth-b")).toBe(id);
+    // Linking off: exactly the pre-linking lookup, nothing more.
+    expect(await new SupabaseIdentityStore(cfg, s.fetchImpl).userIdForAuthUser("auth-b")).toBeNull();
+    expect(s.seen.map((x) => x.name)).toEqual(["users"]);
+    s.seen.length = 0;
+    expect(await new SupabaseIdentityStore(cfg, s.fetchImpl, on).userIdForAuthUser("auth-b")).toBe(id);
     expect(s.seen.map((x) => x.name)).toEqual(["users", "resolve_auth_user_v1"]);
     expect(s.seen[1]!.body).toEqual({ p_auth_user_id: "auth-b" });
     const old = stub((name) => (name === "users" ? ok([]) : missing()));
-    expect(await new SupabaseIdentityStore(cfg, old.fetchImpl).userIdForAuthUser("auth-b")).toBeNull();
+    expect(await new SupabaseIdentityStore(cfg, old.fetchImpl, on).userIdForAuthUser("auth-b")).toBeNull();
     const broken = stub((name) => (name === "users" ? ok([]) : new Response("secret-ish", { status: 500 })));
-    expect(await codeOf(() => new SupabaseIdentityStore(cfg, broken.fetchImpl).userIdForAuthUser("auth-b"))).toBe("IDENTITY_STORE_ERROR");
+    expect(await codeOf(() => new SupabaseIdentityStore(cfg, broken.fetchImpl, on).userIdForAuthUser("auth-b"))).toBe("IDENTITY_STORE_ERROR");
     // A primary sign-in never asks.
     const primary = stub(() => ok([{ id }]));
-    await new SupabaseIdentityStore(cfg, primary.fetchImpl).userIdForAuthUser("auth-a");
+    await new SupabaseIdentityStore(cfg, primary.fetchImpl, on).userIdForAuthUser("auth-a");
     expect(primary.seen).toHaveLength(1);
   });
 
@@ -443,10 +507,16 @@ describe("transport", () => {
     expect(listed.signIns).toHaveLength(1);
     expect(listed.signIns[0]!.identities[0]).toEqual({ identityId: "i1", provider: "web3", label: DEV_WALLET, lastSignInAt: null });
     expect(await store.walletSignInConflict("user-dev", DEV_WALLET)).toBe(false);
-    await store.complete({ ticketHash: "c".repeat(64), authUserId: "auth-b", allowLink: true, allowFold: false });
+    await store.complete({
+      ticketHash: "c".repeat(64), authUserId: "auth-b", allowLink: true, allowFold: false,
+      expectedOutcome: "link", expectedOtherUserId: null,
+    });
     expect(s.seen.at(-1)).toMatchObject({
       name: "complete_account_link_v1",
-      body: { p_ticket_hash: "c".repeat(64), p_auth_user_id: "auth-b", p_allow_link: true, p_allow_fold: false },
+      body: {
+        p_ticket_hash: "c".repeat(64), p_auth_user_id: "auth-b", p_allow_link: true, p_allow_fold: false,
+        p_expected_outcome: "link", p_expected_other: null,
+      },
     });
     expect(s.seen.every((x) => x.redirect === "manual")).toBe(true);
 

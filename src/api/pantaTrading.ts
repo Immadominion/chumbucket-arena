@@ -1,7 +1,9 @@
 /** No identity strings or filled-state assertions from clients. POST for private orders. */
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { AuthIdentityError } from "../auth/AuthIdentityError.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { resolveAccount } from "../auth/accountResolver.ts";
 import type { Context } from "./trpc.ts";
 import { publicProcedure, router } from "./trpc.ts";
 import { pantaLifecycleFor, pantaTradingFor, pantaTradingReadiness } from "../prediction/PantaTradingRuntime.ts";
@@ -15,12 +17,20 @@ async function person(ctx: Context): Promise<Person> {
   // In particular, ctx.wallet / x-wallet / DevAuth are not credentials here.
   const identity = authIdentityRuntimeFor(ctx.app.config);
   if (!ctx.supabaseAccessToken || !identity.store.enabled) throw new TRPCError({ code: "UNAUTHORIZED", message: "Link your existing account before trading" });
-  const session = await identity.verifier.verify(ctx.supabaseAccessToken);
-  if (!session) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to your existing account" });
-  const id = await identity.store.userIdForAuthUser(session.authUserId);
-  if (!id) throw new TRPCError({ code: "FORBIDDEN", message: "Your existing profile has not been linked" });
-  // The issuer's own answer, never the client's: a Sign-in-with-Solana session's address.
-  return { userId: id, session: { signInWallet: session.solanaWallet ?? null } };
+  try {
+    // The one account resolver (src/auth/accountResolver.ts).
+    const account = await resolveAccount(ctx.app.config, ctx.supabaseAccessToken);
+    // The issuer's own answer, never the client's: a Sign-in-with-Solana session's address.
+    return { userId: account.userId, session: { signInWallet: account.session.solanaWallet ?? null } };
+  } catch (e) {
+    if (e instanceof AuthIdentityError && (e.code === "AUTH_TOKEN_INVALID" || e.code === "AUTH_TOKEN_MISSING")) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to your existing account" });
+    }
+    if (e instanceof AuthIdentityError && e.code === "AUTH_USER_UNLINKED") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Your existing profile has not been linked" });
+    }
+    throw e;
+  }
 }
 async function run<T>(ctx: Context, action: (userId: string, who: Person) => Promise<T>): Promise<T> {
   try { const who = await person(ctx); return await action(who.userId, who); }

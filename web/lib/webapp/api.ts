@@ -149,10 +149,15 @@ export function makeApi(call: Caller) {
       m<LinkTicket>("auth.startSignInLink", { supabaseAccessToken, method }),
     previewSignInLink: (otherAccessToken: string, ticket: string) =>
       m<LinkPreview>("auth.previewSignInLink", { supabaseAccessToken: otherAccessToken, ticket }),
-    completeSignInLink: (otherAccessToken: string, ticket: string) =>
+    completeSignInLink: (
+      otherAccessToken: string,
+      ticket: string,
+      expect: { outcome: LinkPreview["outcome"]; otherUserId: string | null },
+    ) =>
       m<{ outcome: "already" | "linked" | "folded"; userId: string }>("auth.completeSignInLink", {
         supabaseAccessToken: otherAccessToken,
         ticket,
+        expect,
       }),
     requestWalletNonce: (supabaseAccessToken: string, address: string, domain: string, uri: string) =>
       m<{ message: string; expiresAt: string }>("auth.requestWalletNonce", { supabaseAccessToken, address, domain, uri }),

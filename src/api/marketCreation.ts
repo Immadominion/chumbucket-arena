@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { resolveAccountOutcome } from "../auth/accountResolver.ts";
 import { isPgrestError } from "../prediction/pgrest.ts";
 import { isMarketCreationError, type MarketCreationErrorCode } from "../marketCreation/errors.ts";
 import { marketCreationFor } from "../marketCreation/runtime.ts";
@@ -39,14 +40,15 @@ async function viewer(ctx: Context, required: boolean): Promise<string | null> {
     return null;
   };
   if (!ctx.supabaseAccessToken || !identity.store.enabled) return signedOut();
-  const session = await identity.verifier.verify(ctx.supabaseAccessToken);
-  if (!session) return signedOut();
-  const id = await identity.store.userIdForAuthUser(session.authUserId);
-  if (!id) {
-    if (required) throw new TRPCError({ code: "UNAUTHORIZED", message: "Your account isn't linked yet. Sign in again to finish setting it up." });
-    return null;
+  // The one account resolver (src/auth/accountResolver.ts).
+  const resolved = await resolveAccountOutcome(ctx.app.config, ctx.supabaseAccessToken);
+  if (resolved.ok) return resolved.account.userId;
+  if (resolved.reason === "SIGNED_OUT") return signedOut();
+  if (resolved.reason === "UNAVAILABLE") {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Market proposals are temporarily unavailable. Try again shortly." });
   }
-  return id;
+  if (required) throw new TRPCError({ code: "UNAUTHORIZED", message: "Your account isn't linked yet. Sign in again to finish setting it up." });
+  return null;
 }
 
 async function run<T>(action: () => Promise<T>): Promise<T> {

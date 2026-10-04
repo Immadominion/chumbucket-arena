@@ -15,29 +15,28 @@
  *                      separate window). This page's own session never changes,
  *                      and the proof's token is released when done.
  *
- * The proof window answers on a BroadcastChannel, not window.opener: a
- * provider's Cross-Origin-Opener-Policy can sever the opener on the way back.
- * Only the access token crosses; the refresh token is dropped where it lands.
+ * X/Google proofs are PKCE: the code verifier lives only in this page's
+ * memory (the in-memory client), the window is sent to Supabase with a fresh
+ * nonce in its return address, and it hands back only {nonce, code}. A
+ * message for another attempt (wrong or missing nonce) is ignored; a code
+ * from anywhere else cannot be exchanged without this attempt's verifier.
+ * The window answers on a BroadcastChannel, not window.opener: a provider's
+ * Cross-Origin-Opener-Policy can sever the opener on the way back.
  */
 
 import { createClient, type SupabaseClient, type UserIdentity } from "@supabase/supabase-js";
 import bs58 from "bs58";
 import type { Api } from "@/lib/webapp/api";
-import { LINK_CALLBACK_PATH, LINK_CHANNEL, LINKING_KEY } from "@/lib/webapp/linking";
+import { LINK_CALLBACK_PATH, LINKING_KEY } from "@/lib/webapp/linking";
+import { awaitProofCode, LinkStopped } from "@/lib/webapp/proof";
+
+export { LinkStopped };
 import { signInMessage } from "@/lib/webapp/siws";
 import { authClient } from "./authClient";
 import { connect, signMessage, WalletDeclined, type StandardWallet } from "./wallets";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-/** Where a link stopped: a BFF/Supabase code, "cancelled", "popup" or "network". */
-export class LinkStopped extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = "LinkStopped";
-  }
-}
 
 const LINK_RETURN_KEY = "cb.app.linkReturn";
 
@@ -53,7 +52,8 @@ function session(): Storage | null {
 function proofClient(): SupabaseClient {
   return createClient(SUPABASE_URL || "https://unconfigured.invalid", SUPABASE_KEY || "unconfigured", {
     auth: {
-      flowType: "implicit",
+      // The PKCE verifier stays in this client's memory, in this page.
+      flowType: "pkce",
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
@@ -132,7 +132,8 @@ export async function proveWithProvider(
 ): Promise<string> {
   const nonce = crypto.randomUUID();
   const redirectTo = `${window.location.origin}${LINK_CALLBACK_PATH}?n=${nonce}`;
-  const { data, error } = await proofClient().auth.signInWithOAuth({
+  const client = proofClient();
+  const { data, error } = await client.auth.signInWithOAuth({
     provider,
     options: { redirectTo, skipBrowserRedirect: true },
   });
@@ -141,32 +142,11 @@ export async function proveWithProvider(
     throw new LinkStopped("network");
   }
   popup.location.href = data.url;
-  return new Promise<string>((resolve, reject) => {
-    const channel = new BroadcastChannel(LINK_CHANNEL);
-    const timer = window.setTimeout(() => done(new LinkStopped("cancelled")), 5 * 60_000);
-    const onAbort = () => {
-      try {
-        popup.close();
-      } catch {
-        // Already gone.
-      }
-      done(new LinkStopped("cancelled"));
-    };
-    function done(result: string | LinkStopped) {
-      window.clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      channel.close();
-      if (typeof result === "string") resolve(result);
-      else reject(result);
-    }
-    signal.addEventListener("abort", onAbort);
-    channel.onmessage = (event: MessageEvent) => {
-      const d = event.data as { n?: unknown; accessToken?: unknown; error?: unknown } | null;
-      if (!d || d.n !== nonce) return;
-      if (typeof d.accessToken === "string" && d.accessToken) done(d.accessToken);
-      else done(new LinkStopped(typeof d.error === "string" && d.error ? d.error : "cancelled"));
-    };
-  });
+  const code = await awaitProofCode(nonce, popup, signal);
+  const exchanged = await client.auth.exchangeCodeForSession(code);
+  const token = exchanged.data?.session?.access_token;
+  if (exchanged.error || !token) throw new LinkStopped("cancelled");
+  return token;
 }
 
 export async function proveWithWallet(wallet: StandardWallet): Promise<string> {

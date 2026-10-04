@@ -15,6 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { resolveAccountOutcome } from "../auth/accountResolver.ts";
 import type { AppConfig } from "../config.ts";
 
 export interface DepositWallet {
@@ -138,20 +139,10 @@ export class SessionDepositAccounts implements DepositAccounts {
     const identity = authIdentityRuntimeFor(this.config);
     if (!accessToken) return { ok: false, reason: "SIGNED_OUT" };
     if (!identity.store.enabled) return { ok: false, reason: "UNAVAILABLE" };
-    let session;
-    try {
-      session = await identity.verifier.verify(accessToken);
-    } catch {
-      return { ok: false, reason: "UNAVAILABLE" };
-    }
-    if (!session) return { ok: false, reason: "SIGNED_OUT" };
-    let userId: string | null;
-    try {
-      userId = await identity.store.userIdForAuthUser(session.authUserId);
-    } catch {
-      return { ok: false, reason: "UNAVAILABLE" };
-    }
-    if (!userId) return { ok: false, reason: "NOT_LINKED" };
+    // The one account resolver (src/auth/accountResolver.ts).
+    const resolved = await resolveAccountOutcome(this.config, accessToken);
+    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    const { userId, session } = resolved.account;
 
     let rows: Awaited<ReturnType<LinkedWalletReader["activeVerified"]>>;
     try {

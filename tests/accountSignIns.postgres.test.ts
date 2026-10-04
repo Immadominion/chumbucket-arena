@@ -8,14 +8,16 @@ import { join } from "node:path";
 // Opt-in throwaway PostgreSQL 15: Supabase Auth's auth.identities, the REAL
 // identity chain (nonces, linked wallets, onboarding, wallet sign-in and
 // usernames, the identity lock, trust and deletion, find-person), then the
-// REAL 20261004120000_account_sign_ins.sql — judged on the owner's case
-// (@dev links X, which is on @dominion; @dominion folds into @dev), on a
-// wallet sign-in landing on the account it was linked to, on unlinking, on
-// every refusal, and on who may call it. The wallet workstream's
-// 20261004130000_linked_wallets_chumbucket_type.sql is applied beside it: the
-// 'chumbucket' label is admitted, and an account holding that app-held wallet
-// is never folded. No DATABASE_URL, linked project or existing cluster is
-// ever read.
+// REAL 20261004120000_account_sign_ins.sql — applied twice (it is re-runnable)
+// — judged on the owner's case (@dev links X, which is on @dominion;
+// @dominion folds into @dev), on who may fold (only the folded account's own
+// first sign-in), on every money refusal (fail closed), on a wallet sign-in
+// landing on the account it was linked to, on unlinking, on deleting the
+// whole person from any sign-in, and on who may call any of it. The wallet
+// workstream's 20261004130000_linked_wallets_chumbucket_type.sql is applied
+// beside it: the 'chumbucket' label is admitted, and an account holding that
+// app-held wallet is never folded. No DATABASE_URL, linked project or
+// existing cluster is ever read.
 // Run: VERIFY_LOCAL_PG=true bun test tests/accountSignIns.postgres.test.ts
 
 const MIGRATION = "20261004120000_account_sign_ins.sql";
@@ -37,16 +39,21 @@ const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 
 // auth.users
 const A = {
-  dev: "a0000000-0000-4000-8000-000000000001", // web3 (the owner's wallet account)
+  dev: "a0000000-0000-4000-8000-000000000001", // web3: the owner's wallet account
   dominion: "a0000000-0000-4000-8000-000000000002", // google + x (auto-linked by email)
-  money: "a0000000-0000-4000-8000-000000000003", // google, an account with a funded call
+  money: "a0000000-0000-4000-8000-000000000003", // google: a funded call
   xonly: "a0000000-0000-4000-8000-000000000004", // x
-  xonlyWallet: "a0000000-0000-4000-8000-000000000005", // web3, first sign-in of a wallet linked to @xonly
-  stranger: "a0000000-0000-4000-8000-000000000006", // web3, another wallet
-  googleNew: "a0000000-0000-4000-8000-000000000007", // google, no account
-  phil: "a0000000-0000-4000-8000-000000000008", // google
-  philWallet: "a0000000-0000-4000-8000-000000000009", // web3, a wallet linked to @phil, never signed in
-  repointed: "a0000000-0000-4000-8000-00000000000a", // web3, a wallet whose link the audit does not back
+  xonlyWallet: "a0000000-0000-4000-8000-000000000005", // web3: first sign-in of a wallet linked to @xonly
+  stranger: "a0000000-0000-4000-8000-000000000006", // web3: another wallet
+  googleNew: "a0000000-0000-4000-8000-000000000007", // google: no account
+  phil: "a0000000-0000-4000-8000-000000000008", // web3: @phil was made with this wallet
+  repointed: "a0000000-0000-4000-8000-000000000009", // web3: a link the audit does not back
+  escrow: "a0000000-0000-4000-8000-00000000000a", // google: made a SOL escrow challenge
+  escrowWallet: "a0000000-0000-4000-8000-00000000000b", // google: its wallet is in an escrow
+  app: "a0000000-0000-4000-8000-00000000000c", // google: holds an app wallet
+  plain: "a0000000-0000-4000-8000-00000000000d", // google: nothing at all
+  bare: "a0000000-0000-4000-8000-00000000000e", // web3: a wallet merely linked to @plain
+  wal2: "a0000000-0000-4000-8000-00000000000f", // web3: another wallet-made account
 };
 const W = {
   dev: "DevWa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -54,7 +61,10 @@ const W = {
   stranger: "StrangerWa11etCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
   phil: "Phi1Wa11etDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   repointed: "RepointedWa11etEEEEEEEEEEEEEEEEEEEEEEEEEEE",
-  chumbucket: "ChumbucketWa11etFFFFFFFFFFFFFFFFFFFFFFFFFF",
+  escrow: "EscrowWa11etFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+  app: "AppWa11etGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+  bare: "BareWa11etHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH",
+  wal2: "SecondWa11etJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ",
 };
 const FRIEND = "f0000000-0000-4000-8000-000000000001";
 const FAN = "f0000000-0000-4000-8000-000000000002";
@@ -105,8 +115,8 @@ const BASE = String.raw`
     UNIQUE(provider, provider_subject));
 `;
 
-/** What the lockdown and the calls/follows/trading migrations leave, reduced
- *  to the columns this migration reads. */
+/** What the lockdown, calls, trading and legacy escrow migrations leave,
+ *  reduced to the columns this migration reads. */
 const LATER = String.raw`
   ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_placeholder BOOLEAN NOT NULL DEFAULT false;
   CREATE TABLE public.push_tokens (token text PRIMARY KEY,
@@ -135,13 +145,32 @@ const LATER = String.raw`
     END; $$;
   CREATE TRIGGER trg_calls_guard_immutability BEFORE UPDATE OR DELETE ON public.calls
     FOR EACH ROW EXECUTE FUNCTION public.calls_guard_immutability();
+  CREATE TABLE public.venue_orders(order_id text PRIMARY KEY, user_id uuid NOT NULL REFERENCES public.users(id));
+  CREATE TABLE public.venue_positions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.users(id));
   CREATE TABLE public.panta_trade_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT, state text NOT NULL);
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT, wallet_address text, state text NOT NULL);
+  CREATE TABLE public.panta_claim_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES public.users(id), wallet_address text);
+  CREATE TABLE public.market_creation_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    publisher_id uuid NOT NULL REFERENCES public.users(id), wallet_address text);
+  CREATE TABLE public.prediction_positions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
+  CREATE TABLE public.claims(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid REFERENCES public.users(id), wallet_address text NOT NULL);
+  -- The legacy SOL escrow (database_migrations/001_complete_schema.sql).
+  CREATE TABLE public.challenges(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id uuid REFERENCES public.users(id), participant_id uuid REFERENCES public.users(id),
+    witness_id uuid REFERENCES public.users(id), winner_id text, creator_wallet_address text,
+    member1_address text, member2_address text);
+  CREATE TABLE public.challenge_participants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    challenge_id uuid REFERENCES public.challenges(id), wallet_address text NOT NULL);
+  CREATE TABLE public.challenge_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    challenge_id uuid REFERENCES public.challenges(id), from_address text, to_address text);
   GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 `;
 
 test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
-  "account_sign_ins: link, wallet sign-in, unlink and fold, with every refusal, service-role only",
+  "account_sign_ins: link, wallet sign-in, unlink, fold and deletion, with every refusal, service-role only",
   () => {
     const dir = migrationsDir();
     const root = mkdtempSync(join(tmpdir(), "chum-account-sign-ins-"));
@@ -166,6 +195,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       const sql = (text: string) => must("psql", args, text).split("\n").pop() ?? "";
       const svc = (text: string) => sql(`SET ROLE service_role; ${text}`);
       const json = (text: string) => JSON.parse(svc(`SELECT (${text})::text`)) as Record<string, unknown>;
+      const fails = (text: string) => run("psql", args, text);
       const apply = (file: string) => must("psql", [...args, "-f", join(dir, file)]);
 
       sql(BASE);
@@ -188,10 +218,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(early.err).toContain("requires 20261003200000_find_person_identities.sql");
       apply("20261003200000_find_person_identities.sql");
       apply(MIGRATION);
-      // The Chumbucket wallet's label: refused until its own migration widens the check.
-      const chumbucketRow = (user: string) =>
-        `INSERT INTO public.linked_wallets(user_id, wallet_address, wallet_type, siws_proof_version, verified_at)
-           VALUES ('${user}', '${W.chumbucket}', 'chumbucket', 1, now());`;
+      apply(MIGRATION); // re-runnable
 
       // ── people ──
       const web3 = (auth: string, wallet: string) =>
@@ -211,23 +238,33 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            ${web3(A.xonlyWallet, W.xonly)}
            ${web3(A.stranger, W.stranger)}
            ${oauth(A.googleNew, "google", "g-new", '{"email":"new@example.com"}')}
-           ${oauth(A.phil, "google", "g-phil", '{"email":"phil@example.com"}')}
-           ${web3(A.philWallet, W.phil)}
-           ${web3(A.repointed, W.repointed)}`);
+           ${web3(A.phil, W.phil)}
+           ${web3(A.repointed, W.repointed)}
+           ${oauth(A.escrow, "google", "g-escrow", '{"email":"escrow@example.com"}')}
+           ${oauth(A.escrowWallet, "google", "g-escrow-w", '{"email":"escrow-w@example.com"}')}
+           ${oauth(A.app, "google", "g-app", '{"email":"app@example.com"}')}
+           ${oauth(A.plain, "google", "g-plain", '{"email":"plain@example.com"}')}
+           ${web3(A.bare, W.bare)}
+           ${web3(A.wal2, W.wal2)}`);
 
       const create = (auth: string, name: string, handle: string, wallet: string | null) =>
         json(`public.create_social_person_v2('${auth}', '${name}', '${handle}', ${wallet ? `'${wallet}'` : "NULL"})`);
-      expect(create(A.dev, "Dev", "dev", W.dev).outcome).toBe("created");
-      expect(create(A.dominion, "Dominion", "dominion", null).outcome).toBe("created");
-      expect(create(A.money, "Money", "money", null).outcome).toBe("created");
-      expect(create(A.xonly, "X Only", "xonly", null).outcome).toBe("created");
-      expect(create(A.phil, "Phil", "phil", null).outcome).toBe("created");
+      for (const [auth, name, handle, wallet] of [
+        [A.dev, "Dev", "dev", W.dev],
+        [A.dominion, "Dominion", "dominion", null],
+        [A.money, "Money", "money", null],
+        [A.xonly, "X Only", "xonly", null],
+        [A.phil, "Phil", "phil", W.phil],
+        [A.escrow, "Escrow", "escrow", null],
+        [A.escrowWallet, "Escrow W", "escrow_w", null],
+        [A.app, "App", "app_wallet", null],
+        [A.plain, "Plain", "plain", null],
+        [A.wal2, "Second", "second", W.wal2],
+      ] as const) expect(create(auth, name, handle, wallet).outcome).toBe("created");
       const id = (handle: string) => sql(`SELECT id FROM public.users WHERE handle = '${handle}'`);
-      const DEV = id("dev");
-      const DOMINION = id("dominion");
-      const MONEY = id("money");
-      const XONLY = id("xonly");
-      const PHIL = id("phil");
+      const [DEV, DOMINION, MONEY, XONLY, PHIL, ESCROW, ESCROW_W, APP, PLAIN, WAL2] = [
+        "dev", "dominion", "money", "xonly", "phil", "escrow", "escrow_w", "app_wallet", "plain", "second",
+      ].map(id) as [string, string, string, string, string, string, string, string, string, string];
       sql(`INSERT INTO public.users(id, full_name, handle) VALUES ('${FRIEND}', 'Friend', 'friend'), ('${FAN}', 'Fan', 'fan');
            INSERT INTO public.calls(id, user_id, thesis, funding_state, created_at, locked_at)
              VALUES ('${CALL}', '${DOMINION}', 'free call', 'NONE', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z'),
@@ -235,7 +272,8 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            INSERT INTO public.person_follows VALUES ('${DOMINION}', '${FRIEND}'), ('${FAN}', '${DOMINION}'), ('${DOMINION}', '${DEV}');
            INSERT INTO public.push_tokens(token, user_id, platform) VALUES ('${"t".repeat(24)}', '${DOMINION}', 'ios');
            INSERT INTO public.linked_identities(user_id, provider, provider_subject, provider_username)
-             VALUES ('${DOMINION}', 'x', 'legacy-x-dominion', 'ownerx');`);
+             VALUES ('${DOMINION}', 'x', 'legacy-x-dominion', 'ownerx');
+           INSERT INTO public.challenges(creator_id) VALUES ('${ESCROW}');`);
 
       const resolve = (auth: string) => json(`public.resolve_auth_user_v1('${auth}')`).user_id ?? null;
       expect(resolve(A.dev)).toBe(DEV);
@@ -247,31 +285,45 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         for (const fn of [
           `public.resolve_auth_user_v1('${A.dev}')`,
           `public.account_sign_ins_v1('${DEV}')`,
-          `public.complete_account_link_v1('${hash("x")}', '${A.dev}', true, true)`,
+          `public.complete_account_link_v1('${hash("x")}', '${A.dev}', true, true, 'fold', NULL)`,
           `public.resolve_wallet_sign_in_v1('${A.dev}', '${W.dev}')`,
+          `public.delete_account_v2('${DEV}', '${A.dev}')`,
         ]) {
-          const denied = run("psql", args, `SET ROLE ${role}; SELECT ${fn};`);
+          const denied = fails(`SET ROLE ${role}; SELECT ${fn};`);
           expect(denied.ok).toBe(false);
           expect(denied.err).toContain("permission denied");
         }
-        const read = run("psql", args, `SET ROLE ${role}; SELECT count(*) FROM public.account_sign_ins;`);
-        expect(read.ok).toBe(false);
+        expect(fails(`SET ROLE ${role}; SELECT count(*) FROM public.account_sign_ins;`).ok).toBe(false);
       }
 
-      // ── the owner's case: @dev links X, which is on @dominion ──
       const issue = (user: string, auth: string, method: string, ticket: string) =>
         json(`public.issue_account_link_ticket_v1('${user}', '${auth}', '${method}', '${hash(ticket)}', 600)`);
+      const preview = (ticket: string, auth: string) => json(`public.preview_account_link_v1('${hash(ticket)}', '${auth}')`);
+      const complete = (ticket: string, auth: string, outcome: string, other: string | null, link = true, fold = true) =>
+        json(`public.complete_account_link_v1('${hash(ticket)}', '${auth}', ${link}, ${fold}, '${outcome}', ${other ? `'${other}'` : "NULL"})`);
+
+      // ── the owner's case: @dev links X, which is on @dominion ──
       expect(issue(DEV, A.dominion, "x", "nope").reason).toBe("session_mismatch");
       expect(issue(DEV, A.dev, "x", "t-dev-x").ok).toBe(true);
       // The other side must sign in with the method the ticket names.
-      expect(json(`public.preview_account_link_v1('${hash("t-dev-x")}', '${A.money}')`).reason).toBe("method_mismatch");
-      const preview = json(`public.preview_account_link_v1('${hash("t-dev-x")}', '${A.dominion}')`);
-      expect(preview).toMatchObject({ ok: true, outcome: "fold", into_user_id: DEV, other_user_id: DOMINION, refusal: null });
-      expect(json(`public.complete_account_link_v1('${hash("t-dev-x")}', '${A.dominion}', true, false)`).reason).toBe("fold_disabled");
+      expect(preview("t-dev-x", A.money).reason).toBe("method_mismatch");
+      // The preview names what was proven: the X account, not just the account.
+      expect(preview("t-dev-x", A.dominion)).toMatchObject({
+        ok: true, outcome: "fold", into_user_id: DEV, other_user_id: DOMINION, refusal: null, proof_label: "ownerx",
+      });
+      // What the person confirms must still be true.
+      expect(complete("t-dev-x", A.dominion, "link", null).reason).toBe("preview_changed");
+      expect(complete("t-dev-x", A.dominion, "fold", MONEY).reason).toBe("preview_changed");
+      expect(complete("t-dev-x", A.dominion, "fold", DOMINION, true, false).reason).toBe("fold_disabled");
       expect(resolve(A.dominion)).toBe(DOMINION); // nothing moved, ticket still usable
-      const folded = json(`public.complete_account_link_v1('${hash("t-dev-x")}', '${A.dominion}', true, true)`);
-      expect(folded).toMatchObject({ ok: true, outcome: "folded", user_id: DEV, folded_user_id: DOMINION });
-      expect(json(`public.complete_account_link_v1('${hash("t-dev-x")}', '${A.dominion}', true, true)`).reason).toBe("ticket_used");
+      const folded = complete("t-dev-x", A.dominion, "fold", DOMINION);
+      expect(folded).toMatchObject({
+        ok: true, outcome: "folded", user_id: DEV, folded_user_id: DOMINION,
+        folded_handle: "dominion", into_handle: "dev",
+      });
+      // The folded account's devices are named so the BFF can tell them.
+      expect(folded.notify).toEqual([{ token: "t".repeat(24), platform: "ios" }]);
+      expect(complete("t-dev-x", A.dominion, "fold", DOMINION).reason).toBe("ticket_used");
 
       // X (and Google, on the same sign-in) now land on @dev; the wallet still does.
       expect(resolve(A.dominion)).toBe(DEV);
@@ -284,15 +336,18 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(sql(`SELECT string_agg(follower_user_id || '>' || followee_user_id, ',' ORDER BY follower_user_id, followee_user_id)
                     FROM public.person_follows WHERE '${DEV}' IN (follower_user_id, followee_user_id)`))
         .toBe([`${DEV}>${FRIEND}`, `${DOMINION}>${DEV}`, `${FAN}>${DEV}`].sort().join(","));
-      expect(sql(`SELECT count(*) FROM public.person_follows WHERE follower_user_id = '${DOMINION}'`)).toBe("2");
       expect(sql(`SELECT user_id FROM public.push_tokens`)).toBe(DEV);
       expect(sql(`SELECT user_id FROM public.linked_identities WHERE provider_subject = 'legacy-x-dominion'`)).toBe(DEV);
-      expect(sql(`SELECT count(*) FROM public.account_folds WHERE folded_user_id = '${DOMINION}' AND into_user_id = '${DEV}'`)).toBe("1");
       expect(sql(`SELECT summary ->> 'calls_kept' FROM public.account_folds WHERE folded_user_id = '${DOMINION}'`)).toBe("1");
       expect(sql(`SELECT count(*) FROM public.account_link_audit WHERE action = 'folded' AND user_id = '${DEV}' AND other_user_id = '${DOMINION}'`)).toBe("1");
-      // Append-only history.
-      expect(run("psql", args, `UPDATE public.account_link_audit SET detail = '{}'`).ok).toBe(false);
-      expect(run("psql", args, `DELETE FROM public.account_folds`).ok).toBe(false);
+      expect(fails(`UPDATE public.account_link_audit SET detail = '{}'`).ok).toBe(false);
+      expect(fails(`DELETE FROM public.account_folds`).ok).toBe(false);
+      // A folded account never signs in again, by any path.
+      expect(fails(`UPDATE public.users SET auth_user_id = '${A.stranger}' WHERE id = '${DOMINION}'`).err).toContain("never signs in again");
+      expect(json(`public.bind_wallet_session_v1('${A.stranger}', '${W.stranger}')`).reason).toBe("no_profile");
+      // …and no money session can start on it.
+      expect(fails(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${DOMINION}', 'PREPARING')`).err)
+        .toContain("folded or deleted");
 
       // Settings sees both sign-ins and what each one is.
       const methods = json(`public.account_sign_ins_v1('${DEV}')`) as {
@@ -308,43 +363,48 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
         "google:owner@example.com",
         "x:ownerx",
       ]);
-      expect(methods.wallets.map((w) => w.address)).toEqual([W.dev]);
-      // Find-by-X now finds @dev.
       expect(svc(`SELECT string_agg(user_id::text, ',') FROM public.person_x_identities_v2('ownerx', NULL)`)).toBe(DEV);
-
-      // A folded account cannot start or receive a link.
       expect(issue(DOMINION, A.dominion, "google", "t-folded").reason).toBe("session_mismatch");
 
-      // ── an account with money is never folded ──
-      expect(issue(DEV, A.dev, "google", "t-dev-money").ok).toBe(true);
-      expect(json(`public.preview_account_link_v1('${hash("t-dev-money")}', '${A.money}')`))
-        .toMatchObject({ outcome: "fold", other_user_id: MONEY, refusal: "has_money", money: "funded_call" });
-      expect(json(`public.complete_account_link_v1('${hash("t-dev-money")}', '${A.money}', true, true)`))
-        .toMatchObject({ ok: false, reason: "has_money" });
+      // ── money: never folded, and anything unknowable counts as money ──
+      expect(issue(PLAIN, A.plain, "google", "t-money").ok).toBe(true);
+      expect(preview("t-money", A.money)).toMatchObject({ outcome: "fold", other_user_id: MONEY, refusal: "has_money" });
+      expect(complete("t-money", A.money, "fold", MONEY)).toMatchObject({ ok: false, reason: "has_money", money: "funded_call" });
       expect(resolve(A.money)).toBe(MONEY);
-      sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${PHIL}', 'FAILED')`);
-      expect(sql(`SELECT public.account_money_activity_v1('${PHIL}')`)).toBe("panta_trade");
-      sql(`DELETE FROM public.panta_trade_sessions`);
-      // The Chumbucket wallet is app-held money: an account holding one is never folded.
-      const unlabelled = run("psql", args, chumbucketRow(PHIL));
+      const money = (user: string) => sql(`SELECT coalesce(public.account_money_activity_v1('${user}'), 'none')`);
+      expect(money(ESCROW)).toBe("escrow_challenge");
+      sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at) VALUES ('${ESCROW_W}', '${W.escrow}', 1, now());
+           INSERT INTO public.challenge_participants(wallet_address) VALUES ('${W.escrow}');`);
+      expect(money(ESCROW_W)).toBe("escrow_participant");
+      // The wallet workstream's app-held wallet type is money-bearing. Its label
+      // is refused until its own migration widens the check.
+      const chumbucketRow = `INSERT INTO public.linked_wallets(user_id, wallet_address, wallet_type, siws_proof_version, verified_at)
+             VALUES ('${APP}', '${W.app}', 'chumbucket', 1, now());`;
+      const unlabelled = run("psql", args, chumbucketRow);
       expect(unlabelled.ok).toBe(false);
       expect(unlabelled.err).toContain("linked_wallets_wallet_type_check");
       apply(CHUMBUCKET_TYPE);
       apply(CHUMBUCKET_TYPE); // re-runnable
-      sql(chumbucketRow(PHIL));
-      expect(sql(`SELECT public.account_money_activity_v1('${PHIL}')`)).toBe("app_wallet");
-      expect(issue(DEV, A.dev, "google", "t-dev-chumbucket").ok).toBe(true);
-      expect(json(`public.preview_account_link_v1('${hash("t-dev-chumbucket")}', '${A.phil}')`))
-        .toMatchObject({ outcome: "fold", other_user_id: PHIL, refusal: "has_money", money: "app_wallet" });
-      expect(json(`public.complete_account_link_v1('${hash("t-dev-chumbucket")}', '${A.phil}', true, true)`))
-        .toMatchObject({ ok: false, reason: "has_money", money: "app_wallet" });
-      expect(resolve(A.phil)).toBe(PHIL);
-      expect(sql(`SELECT user_id FROM public.linked_wallets WHERE wallet_address = '${W.chumbucket}'`)).toBe(PHIL);
+      sql(chumbucketRow);
+      expect(money(APP)).toBe("app_wallet");
+      // An account holding the Chumbucket wallet is never folded, and keeps it.
+      expect(issue(PLAIN, A.plain, "google", "t-app").ok).toBe(true);
+      expect(preview("t-app", A.app)).toMatchObject({ outcome: "fold", other_user_id: APP, refusal: "has_money" });
+      expect(complete("t-app", A.app, "fold", APP)).toMatchObject({ ok: false, reason: "has_money", money: "app_wallet" });
+      expect(resolve(A.app)).toBe(APP);
+      expect(sql(`SELECT user_id FROM public.linked_wallets WHERE wallet_address = '${W.app}'`)).toBe(APP);
       // Settings lists it with its label.
-      expect((json(`public.account_sign_ins_v1('${PHIL}')`).wallets as { wallet_type: string }[]).map((w) => w.wallet_type))
+      expect((json(`public.account_sign_ins_v1('${APP}')`).wallets as { wallet_type: string }[]).map((w) => w.wallet_type))
         .toEqual(["chumbucket"]);
-      sql(`DELETE FROM public.linked_wallets WHERE wallet_address = '${W.chumbucket}'`);
-      expect(sql(`SELECT coalesce(public.account_money_activity_v1('${PHIL}'), 'none')`)).toBe("none");
+      expect(money(PLAIN)).toBe("none");
+      for (const tbl of ["claims", "challenge_transactions"]) {
+        sql(`ALTER TABLE public.${tbl} RENAME TO ${tbl}_away`);
+        expect(money(PLAIN)).toBe("unverifiable");
+        sql(`ALTER TABLE public.${tbl}_away RENAME TO ${tbl}`);
+      }
+      sql(`INSERT INTO public.claims(wallet_address) VALUES ('${W.wal2}')`);
+      expect(money(WAL2)).toBe("prediction_claim");
+      sql(`DELETE FROM public.claims`);
 
       // ── a wallet linked to an X account: its first sign-in lands there ──
       expect(json(`public.attach_verified_wallet_v1('${XONLY}', '${W.xonly}', 1::smallint)`).outcome).toBe("linked");
@@ -356,18 +416,27 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(json(`public.resolve_wallet_sign_in_v1('${A.stranger}', '${W.stranger}')`).reason).toBe("no_link");
       // A link the audit trail does not back (a legacy repoint) counts for nothing.
       sql(`INSERT INTO public.linked_wallets(user_id, wallet_address, siws_proof_version, verified_at)
-             VALUES ('${PHIL}', '${W.repointed}', 1, now());
+             VALUES ('${PLAIN}', '${W.repointed}', 1, now());
            INSERT INTO public.wallet_link_audit(wallet_address, action, to_user_id) VALUES ('${W.repointed}', 'linked', '${MONEY}');`);
       expect(json(`public.resolve_wallet_sign_in_v1('${A.repointed}', '${W.repointed}')`).reason).toBe("no_link");
       sql(`DELETE FROM public.linked_wallets WHERE wallet_address = '${W.repointed}'`);
       // A wallet that signs in to one account is a conflict for any other.
       expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${XONLY}', '${W.dev}')`)).toBe("t");
       expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${DEV}', '${W.dev}')`)).toBe("f");
-      expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${XONLY}', '${W.stranger}')`)).toBe("f");
-
       // A sign-in that is an additional one can never also become a primary.
       expect(create(A.xonlyWallet, "Dup", "dupe", null).ok).toBe(false);
       expect(sql(`SELECT count(*) FROM public.users WHERE handle = 'dupe'`)).toBe("0");
+
+      // ── only an account's own first sign-in can fold it ──
+      expect(json(`public.attach_verified_wallet_v1('${PLAIN}', '${W.bare}', 1::smallint)`).outcome).toBe("linked");
+      expect(issue(DEV, A.dev, "wallet", "t-bare").ok).toBe(true);
+      expect(preview("t-bare", A.bare)).toMatchObject({
+        outcome: "fold", other_user_id: PLAIN, refusal: "not_primary_sign_in", proof_label: W.bare,
+      });
+      expect(complete("t-bare", A.bare, "fold", PLAIN).reason).toBe("not_primary_sign_in");
+      expect(resolve(A.plain)).toBe(PLAIN);
+      expect(issue(PLAIN, A.plain, "wallet", "t-extra").ok).toBe(true);
+      expect(complete("t-extra", A.xonlyWallet, "fold", XONLY).reason).toBe("not_primary_sign_in");
 
       // ── unlink ──
       const unlinkWallet = (user: string, session: string, wallet: string) =>
@@ -376,55 +445,60 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(unlinkWallet(DEV, A.dev, W.dev).reason).toBe("current_sign_in");
       expect(unlinkWallet(DEV, A.dominion, W.dev).reason).toBe("primary_sign_in");
       expect(unlinkWallet(DEV, A.xonly, W.dev).reason).toBe("session_mismatch");
+      // The legacy wallet column never keeps naming a wallet the account let go.
+      sql(`UPDATE public.users SET wallet_address = '${W.xonly}' WHERE id = '${XONLY}'`);
       expect(unlinkWallet(XONLY, A.xonly, W.xonly)).toMatchObject({ ok: true, sign_ins: 1, wallets: 1 });
+      expect(sql(`SELECT coalesce(wallet_address, 'none') FROM public.users WHERE id = '${XONLY}'`)).toBe("none");
       expect(resolve(A.xonlyWallet)).toBeNull();
       expect(json(`public.resolve_wallet_sign_in_v1('${A.xonlyWallet}', '${W.xonly}')`).reason).toBe("no_link");
-      const signInOf = (auth: string) =>
-        sql(`SELECT id FROM public.account_sign_ins WHERE auth_user_id = '${auth}' AND revoked_at IS NULL`);
-      const dominionSignIn = signInOf(A.dominion);
+      const dominionSignIn = sql(`SELECT id FROM public.account_sign_ins WHERE auth_user_id = '${A.dominion}' AND revoked_at IS NULL`);
       expect(json(`public.unlink_sign_in_v1('${DEV}', '${A.dominion}', '${dominionSignIn}', NULL)`).reason).toBe("current_sign_in");
 
       // ── a sign-in with no account becomes an additional sign-in ──
       expect(issue(XONLY, A.xonly, "google", "t-xonly-google").ok).toBe(true);
-      expect(json(`public.preview_account_link_v1('${hash("t-xonly-google")}', '${A.googleNew}')`).outcome).toBe("link");
-      expect(json(`public.complete_account_link_v1('${hash("t-xonly-google")}', '${A.googleNew}', false, true)`).reason).toBe("linking_disabled");
-      expect(json(`public.complete_account_link_v1('${hash("t-xonly-google")}', '${A.googleNew}', true, false)`).outcome).toBe("linked");
+      expect(preview("t-xonly-google", A.googleNew)).toMatchObject({ outcome: "link", proof_label: "new@example.com" });
+      expect(complete("t-xonly-google", A.googleNew, "link", null, false, true).reason).toBe("linking_disabled");
+      expect(complete("t-xonly-google", A.googleNew, "link", null, true, false).outcome).toBe("linked");
       expect(resolve(A.googleNew)).toBe(XONLY);
-      // Tickets: one live per account, ten a minute.
+      // Tickets: one live per account.
       expect(issue(XONLY, A.xonly, "x", "t-a").ok).toBe(true);
       expect(issue(XONLY, A.xonly, "x", "t-b").ok).toBe(true);
-      expect(json(`public.preview_account_link_v1('${hash("t-a")}', '${A.xonly}')`).reason).toBe("ticket_used");
+      expect(preview("t-a", A.xonly).reason).toBe("ticket_used");
 
-      // ── fold through a wallet that was linked but never signed in ──
-      expect(json(`public.attach_verified_wallet_v1('${PHIL}', '${W.phil}', 1::smallint)`).outcome).toBe("linked");
-      expect(issue(DEV, A.dev, "wallet", "t-dev-wallet").ok).toBe(true);
-      expect(json(`public.preview_account_link_v1('${hash("t-dev-wallet")}', '${A.philWallet}')`))
-        .toMatchObject({ outcome: "fold", other_user_id: PHIL, refusal: null });
-      expect(json(`public.complete_account_link_v1('${hash("t-dev-wallet")}', '${A.philWallet}', true, true)`).outcome).toBe("folded");
-      expect(resolve(A.philWallet)).toBe(DEV);
-      expect(resolve(A.phil)).toBe(DEV);
-      expect(sql(`SELECT user_id FROM public.linked_wallets WHERE wallet_address = '${W.phil}'`)).toBe(DEV);
+      // ── a wallet-made account folds by its own wallet; its wallet column moves ──
+      expect(issue(XONLY, A.xonly, "wallet", "t-phil").ok).toBe(true);
+      expect(preview("t-phil", A.phil)).toMatchObject({ outcome: "fold", other_user_id: PHIL, refusal: null });
+      expect(complete("t-phil", A.phil, "fold", PHIL).outcome).toBe("folded");
+      expect(resolve(A.phil)).toBe(XONLY);
+      expect(sql(`SELECT coalesce(wallet_address, 'none') FROM public.users WHERE id = '${PHIL}'`)).toBe("none");
+      expect(sql(`SELECT wallet_address FROM public.users WHERE id = '${XONLY}'`)).toBe(W.phil);
+      expect(sql(`SELECT user_id FROM public.linked_wallets WHERE wallet_address = '${W.phil}'`)).toBe(XONLY);
       expect(sql(`SELECT action || ':' || to_user_id FROM public.wallet_link_audit WHERE wallet_address = '${W.phil}' ORDER BY created_at DESC LIMIT 1`))
-        .toBe(`transferred:${DEV}`);
-      // After the fold the audit backs @dev, so the wallet's link is proven for @dev.
-      expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${DEV}', '${W.phil}')`)).toBe("f");
+        .toBe(`transferred:${XONLY}`);
+      // Two legacy wallet columns: refused rather than orphan one.
+      expect(issue(XONLY, A.xonly, "wallet", "t-wal2").ok).toBe(true);
+      expect(preview("t-wal2", A.wal2).refusal).toBe("wallet_conflict");
+      expect(complete("t-wal2", A.wal2, "fold", WAL2).reason).toBe("wallet_conflict");
+      // A live account still opens money sessions.
+      sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${XONLY}', 'PREPARING')`);
 
-      // Now @dev can unlink the folded sign-in (signed in with the wallet).
-      expect(json(`public.unlink_sign_in_v1('${DEV}', '${A.dev}', '${dominionSignIn}', NULL)`)).toMatchObject({ ok: true, sign_ins: 1 });
-      expect(resolve(A.dominion)).toBeNull();
-
-      // ── a deleted account is reached by none of its sign-ins ──
-      expect(json(`public.delete_account_v1('${DEV}', '${A.dev}')`).outcome).toBe("deleted");
+      // ── deletion: the whole person, from any sign-in ──
+      expect(json(`public.delete_account_v2('${XONLY}', '${A.dominion}')`).reason).toBe("session_mismatch");
+      const deleted = json(`public.delete_account_v2('${DEV}', '${A.dominion}')`);
+      expect(deleted).toMatchObject({ ok: true, outcome: "deleted", user_id: DEV, folded_user_ids: [DOMINION] });
+      expect((deleted.auth_user_ids as string[]).sort()).toEqual([A.dev, A.dominion].sort());
       expect(resolve(A.dev)).toBeNull();
-      expect(resolve(A.philWallet)).toBeNull();
-      expect(resolve(A.phil)).toBeNull();
-      // …and is free to start a new account, or to be linked to another one.
-      expect(create(A.phil, "Phil Again", "phil_again", null).outcome).toBe("created");
-      expect(resolve(A.phil)).toBe(id("phil_again"));
-      expect(issue(XONLY, A.xonly, "wallet", "t-after-delete").ok).toBe(true);
-      expect(json(`public.complete_account_link_v1('${hash("t-after-delete")}', '${A.philWallet}', true, false)`).outcome).toBe("linked");
-      expect(resolve(A.philWallet)).toBe(XONLY);
-      expect(sql(`SELECT count(*) FROM public.account_sign_ins WHERE revoked_reason = 'account_deleted'`)).toBe("1");
+      expect(resolve(A.dominion)).toBeNull();
+      expect(sql(`SELECT full_name || ' ' || coalesce(handle, '') || ' ' || (deleted_at IS NOT NULL) FROM public.users WHERE id = '${DOMINION}'`))
+        .toMatch(/^Deleted account deleted_[0-9a-f]+ true$/);
+      expect(sql(`SELECT user_id FROM public.calls WHERE id = '${CALL}'`)).toBe(DOMINION); // calls stay
+      const retried = json(`public.delete_account_v2(NULL, '${A.dev}')`);
+      expect(retried).toMatchObject({ ok: true, outcome: "already_deleted", user_id: DEV });
+      expect((retried.auth_user_ids as string[]).sort()).toEqual([A.dev, A.dominion].sort());
+      expect(json(`public.delete_account_v2(NULL, '${A.dominion}')`).outcome).toBe("already_deleted");
+      // …and a deleted account's sign-ins are free to start again.
+      expect(create(A.dominion, "Again", "again", null).outcome).toBe("created");
+      apply(MIGRATION); // still re-runnable with data in place
     } finally {
       if (started) run("pg_ctl", ["-D", data, "-m", "immediate", "stop"]);
       rmSync(root, { recursive: true, force: true });

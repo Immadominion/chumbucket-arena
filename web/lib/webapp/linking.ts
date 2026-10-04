@@ -44,16 +44,36 @@ export interface AccountSummary {
 
 export interface LinkPreview {
   outcome: "already" | "link" | "fold";
+  /** What the other side's sign-in proved: shown before Link/Move. */
+  proof: { kind: MethodKind; label: string | null };
   into: AccountSummary;
   from: AccountSummary | null;
-  refusal: "ACCOUNT_HAS_MONEY" | "ACCOUNT_FOLD_DISABLED" | null;
+  /** Sent back with the confirm: the server refuses if it changed. */
+  otherUserId: string | null;
+  refusal:
+    | "ACCOUNT_HAS_MONEY"
+    | "ACCOUNT_FOLD_DISABLED"
+    | "ACCOUNT_NOT_FOLDABLE"
+    | "FOLD_NEEDS_PRIMARY_SIGN_IN"
+    | "FOLD_WALLET_CONFLICT"
+    | null;
+}
+
+/** What the person confirms: exactly what the preview showed them. */
+export function expectationOf(p: LinkPreview): { outcome: LinkPreview["outcome"]; otherUserId: string | null } {
+  return { outcome: p.outcome, otherUserId: p.otherUserId };
 }
 
 export const KINDS: readonly MethodKind[] = ["wallet", "x", "google"];
 
 export const KIND_NAME: Record<MethodKind, string> = { wallet: "Wallet", x: "X", google: "Google" };
 
-/** Where an OAuth proof window lands: inside /app, so the redirect allow-list already covers it. */
+/**
+ * Where an OAuth proof window lands: inside /app, so the redirect allow-list
+ * already covers it. It carries the attempt's nonce and, from Supabase, a
+ * one-time PKCE code — useless without the verifier held in the asking
+ * page's memory. Never a token.
+ */
 export const LINK_CALLBACK_PATH = "/app/link";
 /** The channel the proof window answers on (BroadcastChannel survives a provider's opener policy). */
 export const LINK_CHANNEL = "cb-sign-in-link";
@@ -85,6 +105,12 @@ export function linkCopy(code: string): string {
       return "It has trades, so it stays separate. Sign in to it and link from there.";
     case "ACCOUNT_NOT_FOLDABLE":
       return "That account can’t be moved.";
+    case "FOLD_NEEDS_PRIMARY_SIGN_IN":
+      return "Sign in with the way that account started to move it.";
+    case "FOLD_WALLET_CONFLICT":
+      return "Both accounts have a wallet, so they stay separate.";
+    case "LINK_PREVIEW_CHANGED":
+      return "Something changed. Try again.";
     case "LINK_TICKET_INVALID":
       return "That took too long. Try again.";
     case "LINK_METHOD_MISMATCH":

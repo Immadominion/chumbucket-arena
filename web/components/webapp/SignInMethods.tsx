@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BffRejected, BffSignedOut } from "@/lib/webapp/bff";
 import {
   accountName,
+  expectationOf,
   KIND_NAME,
   KINDS,
   linkCopy,
@@ -174,7 +175,8 @@ export function SignInMethods() {
   const finish = async (m: Extract<Move, { stage: "preview" }>) => {
     setMove({ ...m, stage: "moving" });
     try {
-      const done = await auth.api.completeSignInLink(m.proof, m.ticket);
+      // Exactly what the person was shown: if it changed, nothing happens.
+      const done = await auth.api.completeSignInLink(m.proof, m.ticket, expectationOf(m.preview));
       toast(done.outcome === "folded" ? `${accountName(m.preview.from)} moved here` : `${KIND_NAME[m.method]} linked`);
       if (done.outcome === "folded") void qc.invalidateQueries();
       await load();
@@ -378,8 +380,11 @@ function MoveBody({
   const refusal = preview.outcome === "fold" ? preview.refusal : null;
   return (
     <div className="wa-move">
-      <div className="wa-move-pair">
-        {preview.from ? <b>{accountName(preview.from)}</b> : <KindMark kind={move.method} />}
+      {/* What was proven, then where it goes: "@handle → @account". */}
+      <div className="wa-move-pair" data-testid="link-proof">
+        <KindMark kind={preview.proof.kind} />
+        <b>{methodLabel({ kind: preview.proof.kind, label: preview.proof.label })}</b>
+        {preview.from ? <span className="wa-move-from">{accountName(preview.from)}</span> : null}
         <Icon name="arrow-right" size={20} />
         <b>{accountName(preview.into)}</b>
       </div>
