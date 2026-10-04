@@ -100,7 +100,7 @@ export function ResponseSheet({
             onChange={(e) => setText(e.target.value)}
             placeholder={kind === "challenge" ? "Say something…" : "Why?"}
           />
-          <span className="wa-counter" aria-live="polite">
+          <span className={`wa-counter${text.length > MAX ? " wa-counter--over" : ""}`} aria-live="polite">
             {text.length}/{MAX}
           </span>
         </div>

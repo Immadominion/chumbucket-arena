@@ -17,6 +17,7 @@ import {
   lockedPrice,
   outcomeLabel,
   outcomeOf,
+  shortDay,
   sideLabel,
   stamp,
   takesCalls,
@@ -173,7 +174,15 @@ function CallBody({ detail }: { detail: CallDetail }) {
               <strong>{outcomeLabel(outcome)}</strong>
               <span>
                 Panta settled {result?.resolution === "VOID" ? "it void" : result?.resolution ? sideLabel(market, result.resolution) : "it"}
-                {result?.resolvedAt ? ` · ${stamp(result.resolvedAt)}` : ""}
+                {result?.resolvedAt ? (
+                  // The day here; the exact instant on hover, to a screen reader, and on the receipt.
+                  <>
+                    {" · "}
+                    <time dateTime={new Date(result.resolvedAt).toISOString()} title={stamp(result.resolvedAt)} style={{ whiteSpace: "nowrap" }}>
+                      {shortDay(result.resolvedAt, now)}
+                    </time>
+                  </>
+                ) : null}
               </span>
             </div>
             {call.visibility === "public" ? (
@@ -186,21 +195,35 @@ function CallBody({ detail }: { detail: CallDetail }) {
         ) : null}
 
         {!own && open ? (
-          <div className="wa-respond">
-            <button type="button" className="wa-respond-btn wa-respond-btn--back" disabled={!answerable} onClick={() => setResponding("back")}>
-              <span className="wa-respond-ico">
-                <Icon name="plus" size={22} />
-              </span>
-              Back
-              <small>{sideLabel(market, call.side)}</small>
-            </button>
-            <button type="button" className="wa-respond-btn wa-respond-btn--fade" disabled={!answerable} onClick={() => setResponding("fade")}>
-              <span className="wa-respond-ico">
-                <Icon name="exchange" size={22} />
-              </span>
-              Fade
-              <small>{sideLabel(market, call.side === "YES" ? "NO" : "YES")}</small>
-            </button>
+          // Back and Fade only where the BFF takes them: once you have a call
+          // on this market, that tile opens the market (your call is there).
+          <div className={`wa-respond${answerable ? "" : " wa-respond--two"}`}>
+            {answerable ? (
+              <>
+                <button type="button" className="wa-respond-btn wa-respond-btn--back" onClick={() => setResponding("back")}>
+                  <span className="wa-respond-ico">
+                    <Icon name="plus" size={22} />
+                  </span>
+                  Back
+                  <small>{sideLabel(market, call.side)}</small>
+                </button>
+                <button type="button" className="wa-respond-btn wa-respond-btn--fade" onClick={() => setResponding("fade")}>
+                  <span className="wa-respond-ico">
+                    <Icon name="exchange" size={22} />
+                  </span>
+                  Fade
+                  <small>{sideLabel(market, call.side === "YES" ? "NO" : "YES")}</small>
+                </button>
+              </>
+            ) : entry.viewerHasCalled ? (
+              <Link href={appPath.market(market.id)} className="wa-respond-btn wa-respond-btn--back" aria-label="You’ve called this market. Open it">
+                <span className="wa-respond-ico">
+                  <Icon name="check-solid" size={22} />
+                </span>
+                Called
+                <small>See market</small>
+              </Link>
+            ) : null}
             <button type="button" className="wa-respond-btn wa-respond-btn--dare" onClick={() => setResponding("challenge")}>
               <span className="wa-respond-ico">
                 <Icon name="lightning" size={22} />
@@ -209,12 +232,6 @@ function CallBody({ detail }: { detail: CallDetail }) {
               <small>Free</small>
             </button>
           </div>
-        ) : null}
-        {!own && entry.viewerHasCalled && !settled ? (
-          <p className="wa-stamp" style={{ color: "var(--wa-yes-ink)" }}>
-            <Icon name="check-solid" size={15} />
-            You’re on record here
-          </p>
         ) : null}
         {own && detail.updatesAvailable && !settled ? (
           <button type="button" className="wa-btn wa-btn--soft wa-btn--sm" style={{ marginTop: 16 }} onClick={() => setUpdating(true)}>

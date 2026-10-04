@@ -51,6 +51,7 @@ import {
   lockedPrice,
   recordA11y,
   recordToken,
+  shortDay,
   shortWallet,
   stamp,
   takesCalls,
@@ -331,6 +332,12 @@ describe("web app formatting", () => {
     expect(ago(Date.UTC(2026, 8, 3), NOW)).toBe("3 Sep");
     expect(stamp(Date.UTC(2026, 9, 3, 14, 5))).toBe("3 Oct 2026, 14:05 UTC");
     expect(joined(Date.UTC(2026, 7, 20))).toBe("Joined Aug 2026");
+  });
+
+  test("a day for a band or a chip is short; the year shows only when it is not this one", () => {
+    expect(shortDay(Date.UTC(2026, 9, 1, 7, 50), NOW)).toBe("1 Oct");
+    expect(shortDay(Date.UTC(2025, 11, 31, 23, 59), NOW)).toBe("31 Dec 2025");
+    expect(stamp(Date.UTC(2026, 9, 1, 7, 50))).toBe("1 Oct 2026, 07:50 UTC");
   });
 
   test("a record is counts until enough calls settle, then an accuracy the BFF sent", () => {
@@ -725,6 +732,27 @@ describe("web app rules", () => {
     // Old challenge links keep rendering.
     expect(config).toContain("/legacy-challenge/:challengeId");
     expect(existsSync(join(WEB, "app/legacy-challenge/[challengeId]/page.tsx"))).toBe(true);
+  });
+
+  test("a call you can no longer answer shows no inert Back or Fade", () => {
+    const screen = readCode(join(WEB, "components/webapp/screens/CallScreen.tsx"));
+    // Back and Fade render only where the BFF would take them…
+    expect(screen).toMatch(/\{answerable \? \(/);
+    expect(screen).toContain("wa-respond--two");
+    // …so none of the response tiles is ever a disabled button that looks live.
+    for (const m of screen.matchAll(/<button[^>]*wa-respond-btn[^>]*>/g)) expect(m[0]).not.toContain("disabled");
+  });
+
+  test("a settled or closed market offers no trade, and shows your result", () => {
+    const screen = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
+    expect(screen).toMatch(/\{viewerCall && open && market\.venue === "panta"/);
+    expect(screen).toContain("{outcomeLabel(mine)}");
+  });
+
+  test("the way in says offline only when the network is the reason", () => {
+    const session = readCode(join(WEB, "components/webapp/session.tsx"));
+    expect(session).toMatch(/e instanceof BffOffline\s*\?\s*\{ offline: true, line: "You’re offline" \}/);
+    expect(session).toContain("offline: false");
   });
 
   test("the web app is not indexed (it is per account)", () => {

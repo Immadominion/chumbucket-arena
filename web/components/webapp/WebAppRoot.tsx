@@ -34,12 +34,19 @@ function Gate({ children }: { children: React.ReactNode }) {
       return <ClaimScreen mode="new" />;
     case "needsHandle":
       return <ClaimScreen mode="handle" />;
-    case "offline":
+    case "offline": {
+      // "Offline" only when the network is the reason; a BFF failure gets the error art and its own line.
+      const offline = auth.failure?.offline ?? true;
       return (
         <main className="wa-door-panel" style={{ justifyContent: "center" }}>
-          <StateScreen art="offline" line="You’re offline" action={{ label: "Try again", onClick: auth.retry }} />
+          <StateScreen
+            art={offline ? "offline" : "error"}
+            line={auth.failure?.line ?? "You’re offline"}
+            action={{ label: "Try again", onClick: auth.retry }}
+          />
         </main>
       );
+    }
     case "ready":
       return (
         <DataProvider userId={auth.identity!.userId}>

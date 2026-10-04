@@ -115,7 +115,10 @@ export function ActivityScreen() {
                     <span className="wa-person-meta" style={{ flex: "none", display: "flex", alignItems: "center", gap: 6 }}>
                       {ago(n.createdAt, now)}
                       {n.readAt === null ? (
-                        <span aria-label="New" style={{ width: 8, height: 8, borderRadius: 4, background: "var(--wa-coral)" }} />
+                        <>
+                          <span aria-hidden style={{ width: 8, height: 8, borderRadius: 4, background: "var(--wa-coral)" }} />
+                          <span className="wa-sr">New</span>
+                        </>
                       ) : null}
                     </span>
                   </Link>

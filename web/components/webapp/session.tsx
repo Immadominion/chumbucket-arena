@@ -46,8 +46,16 @@ export interface ProfileHints {
   username: string;
 }
 
+/** Why the first identity check could not finish: the network, or the BFF (with its line). */
+export interface AuthFailure {
+  offline: boolean;
+  line: string;
+}
+
 interface AuthContextValue {
   status: AuthStatus;
+  /** Set while `status` is "offline": what stopped the first identity check. */
+  failure: AuthFailure | null;
   identity: Identity | null;
   hints: ProfileHints;
   error: string | null;
@@ -109,6 +117,7 @@ const authedCaller = async <T,>(path: string, input: unknown, kind: "query" | "m
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const [failure, setFailure] = useState<AuthFailure | null>(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [hints, setHints] = useState<ProfileHints>({ name: "", username: "" });
   const [error, setError] = useState<string | null>(null);
@@ -153,8 +162,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStatus("signedOut");
           return;
         }
-        // Offline or the BFF failed: never a reason to sign anyone out.
-        if (!background) setStatus("offline");
+        // Offline or the BFF failed: never a reason to sign anyone out. Say
+        // which, truthfully: "offline" only when the request never completed.
+        if (!background) {
+          setFailure(
+            e instanceof BffOffline
+              ? { offline: true, line: "You’re offline" }
+              : { offline: false, line: e instanceof BffRejected ? identityCopy(e.message) : "Couldn’t reach Chumbucket" },
+          );
+          setStatus("offline");
+        }
       }
     },
     [api, adopt],
@@ -354,6 +371,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextValue = {
     status,
+    failure,
     identity,
     hints,
     error,

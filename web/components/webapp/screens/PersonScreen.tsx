@@ -125,8 +125,8 @@ function ProfileBody({ detail, self, onEdit }: { detail: PersonDetail; self: boo
           <div style={{ margin: "18px 0 12px" }}>
             <Segmented
               options={[
-                { id: "open", label: `Open ${open.length || ""}`.trim() },
-                { id: "settled", label: `Settled ${settled.length || ""}`.trim() },
+                { id: "open", label: "Open" },
+                { id: "settled", label: "Settled" },
               ]}
               value={tab}
               onChange={setTab}

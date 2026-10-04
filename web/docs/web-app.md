@@ -65,8 +65,9 @@ Markets filters, Friends tab, leaderboard window) are remembered too.
 
 The web app signs nothing but the sign-in message. Trading on Panta and
 adding funds are in the Android app: a market you have called offers "Trade
-on Panta", which explains that trades use real USDC and can lose money and
-links to the app.
+on Panta" while it is still open, which explains that trades use real USDC
+and can lose money and links to the app. A settled or closed market offers
+no trade.
 
 ## Owner actions before linking it
 

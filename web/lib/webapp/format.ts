@@ -76,6 +76,17 @@ export function stamp(ms: number): string {
   return `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}, ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} UTC`;
 }
 
+/**
+ * A day for a chip or a band, where the exact instant would crowd the line:
+ * "3 Oct" this year, "3 Oct 2025" otherwise. The exact instant (`stamp`) goes
+ * in the accessible label and on the public receipt.
+ */
+export function shortDay(ms: number, now: number): string {
+  const t = new Date(ms);
+  const day = `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]}`;
+  return t.getUTCFullYear() === new Date(now).getUTCFullYear() ? day : `${day} ${t.getUTCFullYear()}`;
+}
+
 /** "Joined Oct 2026". */
 export function joined(ms: number | null | undefined): string | null {
   if (!ms) return null;

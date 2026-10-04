@@ -3,17 +3,33 @@
 /**
  * A market: the question, YES and NO with Panta's prices, and a free call in
  * one tap. Tap a side, then Lock. Once you are on record the community split
- * opens (the BFF sends it only then). The rules and the venue sit behind one
- * disclosure; trading is in the app.
+ * opens (the BFF sends it only then), and once Panta settles it your result
+ * shows there too. A market that no longer takes calls shows no YES / NO and
+ * offers no trade (its chip says closed or settled). The rules and the venue
+ * sit behind one disclosure; trading is in the app.
  */
 
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { closesIn, closingSoon, livePrice, lockedPrice, sideLabel, stamp, takesCalls, topicIcon, topicLabel } from "@/lib/webapp/format";
+import {
+  closesIn,
+  closingSoon,
+  livePrice,
+  lockedPrice,
+  outcomeLabel,
+  outcomeOf,
+  shortDay,
+  sideLabel,
+  stamp,
+  takesCalls,
+  topicIcon,
+  topicLabel,
+} from "@/lib/webapp/format";
 import { appPath, publicPath } from "@/lib/webapp/paths";
-import type { CallVisibility, MarketDetail, Side } from "@/lib/webapp/types";
+import { retryAfterPriceRefresh } from "@/lib/webapp/prices";
+import type { CallOutcome, CallVisibility, MarketDetail, Side } from "@/lib/webapp/types";
 import { GET_APP_HREF } from "@/components/site/config";
 import { useShare } from "../cards";
 import { actionError, useNow, useToast } from "../data";
@@ -24,7 +40,8 @@ import { Sheet, Spinner, TopBar } from "../ui";
 import { screenError } from "./common";
 
 const MAX = 280;
-const STALE_PRICE = /prices are missing or stale/i;
+/** Your call's band: locked while open, then the result's own mark (as on the receipt). */
+const RESULT_ICON: Record<CallOutcome, string> = { PENDING: "lock-solid", CORRECT: "check-solid", INCORRECT: "cross", VOID: "cancel" };
 
 export function MarketScreen({ marketId }: { marketId: string }) {
   const q = useMarket(marketId, { live: true });
@@ -80,7 +97,13 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
   }, [viewerCall]);
 
   const lock = useMutation({
-    mutationFn: async () => api.createCall({ marketId: market.id, side: pick!, thesis: thesis.trim() || null, visibility }),
+    // A price that just lapsed: re-read the market quietly and lock once more,
+    // as the app does. Only a second refusal says anything (one quiet line).
+    mutationFn: () =>
+      retryAfterPriceRefresh(
+        () => api.createCall({ marketId: market.id, side: pick!, thesis: thesis.trim() || null, visibility }),
+        refetch,
+      ),
     onSuccess: (entry) => {
       afterCall(entry, market.id);
       toast("You’re on record");
@@ -88,15 +111,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
       setThesis("");
       setWriting(false);
     },
-    onError: (e) => {
-      // A price that just aged out: fetch a fresh one quietly, and say only that it is updating.
-      if (e instanceof Error && STALE_PRICE.test(e.message)) {
-        void refetch();
-        toast("Prices are updating. Try again in a moment.", "error");
-        return;
-      }
-      toast(actionError(e), "error");
-    },
+    onError: (e) => toast(actionError(e), "error"),
   });
 
   const big = (side: Side) => {
@@ -118,6 +133,8 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
   };
 
   const total = crowdSplit ? crowdSplit.yesCalls + crowdSplit.noCalls : 0;
+  /** Your call's result here, once Panta settles the market. */
+  const mine = viewerCall ? outcomeOf(viewerCall) : "PENDING";
 
   return (
     <>
@@ -127,30 +144,34 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
             <Icon name={topicIcon(market.category)} size={14} />
             {topicLabel(market.category)}
           </span>
-          {open && left ? (
+          {!open ? (
+            <span className="wa-chip">
+              <Icon name="lock" size={14} />
+              {market.status === "RESOLVED" ? "Settled" : "Closed"}
+            </span>
+          ) : left ? (
             <span className={`wa-chip${closingSoon(market.closesAt, now) ? " wa-chip--hot" : ""}`}>
               <Icon name="timer" size={14} />
               <span className="wa-sr">Closes in </span>
               {left}
             </span>
-          ) : (
-            <span className="wa-chip">
-              <Icon name="lock" size={14} />
-              {market.status === "RESOLVED" ? "Settled" : "Closed"}
-            </span>
-          )}
+          ) : null}
         </div>
         <h1 className="wa-question">{market.question}</h1>
 
         {viewerCall ? (
           <>
-            <div className="wa-onrecord">
-              <Icon name="lock-solid" size={22} />
+            <div className={`wa-onrecord wa-onrecord--${mine}`}>
+              <Icon name={RESULT_ICON[mine]} size={22} />
               <div className="wa-onrecord-text">
                 <strong>You called {sideLabel(market, viewerCall.call.side)}</strong>
                 <span>
+                  {mine !== "PENDING" ? <b className="wa-onrecord-result">{outcomeLabel(mine)} · </b> : null}
                   {lockedPrice(viewerCall.call) ? `${lockedPrice(viewerCall.call)} · ` : ""}
-                  {stamp(viewerCall.call.lockedAt)}
+                  <time dateTime={new Date(viewerCall.call.lockedAt).toISOString()} title={stamp(viewerCall.call.lockedAt)}>
+                    <span className="wa-sr">Locked </span>
+                    {shortDay(viewerCall.call.lockedAt, now)}
+                  </time>
                 </span>
               </div>
               <Link className="wa-iconbtn" href={appPath.call(viewerCall.call.id)} aria-label="Open your call">
@@ -169,12 +190,12 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
               </div>
             ) : null}
           </>
-        ) : (
+        ) : open ? (
           <div className="wa-bigpicks">
             {big("YES")}
             {big("NO")}
           </div>
-        )}
+        ) : null}
 
         {pick ? (
           <div className="wa-lockbar">
@@ -189,8 +210,12 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
                   value={thesis}
                   maxLength={MAX + 20}
                   placeholder="Why?"
+                  aria-describedby="wa-thesis-count"
                   onChange={(e) => setThesis(e.target.value)}
                 />
+                <span id="wa-thesis-count" className={`wa-counter${thesis.length > MAX ? " wa-counter--over" : ""}`} aria-live="polite">
+                  {thesis.length}/{MAX}
+                </span>
               </div>
             ) : null}
             <div className="wa-lockbar-row">
@@ -253,7 +278,8 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
         </div>
       </details>
 
-      {viewerCall && market.venue === "panta" ? (
+      {/* Trading is offered only while the market is open: a settled or closed market has nothing to trade. */}
+      {viewerCall && open && market.venue === "panta" ? (
         <button type="button" className="wa-disclosure" style={{ width: "100%", textAlign: "left" }} onClick={() => setTrading(true)}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "0 16px", fontWeight: 600, width: "100%" }}>
             <Icon name="wallet" size={20} />
