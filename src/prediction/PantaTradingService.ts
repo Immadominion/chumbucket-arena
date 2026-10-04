@@ -37,16 +37,19 @@ export class PantaTradingService {
   }
   /**
    * The signing wallet must be the account's own: an active, SIWS-proven link,
-   * or the wallet this very session signed in with. Checked on every prepare,
-   * a replay included, before any reservation or provider read; a wallet whose
-   * links cannot be read is refused, never assumed.
+   * or — with no link row at all — the wallet this very session signed in with.
+   * A revoked link outranks the session: the person unlinked it. Checked on
+   * every prepare (a replay included) before any reservation or provider read,
+   * and again on submit before anything is broadcast. Unreadable links are
+   * refused, never assumed.
    */
   private async assertOwnWallet(userId: string, wallet: string, session: PantaPrepareSession): Promise<void> {
-    if (session.signInWallet && session.signInWallet === wallet) return;
-    let owns: boolean;
-    try { owns = await this.deps.wallets.owns(userId, wallet); }
+    let status: Awaited<ReturnType<AccountWallets["status"]>>;
+    try { status = await this.deps.wallets.status(userId, wallet); }
     catch { throw new VenueError("VENUE_UNAVAILABLE", "We couldn't confirm this wallet is yours. Try again in a moment", { venue: "panta" }); }
-    if (!owns) throw new VenueError("WALLET_NOT_LINKED", WALLET_NOT_LINKED_COPY, { venue: "panta" });
+    if (status === "active") return;
+    if (status === "none" && session.signInWallet === wallet) return;
+    throw new VenueError("WALLET_NOT_LINKED", WALLET_NOT_LINKED_COPY, { venue: "panta" });
   }
   async prepare(userId: string, input: PantaPrepareInput, session: PantaPrepareSession = {}): Promise<{ order: PantaPreparedOrder["order"]; review: PantaPreparedOrder["review"] }> {
     if (!/^[1-9][0-9]{0,15}$/.test(input.amountBaseUnits) || BigInt(input.amountBaseUnits) > BigInt(this.deps.maxAmountBaseUnits)) return refuse("Enter a positive USDC amount within the server trade limit");
@@ -109,9 +112,11 @@ export class PantaTradingService {
     // No signed bytes, provider binding, or another person's position leaves the ledger.
     return { order: row ? this.view(row) : null };
   }
-  async submit(userId: string, orderId: string, signedPayload: string): Promise<VenueOrder> {
+  async submit(userId: string, orderId: string, signedPayload: string, session: PantaPrepareSession = {}): Promise<VenueOrder> {
     let row = await this.own(userId, orderId);
     if (row.state === "FAILED") return refuse("This Panta order failed; review a new intent");
+    // Still the account's own wallet: a link revoked since prepare stops the broadcast.
+    if (row.state !== "FILLED") await this.assertOwnWallet(userId, row.wallet_address, session);
     const tx = validateSignedPantaTransaction(signedPayload, row.wallet_address, row.prepared!.binding.messageHash);
     if (row.signature !== null && (row.signature !== tx.signature || row.signed_transaction !== signedPayload)) return refuse("This intent already approved a different transaction");
     if (row.state === "FILLED") return this.view(row);

@@ -56,7 +56,7 @@ export const pantaTradingRouter = router({
     return pantaTradingFor(ctx.app.config).prepare(userId, input, who.session);
   })),
   submit: publicProcedure.input(z.object({ orderId, signedTransaction: z.string().min(1).max(1644) }).strict())
-    .mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config).submit(userId, input.orderId, input.signedTransaction))),
+    .mutation(({ ctx, input }) => run(ctx, (userId, who) => pantaTradingFor(ctx.app.config).submit(userId, input.orderId, input.signedTransaction, who.session))),
   order: publicProcedure.input(z.object({ orderId }).strict())
     .mutation(({ ctx, input }) => run(ctx, userId => pantaTradingFor(ctx.app.config, true).order(userId, input.orderId))),
   forCall: publicProcedure.input(z.object({
