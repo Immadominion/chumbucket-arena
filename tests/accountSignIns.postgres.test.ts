@@ -22,6 +22,7 @@ import { join } from "node:path";
 
 const MIGRATION = "20261004120000_account_sign_ins.sql";
 const CHUMBUCKET_TYPE = "20261004130000_linked_wallets_chumbucket_type.sql";
+const CHUMBUCKET_RELABEL = "20261004130500_attach_wallet_chumbucket_relabel.sql";
 
 function migrationsDir(): string {
   const candidates = [
@@ -383,8 +384,12 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       const unlabelled = run("psql", args, chumbucketRow);
       expect(unlabelled.ok).toBe(false);
       expect(unlabelled.err).toContain("linked_wallets_wallet_type_check");
+      // The relabel needs the widened check, then applies (twice) on top of linking.
+      expect(run("psql", [...args, "-f", join(dir, CHUMBUCKET_RELABEL)]).err).toContain("requires 20261004130000");
       apply(CHUMBUCKET_TYPE);
       apply(CHUMBUCKET_TYPE); // re-runnable
+      apply(CHUMBUCKET_RELABEL);
+      apply(CHUMBUCKET_RELABEL); // re-runnable
       sql(chumbucketRow);
       expect(money(APP)).toBe("app_wallet");
       // An account holding the Chumbucket wallet is never folded, and keeps it.
@@ -396,6 +401,11 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       // Settings lists it with its label.
       expect((json(`public.account_sign_ins_v1('${APP}')`).wallets as { wallet_type: string }[]).map((w) => w.wallet_type))
         .toEqual(["chumbucket"]);
+      // It follows the account: unlink_sign_in_v1 never lets it go.
+      expect(json(`public.unlink_sign_in_v1('${APP}', '${A.app}', NULL, '${W.app}')`))
+        .toMatchObject({ ok: false, reason: "chumbucket_wallet" });
+      expect(sql(`SELECT (revoked_at IS NULL)::text FROM public.linked_wallets WHERE wallet_address = '${W.app}'`)).toBe("true");
+      expect(money(APP)).toBe("app_wallet");
       expect(money(PLAIN)).toBe("none");
       for (const tbl of ["claims", "challenge_transactions"]) {
         sql(`ALTER TABLE public.${tbl} RENAME TO ${tbl}_away`);
@@ -407,6 +417,7 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       sql(`DELETE FROM public.claims`);
 
       // ── a wallet linked to an X account: its first sign-in lands there ──
+      // (attach_verified_wallet_v1 is the relabel's from here on.)
       expect(json(`public.attach_verified_wallet_v1('${XONLY}', '${W.xonly}', 1::smallint)`).outcome).toBe("linked");
       expect(json(`public.resolve_wallet_sign_in_v1('${A.stranger}', '${W.xonly}')`).reason).toBe("not_this_wallet");
       expect(json(`public.resolve_wallet_sign_in_v1('${A.xonlyWallet}', '${W.xonly}')`))
@@ -420,6 +431,18 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
            INSERT INTO public.wallet_link_audit(wallet_address, action, to_user_id) VALUES ('${W.repointed}', 'linked', '${MONEY}');`);
       expect(json(`public.resolve_wallet_sign_in_v1('${A.repointed}', '${W.repointed}')`).reason).toBe("no_link");
       sql(`DELETE FROM public.linked_wallets WHERE wallet_address = '${W.repointed}'`);
+      // A Chumbucket re-proof relabels its own link; the link still lands sign-ins
+      // there, still counts as money, and is never relabelled back.
+      expect(json(`public.attach_verified_wallet_v1('${XONLY}', '${W.xonly}', 1::smallint, NULL, 'chumbucket')`).outcome).toBe("reaffirmed");
+      expect(sql(`SELECT wallet_type FROM public.linked_wallets WHERE wallet_address = '${W.xonly}'`)).toBe("chumbucket");
+      expect(json(`public.attach_verified_wallet_v1('${XONLY}', '${W.xonly}', 1::smallint, NULL, 'mwa')`).outcome).toBe("reaffirmed");
+      expect(sql(`SELECT wallet_type FROM public.linked_wallets WHERE wallet_address = '${W.xonly}'`)).toBe("chumbucket");
+      expect(resolve(A.xonlyWallet)).toBe(XONLY);
+      expect(money(XONLY)).toBe("app_wallet");
+      // Another account can neither relabel nor take it.
+      expect(json(`public.attach_verified_wallet_v1('${PLAIN}', '${W.xonly}', 1::smallint, NULL, 'chumbucket')`).reason).toBe("wallet_owned_by_another_user");
+      sql(`UPDATE public.linked_wallets SET wallet_type = 'mwa' WHERE wallet_address = '${W.xonly}'`);
+      expect(money(XONLY)).toBe("none");
       // A wallet that signs in to one account is a conflict for any other.
       expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${XONLY}', '${W.dev}')`)).toBe("t");
       expect(svc(`SELECT public.wallet_sign_in_conflict_v1('${DEV}', '${W.dev}')`)).toBe("f");
@@ -481,6 +504,21 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect(complete("t-wal2", A.wal2, "fold", WAL2).reason).toBe("wallet_conflict");
       // A live account still opens money sessions.
       sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${XONLY}', 'PREPARING')`);
+      // The session creators' guard is BEFORE INSERT only, on all three tables:
+      // prepare, claim and publish rows open for a live account, and the later
+      // state changes (quote, submit, fill) never pass through it.
+      expect(sql(`SELECT string_agg(c.relname || ':' || (t.tgtype & 2 = 2) || ':' || (t.tgtype & 4 = 4) || ':' || (t.tgtype & 16 = 16), ',' ORDER BY c.relname)
+                    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE t.tgname LIKE 'trg\\_%\\_account\\_live'`))
+        .toBe("market_creation_sessions:true:true:false,panta_claim_sessions:true:true:false,panta_trade_sessions:true:true:false");
+      sql(`SET ROLE service_role;
+           INSERT INTO public.panta_claim_sessions(user_id, wallet_address) VALUES ('${XONLY}', '${W.phil}');
+           INSERT INTO public.market_creation_sessions(publisher_id, wallet_address) VALUES ('${XONLY}', '${W.phil}');
+           UPDATE public.panta_trade_sessions SET state = 'QUOTED' WHERE user_id = '${XONLY}';
+           UPDATE public.panta_trade_sessions SET state = 'SUBMITTED' WHERE user_id = '${XONLY}';
+           UPDATE public.panta_trade_sessions SET state = 'FILLED' WHERE user_id = '${XONLY}';`);
+      expect(sql(`SELECT state FROM public.panta_trade_sessions WHERE user_id = '${XONLY}'`)).toBe("FILLED");
+      // An order in flight when its account is deleted still reconciles.
+      sql(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${DEV}', 'SUBMITTED')`);
 
       // ── deletion: the whole person, from any sign-in ──
       expect(json(`public.delete_account_v2('${XONLY}', '${A.dominion}')`).reason).toBe("session_mismatch");
@@ -489,6 +527,10 @@ test.skipIf(process.env.VERIFY_LOCAL_PG !== "true")(
       expect((deleted.auth_user_ids as string[]).sort()).toEqual([A.dev, A.dominion].sort());
       expect(resolve(A.dev)).toBeNull();
       expect(resolve(A.dominion)).toBeNull();
+      sql(`UPDATE public.panta_trade_sessions SET state = 'FILLED' WHERE user_id = '${DEV}'`);
+      expect(sql(`SELECT state FROM public.panta_trade_sessions WHERE user_id = '${DEV}'`)).toBe("FILLED");
+      expect(fails(`INSERT INTO public.panta_trade_sessions(user_id, state) VALUES ('${DEV}', 'PREPARING')`).err)
+        .toContain("folded or deleted");
       expect(sql(`SELECT full_name || ' ' || coalesce(handle, '') || ' ' || (deleted_at IS NOT NULL) FROM public.users WHERE id = '${DOMINION}'`))
         .toMatch(/^Deleted account deleted_[0-9a-f]+ true$/);
       expect(sql(`SELECT user_id FROM public.calls WHERE id = '${CALL}'`)).toBe(DOMINION); // calls stay
