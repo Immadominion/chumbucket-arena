@@ -279,10 +279,10 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
   });
 
   test("keep free is refused once the market stopped taking calls; the sweeper then expires it", async () => {
-    const r = moneyRig({ markets: [market("m", { closesAt: T0 + 20 * MIN })] });
+    const r = moneyRig({ markets: [market("m", { closesAt: T0 + 5 * MIN })] });
     const out = await ready(r);
     r.panta.fail(out.trade.order.orderId);
-    r.h.clock.advance(21 * MIN);
+    r.h.clock.advance(6 * MIN);
     await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "MARKET_CLOSED" });
     expect(await r.money.sweep()).toMatchObject({ expired: 1 });
     expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "market_closed" });
@@ -313,6 +313,17 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "expired" });
     expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).not.toBeNull();
     expect((await r.money.pending("ann")).calls).toHaveLength(0);
+    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
+  });
+
+  test("past its time, a pending call offers no choice even before the sweeper runs", async () => {
+    const r = moneyRig();
+    const out = await ready(r);
+    r.panta.fail(out.trade.order.orderId);
+    r.h.clock.advance(PENDING_TTL_MS);
+    expect((await r.money.status("ann", out.call.call.id)).moneyCall).toMatchObject({ state: "PENDING", canRetry: false, canKeepFree: false, canDiscard: false });
+    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED" });
+    expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "expired" });
     await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
   });
 

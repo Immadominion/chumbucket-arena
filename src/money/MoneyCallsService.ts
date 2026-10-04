@@ -223,6 +223,7 @@ export class MoneyCallsService {
       throw new MoneyError("STATE", "This call is already funded.");
     }
     if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
+    await this.assertAlive(row);
     const wallet = walletHint ? this.wallet(person, walletHint) : this.recordedWallet(person, row);
     const current = ledger ? await ledger.find(person.userId, tradeKey(row)) : null;
     const now = this.now();
@@ -274,6 +275,7 @@ export class MoneyCallsService {
       if (latest?.state === "FILLED") row = await this.markFunded(row);
       else {
         if (latest?.state === "SUBMITTED") throw new MoneyError("IN_FLIGHT", this.inFlightCopy(row));
+        await this.assertAlive(row);
         if (!this.deps.calls.service.takesCalls(row.market_id)) {
           throw new MoneyError("MARKET_CLOSED", "This market stopped taking calls, so this call can't be kept.");
         }
@@ -406,6 +408,17 @@ export class MoneyCallsService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /**
+   * A pending call past its time is over even before the sweeper gets to it:
+   * it is expired now (nothing is going through, checked by the caller) and
+   * no choice is offered.
+   */
+  private async assertAlive(row: MoneyCallRow): Promise<void> {
+    if (this.now() < Date.parse(row.expires_at)) return;
+    await this.end(row, "expired").catch(() => undefined);
+    throw new MoneyError("EXPIRED", "This call wasn't finished in time. Make it again.");
+  }
+
   private amount(value: string): bigint {
     if (!/^[1-9][0-9]{0,15}$/.test(value)) throw new MoneyError("AMOUNT", "Choose an amount in dollars.");
     const amount = BigInt(value);
@@ -488,7 +501,7 @@ export class MoneyCallsService {
       : current && current.state !== "PREPARING" ? current : latest;
     const trade: TradeState = !shown || shown.state === "PREPARING" ? "NONE" : shown.state;
     const inFlight = trade === "SUBMITTED";
-    const pending = row.state === "PENDING";
+    const pending = row.state === "PENDING" && this.now() < Date.parse(row.expires_at);
     const takes = pending && this.deps.calls.service.takesCalls(row.market_id);
     return {
       callId: row.call_id, kind: row.kind, targetCallId: row.target_call_id, marketId: row.market_id, side: row.side,
