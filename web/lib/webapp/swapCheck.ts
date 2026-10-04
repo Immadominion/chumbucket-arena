@@ -46,6 +46,14 @@ export const SWAP_LIMITS = {
   maxRentRepayLamports: 2_039_280n,
   maxFillTtlSeconds: 600,
   minQuoteFidelityBps: 9_900,
+  /** The browser's own ceiling on a silent top-up: the server's hard cap on SOL_TOPUP_MAX_USDC ($25). */
+  maxInBaseUnits: 25_000_000n,
+  /**
+   * The least SOL a dollar must buy (what the transaction itself guarantees):
+   * 1,000,000 lamports per USDC, i.e. SOL at $1,000 or less. A rate worse
+   * than that is not a top-up worth signing silently.
+   */
+  minLamportsPerUsdc: 1_000_000n,
 } as const;
 
 // sha256("global:<name>")[0..8], the Anchor discriminators in Jupiter's IDLs.
@@ -232,6 +240,7 @@ export async function checkGaslessSwap(bytes: Uint8Array, expected: ExpectedSwap
 
   const s = swap ?? fail("no swap");
   need(s.inAmount === expected.inAmount, "amount differs from the review");
+  need(s.inAmount > 0n && s.inAmount <= SWAP_LIMITS.maxInBaseUnits, "more than a top-up");
   need(expected.feeBps >= 0 && expected.feeBps <= SWAP_LIMITS.maxFeeBps, "fee too high");
   let minOut = s.minOut;
   let expectedOut = s.expectedOut;
@@ -249,6 +258,8 @@ export async function checkGaslessSwap(bytes: Uint8Array, expected: ExpectedSwap
   need(s.slippageBps <= SWAP_LIMITS.maxSlippageBps, "slippage too wide");
   need(minOut > 0n, "pays nothing");
   need(expectedOut * 10_000n >= expected.quotedOutLamports * BigInt(SWAP_LIMITS.minQuoteFidelityBps), "worse than the quote");
+  // Base units: inAmount / 1e6 dollars must buy at least minLamportsPerUsdc each.
+  need(minOut * 1_000_000n >= s.inAmount * SWAP_LIMITS.minLamportsPerUsdc, "rate below the floor");
   return {
     router: expected.router,
     feePayer,

@@ -5,8 +5,11 @@
  *
  *   From your wallet   a USDC transfer from one of the account's own browser
  *                      wallets in one approval (`money.depositFromWalletPrepare`,
- *                      checked inside the signer, then transferSubmit/transferStatus)
- *   Send USDC          the trading wallet's address and QR (a Solana Pay link)
+ *                      checked inside the signer, then pushed as a run until the
+ *                      chain decides: `transferRuns.ts`), only into the trading
+ *                      wallet this browser knows on its own
+ *   Send USDC          the trading wallet's address and QR (a Solana Pay link
+ *                      built here from the checked address)
  *   Card               Crossmint (card, Apple Pay, Google Pay), only when the
  *                      server offers it; test money always says Test
  *
@@ -22,22 +25,24 @@ import { shortWallet } from "@/lib/webapp/format";
 import {
   balanceRose,
   depositTiles,
+  exactUsd,
   fundsLanded,
   parseUsd,
   usd,
   usdDecimal,
   type DepositTile,
-  type TransferView,
 } from "@/lib/webapp/money";
-import { prepareTransfer, sendTransfer } from "@/lib/webapp/moneyFlow";
+import { prepareTransfer, signTransfer, transferOpen } from "@/lib/webapp/moneyFlow";
+import { TradeError } from "@/lib/webapp/trade";
 import { appPath } from "@/lib/webapp/paths";
 import { useChumbucketWallet } from "../chumbucketWallet";
 import { useToast } from "../data";
 import { Icon } from "../Icon";
-import { useApi } from "../session";
+import { useApi, useViewer } from "../session";
 import { Sheet, Spinner, StateScreen } from "../ui";
 import { moneyKeys, useMoneyWallet } from "./moneyContext";
 import { moneyLine as lineOf, useSignerFor, useTransactionWallets } from "./signers";
+import { clearTransferRun, startTransferRun, transferKey, useTransferRun } from "./transferRuns";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -61,8 +66,17 @@ export function DepositSheet({
   const qc = useQueryClient();
   const toast = useToast();
   const own = useChumbucketWallet();
+  const viewer = useViewer();
   const browser = useTransactionWallets();
   const wallet = useMoneyWallet(open, true);
+  const runKey = transferKey(viewer.userId, "deposit");
+  const run = useTransferRun(runKey);
+  /**
+   * The trading wallet as this browser knows it on its own: the Chumbucket
+   * wallet's address when it is on, else money.wallet's. Deposits go there
+   * and nowhere else.
+   */
+  const trading = own.enabled ? own.address : (wallet.data?.wallet?.address ?? null);
   const balance = wallet.data?.balance?.usdcBaseUnits ?? null;
   const shortfall = need
     ? (need.shortfallBaseUnits ??
@@ -74,7 +88,8 @@ export function DepositSheet({
     enabled: open,
     staleTime: 60_000,
   });
-  const tiles = depositTiles(options.data, browser.length > 0);
+  const tiles = depositTiles(options.data, browser.length > 0, trading);
+  const serverTrading = options.data?.tradingWallet?.address ?? null;
   const [view, setView] = useState<View>({ v: "choose" });
   const before = useRef<string | null>(null);
   const funded = useRef(false);
@@ -88,7 +103,17 @@ export function DepositSheet({
     setView({ v: "choose" });
     before.current = null;
     funded.current = false;
-  }, [open]);
+    // A settled top-up is done with; an open one keeps going.
+    clearTransferRun(runKey);
+  }, [open, runKey]);
+
+  // A top-up from your wallet landed or ended: the balance moves.
+  const outcome = run && !transferOpen(run) ? `${run.transferId}:${run.view?.state ?? ""}:${run.rejected ?? ""}` : null;
+  useEffect(() => {
+    if (!outcome) return;
+    void qc.invalidateQueries({ queryKey: moneyKeys.wallet });
+    void qc.invalidateQueries({ queryKey: moneyKeys.activity });
+  }, [outcome, qc]);
 
   // Only balances read since the sheet opened count (never a cached one): the
   // first is the baseline; a waiting call continues once one covers it.
@@ -127,7 +152,25 @@ export function DepositSheet({
 
   return (
     <Sheet open={open} onClose={onClose} title={title}>
-      {options.isPending ? (
+      {run ? (
+        // A signed top-up on its way: nothing new until the chain decides.
+        run.rejected || run.view?.state === "FAILED" ? (
+          <StateScreen
+            art="error"
+            line={run.rejected ?? "It didn’t go through. Nothing was sent."}
+            full={false}
+            compact
+            action={{ label: "Done", onClick: () => clearTransferRun(runKey) }}
+          />
+        ) : (
+          <div className="wa-state wa-state--compact" role="status" aria-live="polite">
+            <span className="wa-wait">
+              <Icon name={run.view?.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
+            </span>
+            <p>{exactUsd(run.amountBaseUnits)}</p>
+          </div>
+        )
+      ) : options.isPending || (options.data?.tradingWallet && !trading) ? (
         <div className="wa-state wa-state--compact" aria-busy="true">
           <Spinner />
         </div>
@@ -141,6 +184,9 @@ export function DepositSheet({
         ) : (
           <StateScreen art="search" line="Link a wallet first" full={false} compact action={{ label: "Link a wallet", href: appPath.signInMethods }} />
         )
+      ) : serverTrading !== trading ? (
+        // The server named another wallet than the one this browser knows: no address, no QR, nothing to sign.
+        <StateScreen art="error" line="Adding funds isn’t available right now" full={false} compact />
       ) : view.v === "choose" ? (
         tiles.length ? (
           <div className="wa-tiles" role="group" aria-label="Add funds with">
@@ -168,18 +214,10 @@ export function DepositSheet({
       ) : view.v === "wallet" && tile("wallet")?.id === "wallet" ? (
         <FromWallet
           tile={tile("wallet") as Extract<DepositTile, { id: "wallet" }>}
-          to={options.data.tradingWallet.address}
+          to={trading!}
           suggested={shortfall}
           onBack={back!}
-          onDone={(amount) => {
-            void qc.invalidateQueries({ queryKey: moneyKeys.wallet });
-            void qc.invalidateQueries({ queryKey: moneyKeys.activity });
-            if (!need) {
-              funded.current = true;
-              toast(`Added ${usd(amount)}`);
-              onClose();
-            }
-          }}
+          onSigned={(signed) => startTransferRun(runKey, api, signed)}
         />
       ) : view.v === "card" && tile("card")?.id === "card" ? (
         <CardPay tile={tile("card") as Extract<DepositTile, { id: "card" }>} limits={options.data.card.limits} suggested={shortfall} onBack={back!} />
@@ -208,6 +246,14 @@ function SendUsdc({ tile, onBack }: { tile: Extract<DepositTile, { id: "send" }>
       // Selecting the address by hand still works.
     }
   };
+  if (!tile.ok) {
+    return (
+      <div className="wa-send">
+        <BackRow onBack={onBack} label="Send USDC" />
+        <StateScreen art="error" line="Adding funds isn’t available right now" full={false} compact />
+      </div>
+    );
+  }
   return (
     <div className="wa-send">
       <BackRow onBack={onBack} label="Send USDC" />
@@ -238,40 +284,26 @@ function FromWallet({
   to,
   suggested,
   onBack,
-  onDone,
+  onSigned,
 }: {
   tile: Extract<DepositTile, { id: "wallet" }>;
+  /** The trading wallet as this browser knows it on its own: the only destination. */
   to: string;
   suggested: string | null;
   onBack: () => void;
-  onDone: (amountBaseUnits: string) => void;
+  onSigned: (run: Awaited<ReturnType<typeof signTransfer>>) => void;
 }) {
   const api = useApi();
+  const own = useChumbucketWallet();
   const signerFor = useSignerFor();
   const [from, setFrom] = useState(tile.wallets[0]!.address);
   const [text, setText] = useState(suggested ? usdDecimal(roundUpToCent(suggested)) : "");
   const [busy, setBusy] = useState(false);
   const [line, setLine] = useState<string | null>(null);
-  const [sending, setSending] = useState<TransferView | null>(null);
+  // One key per top-up, kept until it is signed or refused: a lost reply asks again with it.
   const intent = useRef<{ key: string; from: string; amount: string } | null>(null);
   const units = parseUsd(text);
   const amount = units && units > 0n ? units.toString() : null;
-
-  // Submitted: the BFF's answer until the chain shows it (CONFIRMED) or says it failed.
-  useEffect(() => {
-    if (!sending || sending.state === "CONFIRMED" || sending.state === "FAILED") return;
-    const t = setInterval(() => {
-      api
-        .transferStatus(sending.transferId)
-        .then((v) => {
-          if (v.state === "CONFIRMED") onDone(v.amountBaseUnits);
-          if (v.state === "CONFIRMED" || v.state === "FAILED") setSending(v);
-          if (v.state === "FAILED") setLine("It didn’t go through. Nothing was sent.");
-        })
-        .catch(() => undefined);
-    }, POLL_MS);
-    return () => clearInterval(t);
-  }, [api, onDone, sending]);
 
   async function add() {
     if (!amount) return;
@@ -281,37 +313,29 @@ function FromWallet({
     const key = same ? intent.current!.key : crypto.randomUUID();
     intent.current = { key, from, amount };
     try {
-      const deps = { api, signerFor };
+      // The Chumbucket wallet's own word for its address, not only the server's.
+      if (own.enabled && (await own.ensure()).address !== to) throw new TradeError("mismatch");
       const step = await prepareTransfer(
         () => api.depositFromWalletPrepare({ fromWallet: from, amountBaseUnits: amount, idempotencyKey: key }),
         { from, to, amountBaseUnits: amount },
-        deps,
+        { api, signerFor },
       );
       if (step.step === "invalid") {
         setLine(step.message);
         return;
       }
-      // A review lives 60 s and its key is spent: a second tap starts afresh.
+      // Signed: from here the same bytes are pushed until the chain decides; the key is spent.
+      onSigned(await signTransfer(await signerFor(from), step.ready));
       intent.current = null;
-      setSending(await sendTransfer(api, await signerFor(from), step.ready));
     } catch (e) {
-      if (e instanceof BffRejected) intent.current = null;
+      // Nothing was signed. A refusal or a lapsed review is spent; a lost reply keeps the key.
+      if (e instanceof BffRejected || (e instanceof TradeError && e.kind === "expired")) intent.current = null;
       setLine(lineOf(e, "transfer"));
     } finally {
       setBusy(false);
     }
   }
 
-  if (sending && sending.state !== "FAILED") {
-    return (
-      <div className="wa-state wa-state--compact" role="status" aria-live="polite">
-        <span className="wa-pulse">
-          <Icon name={sending.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
-        </span>
-        <p>{usd(sending.amountBaseUnits)}</p>
-      </div>
-    );
-  }
   return (
     <div className="wa-form">
       <BackRow onBack={onBack} label="From your wallet" />
@@ -336,6 +360,13 @@ function FromWallet({
         </span>
         <input className="wa-input" inputMode="decimal" aria-label="Amount in dollars" value={text} onChange={(e) => setText(e.target.value)} />
       </div>
+      <div className="wa-review-row">
+        <Icon name="arrow-down" size={18} />
+        <span className="wa-review-label">To</span>
+      </div>
+      <code className="wa-addr-full wa-mono" aria-label="To your wallet">
+        {to}
+      </code>
       {line ? (
         <p className="wa-hint wa-hint--error" role="alert">
           {line}
@@ -410,10 +441,11 @@ function CardPay({
   if (order) {
     return (
       <div className="wa-state wa-state--compact" role="status" aria-live="polite">
-        <span className="wa-pulse">
+        <span className="wa-wait">
           <Icon name="card" size={36} />
         </span>
         <p>{`$${pick}`}</p>
+        {tile.test ? <span className="wa-chip wa-chip--test">Test</span> : null}
         {line ? <p className="wa-hint wa-hint--error">{line}</p> : null}
         <a className="wa-btn wa-btn--soft wa-btn--sm" href={order.url} target="_blank" rel="noopener noreferrer">
           <Icon name="share-box" size={16} />

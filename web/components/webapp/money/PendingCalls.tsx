@@ -6,7 +6,7 @@
  * going through, or the choice to finish it, keep it free or drop it.
  */
 
-import { onSide, progressOf, sideName } from "@/lib/webapp/money";
+import { progressOf, sideName, usd } from "@/lib/webapp/money";
 import { Icon } from "../Icon";
 import { useMoney, usePendingCalls } from "./moneyContext";
 
@@ -25,7 +25,8 @@ export function PendingCalls() {
               <Icon name={progressOf(moneyCall) === "pending" ? "sand-watch" : "wallet"} size={18} />
             </span>
             <span className="wa-pending-q">{call.market.question}</span>
-            <span className="wa-chip wa-chip--pending">{onSide(moneyCall.amountBaseUnits, sideName(call.market, moneyCall.side))}</span>
+            {/* Not funded: the grey mark with the amount and side, never the "$5 on YES" a fill earns. */}
+            <span className="wa-chip wa-chip--pending">{`${usd(moneyCall.amountBaseUnits)} · ${sideName(call.market, moneyCall.side)}`}</span>
             <Icon name="arrow-right" size={18} />
           </button>
         </li>

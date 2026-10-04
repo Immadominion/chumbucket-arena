@@ -29,6 +29,7 @@ import type {
   WalletRef,
   WinningsItem,
 } from "./money";
+import { BffRejected } from "./bff";
 import { UnsafeTransaction } from "./pantaBuyCheck";
 import { base64ToBytes, bytesToBase64 } from "./solanaTx";
 import { confirmTrade, reviewPrepared, TradeError, type ReviewedTrade, type TradeOrder, type TradeSigner } from "./trade";
@@ -39,6 +40,7 @@ export type SignerFor = (address: string) => Promise<TradeSigner>;
 
 export interface MoneyFlowApi {
   submitTrade(orderId: string, signedTransaction: string): Promise<TradeOrder>;
+  transferStatus(transferId: string): Promise<TransferView>;
   topUpOrder(wallet: string, amountBaseUnits: string): Promise<TopUpOrder>;
   topUpExecute(requestId: string, signedTransaction: string): Promise<TopUpResult>;
   transferSubmit(transferId: string, signedTransaction: string): Promise<TransferView>;
@@ -58,6 +60,9 @@ export class MoneyStop extends Error {
 
 const GAS_ROUNDS = 2;
 
+/** The largest silent top-up ever signed here: the server's hard cap on SOL_TOPUP_MAX_USDC ($25). */
+export const MAX_TOPUP_BASE_UNITS = 25_000_000n;
+
 // ── gas ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -73,6 +78,10 @@ export async function topUp(
   amountBaseUnits: string,
 ): Promise<"done" | "funds"> {
   const now = deps.now ?? Date.now;
+  // Never more than the server's hard cap, whatever it asks for.
+  if (!/^[1-9][0-9]{0,15}$/.test(amountBaseUnits) || BigInt(amountBaseUnits) > MAX_TOPUP_BASE_UNITS) {
+    throw new MoneyStop("unsafe", "This didn’t check out. Nothing was signed.");
+  }
   const order = await deps.api.topUpOrder(wallet, amountBaseUnits);
   if (order.status === "REFUSED") {
     if (order.reason === "ENOUGH_SOL") return "done";
@@ -215,13 +224,27 @@ export async function prepareTransfer(
   }
 }
 
-/** After the person confirmed: sign exactly the reviewed transfer (checked inside the signer), submit it. */
-export async function sendTransfer(
-  api: Pick<MoneyFlowApi, "transferSubmit">,
-  signer: TradeSigner,
-  ready: TransferReady,
-  now: () => number = Date.now,
-): Promise<TransferView> {
+/**
+ * A signed transfer on its way. The signed bytes are kept and are the only
+ * bytes ever submitted for it, so a lost reply is answered by asking again
+ * (or re-sending those same bytes), never by preparing and signing anew.
+ */
+export interface TransferRun {
+  transferId: string;
+  /** Base64: exactly what the wallet signed. */
+  signed: string;
+  amountBaseUnits: string;
+  to: string;
+  /** The BFF's last answer about it; null before any arrived. */
+  view: TransferView | null;
+  /** A submit was attempted: its reply may have been lost. */
+  tried: boolean;
+  /** The BFF refused it (our words): nothing more is sent. */
+  rejected: string | null;
+}
+
+/** After the person confirmed: the wallet signs exactly the reviewed transfer (checked inside the signer). Nothing is sent yet. */
+export async function signTransfer(signer: TradeSigner, ready: TransferReady, now: () => number = Date.now): Promise<TransferRun> {
   if (ready.transaction.expiresAt <= now()) throw new TradeError("expired");
   let signed: Uint8Array;
   try {
@@ -235,7 +258,51 @@ export async function sendTransfer(
     throw new TradeError(e instanceof UnsafeTransaction ? "unsafe" : "declined");
   }
   if (ready.transaction.expiresAt <= now()) throw new TradeError("expired");
-  return api.transferSubmit(ready.transfer.transferId, bytesToBase64(signed));
+  return {
+    transferId: ready.transfer.transferId,
+    signed: bytesToBase64(signed),
+    amountBaseUnits: ready.review.amountBaseUnits,
+    to: ready.review.to,
+    view: null,
+    tried: false,
+    rejected: null,
+  };
+}
+
+/** The chain decided: it landed (CONFIRMED) or it never will (FAILED). */
+export const transferSettled = (view: Pick<TransferView, "state"> | null | undefined): boolean =>
+  view?.state === "CONFIRMED" || view?.state === "FAILED";
+
+/**
+ * Still open: no outcome known yet. While a run is open nothing new may be
+ * prepared or signed; only a settled or refused run lets the person start again.
+ */
+export const transferOpen = (run: TransferRun | null | undefined): boolean => !!run && !run.rejected && !transferSettled(run.view);
+
+/**
+ * One step toward the chain's answer, safe to repeat. The first step submits;
+ * after a submit whose reply may have been lost, the transfer is read first
+ * (still BUILT: the same bytes are submitted again); once SUBMITTED, it is
+ * only read. A refusal is an answer (nothing more is sent); anything else
+ * (offline, a 5xx) is not, and the next step simply asks again.
+ */
+export async function stepTransfer(api: Pick<MoneyFlowApi, "transferSubmit" | "transferStatus">, run: TransferRun): Promise<TransferRun> {
+  if (!transferOpen(run)) return run;
+  try {
+    let view: TransferView;
+    if (run.view && run.view.state !== "BUILT") {
+      view = await api.transferStatus(run.transferId);
+    } else if (run.tried) {
+      const now = await api.transferStatus(run.transferId);
+      view = now.state === "BUILT" ? await api.transferSubmit(run.transferId, run.signed) : now;
+    } else {
+      view = await api.transferSubmit(run.transferId, run.signed);
+    }
+    return { ...run, tried: true, view };
+  } catch (e) {
+    if (e instanceof BffRejected) return { ...run, tried: true, rejected: e.message };
+    return { ...run, tried: true };
+  }
 }
 
 // ── a win ────────────────────────────────────────────────────────────────────

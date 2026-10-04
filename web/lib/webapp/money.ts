@@ -266,6 +266,18 @@ export function sideName(market: Pick<Market, "outcomes"> | null | undefined, si
   return label && label.toUpperCase() !== side ? label : side;
 }
 
+/**
+ * An amount to the last base unit, never rounded: what a signature moves.
+ * "$5", "$9.20", "$12.190001".
+ */
+export function exactUsd(baseUnits: string | bigint | null | undefined): string {
+  const units = parseUnits(baseUnits);
+  const frac = units % BASE;
+  if (frac === 0n) return `$${thousands(units / BASE)}`;
+  const digits = frac.toString().padStart(6, "0").replace(/0+$/, "");
+  return `$${thousands(units / BASE)}.${digits.padEnd(2, "0")}`;
+}
+
 /** "$5 on YES": a confirmed fill's stamp. */
 export const onSide = (baseUnits: string, side: string): string => `${usd(baseUnits)} on ${side}`;
 
@@ -413,22 +425,38 @@ export function fundedStamp(entry: Pick<CallFeedEntry, "funding" | "money">, sid
 // ── the deposit sheet ────────────────────────────────────────────────────────
 
 export type DepositTile =
-  | { id: "send"; address: string; uri: string }
+  | { id: "send"; address: string; uri: string; ok: boolean }
   | { id: "wallet"; wallets: WalletRef[] }
   | { id: "card"; test: boolean; presetsUsd: string[] };
+
+/** Mainnet USDC: the only token "Send USDC" ever asks for. */
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+/** The Solana Pay link the QR encodes, built here from the checked address (never the server's string). */
+export const sendUsdcUri = (address: string): string => `solana:${address}?spl-token=${USDC_MINT}`;
 
 /**
  * The deposit sheet's choices, in order: "From your wallet" (one approval)
  * when the account has another wallet and this browser has a wallet that
  * can sign, "Send USDC" (address + QR), and the card only when the server
  * offers it (test money only ever to admins, and always said so).
+ *
+ * "Send USDC" is `ok` only when its address is the trading wallet (and the
+ * one this browser knows independently, when it knows one) and its mint is
+ * USDC; otherwise the sheet shows an error, never a QR.
  */
-export function depositTiles(options: DepositOptions | null | undefined, browserCanSign: boolean): DepositTile[] {
+export function depositTiles(options: DepositOptions | null | undefined, browserCanSign: boolean, knownTradingWallet?: string | null): DepositTile[] {
   if (!options) return [];
   const tiles: DepositTile[] = [];
   if (browserCanSign && options.fromWallet.wallets.length) tiles.push({ id: "wallet", wallets: options.fromWallet.wallets });
-  if (options.sendUsdc && isAddress(options.sendUsdc.address)) {
-    tiles.push({ id: "send", address: options.sendUsdc.address, uri: options.sendUsdc.uri });
+  const send = options.sendUsdc;
+  if (send) {
+    const ok =
+      isAddress(send.address) &&
+      send.mint === USDC_MINT &&
+      send.address === options.tradingWallet?.address &&
+      (knownTradingWallet == null || send.address === knownTradingWallet);
+    tiles.push({ id: "send", address: send.address, uri: ok ? sendUsdcUri(send.address) : "", ok });
   }
   if (options.card.available) tiles.push({ id: "card", test: options.card.testMode, presetsUsd: options.card.presetsUsd });
   return tiles;

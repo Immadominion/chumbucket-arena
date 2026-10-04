@@ -27,8 +27,11 @@ import { join } from "node:path";
 import { checkGaslessSwap as serverSwapCheck, type ExpectedSwap as ServerExpectedSwap } from "../src/solTopUp/verify.ts";
 import { METIS, OWNER, RFQ } from "./fixtures/jupiterGasless.ts";
 import { fundedLabel } from "../web/lib/callsBff.ts";
+import { BffFailure, BffOffline, BffRejected } from "../web/lib/webapp/bff.ts";
+import { loadCache, persistable, saveCache, trimForStorage } from "../web/lib/webapp/cache.ts";
 import { checkPantaClaim, type ReviewedClaim } from "../web/lib/webapp/claimCheck.ts";
 import {
+  exactUsd,
   activityRow,
   amountHint,
   balanceRose,
@@ -65,7 +68,11 @@ import {
   confirmCall,
   MoneyStop,
   prepareTransfer,
-  sendTransfer,
+  signTransfer,
+  stepTransfer,
+  transferOpen,
+  MAX_TOPUP_BASE_UNITS,
+  type TransferRun,
   stopLine,
   topUp,
   type MoneyFlowApi,
@@ -683,6 +690,9 @@ function rig(answers: PrepareCallResult[], topUps: TopUpOrder[] = []) {
       submitted.push(transferId);
       return { transferId, kind: "cash_out", from: owner.publicKey.toBase58(), to: friend.publicKey.toBase58(), amountBaseUnits: "5000000", state: "SUBMITTED", signature: "s", createdAt: 1, updatedAt: 1, expiresAt: 60_000 };
     },
+    async transferStatus(transferId) {
+      return { transferId, kind: "cash_out", from: owner.publicKey.toBase58(), to: friend.publicKey.toBase58(), amountBaseUnits: "5000000", state: "SUBMITTED", signature: "s", createdAt: 1, updatedAt: 1, expiresAt: 60_000 };
+    },
     async claimPrepare() {
       throw new Error("unused");
     },
@@ -799,8 +809,12 @@ describe("a cash out, step by step", () => {
     const h = rig([]);
     const step = await prepareTransfer(async () => ask(), want, h.deps);
     if (step.step !== "review") throw new Error("expected review");
-    const view = await sendTransfer(h.api, await h.deps.signerFor(), step.ready, () => 1_000);
-    expect(view.state).toBe("SUBMITTED");
+    const run = await signTransfer(await h.deps.signerFor(), step.ready, () => 1_000);
+    // Signed, not sent: the run holds the bytes; the first step submits them.
+    expect(h.submitted).toHaveLength(0);
+    const next = await stepTransfer(h.api, run);
+    expect(next.view?.state).toBe("SUBMITTED");
+    expect(transferOpen(next)).toBe(true);
     expect(h.raw).toEqual([{ slot: 0 }]);
   });
 
@@ -816,9 +830,92 @@ describe("a cash out, step by step", () => {
     // The review matches, the bytes don't: the signer's check refuses.
     const step = await prepareTransfer(async () => ask({}, transferTx({ to: thief.publicKey })), want, h.deps);
     if (step.step !== "review") throw new Error("expected review");
-    await expect(sendTransfer(h.api, await h.deps.signerFor(), step.ready, () => 1_000)).rejects.toMatchObject({ kind: "unsafe" });
+    await expect(signTransfer(await h.deps.signerFor(), step.ready, () => 1_000)).rejects.toMatchObject({ kind: "unsafe" });
     expect(h.raw).toHaveLength(0);
     expect(h.submitted).toHaveLength(0);
+  });
+});
+
+describe("a signed transfer is sent once, through lost replies", () => {
+  const view = (state: "BUILT" | "SUBMITTED" | "CONFIRMED" | "FAILED") => ({
+    transferId: "40000000-0000-4000-8000-000000000001", kind: "cash_out" as const, from: owner.publicKey.toBase58(), to: friend.publicKey.toBase58(),
+    amountBaseUnits: "5000000", state, signature: null, createdAt: 1, updatedAt: 1, expiresAt: 60_000,
+  });
+  const fresh = (): TransferRun => ({ transferId: "40000000-0000-4000-8000-000000000001", signed: "c2lnbmVk", amountBaseUnits: "5000000", to: friend.publicKey.toBase58(), view: null, tried: false, rejected: null });
+  function server(script: { submit: Array<"drop" | "ok" | "refuse">; status: Array<"BUILT" | "SUBMITTED" | "CONFIRMED" | "FAILED" | "drop"> }) {
+    const submits: string[] = [];
+    const reads: number[] = [];
+    return {
+      submits,
+      reads,
+      api: {
+        async transferSubmit(_id: string, signed: string) {
+          submits.push(signed);
+          const next = script.submit.shift() ?? "ok";
+          if (next === "drop") throw new BffOffline("You’re offline.", "OFFLINE");
+          if (next === "refuse") throw new BffRejected("This review expired. Nothing was sent. Start again.", "PRECONDITION_FAILED");
+          return view("SUBMITTED");
+        },
+        async transferStatus() {
+          reads.push(1);
+          const next = script.status.shift() ?? "SUBMITTED";
+          if (next === "drop") throw new BffFailure("Unexpected response", "INTERNAL_SERVER_ERROR");
+          return view(next);
+        },
+      },
+    };
+  }
+
+  test("a submit whose reply was lost: read first, send the SAME bytes again only while it is still BUILT, then wait for the chain", async () => {
+    const s = server({ submit: ["drop", "ok"], status: ["BUILT", "SUBMITTED", "CONFIRMED"] });
+    let run = await stepTransfer(s.api, fresh());
+    expect([run.tried, run.view, transferOpen(run)]).toEqual([true, null, true]);
+    run = await stepTransfer(s.api, run); // BUILT: the same bytes again
+    run = await stepTransfer(s.api, run); // SUBMITTED: only read
+    run = await stepTransfer(s.api, run); // CONFIRMED
+    expect(run.view?.state).toBe("CONFIRMED");
+    expect(transferOpen(run)).toBe(false);
+    expect(s.submits).toEqual(["c2lnbmVk", "c2lnbmVk"]);
+    // Settled: nothing more is asked.
+    expect(await stepTransfer(s.api, run)).toBe(run);
+  });
+
+  test("a lost reply on a submit that did arrive is never sent again", async () => {
+    const s = server({ submit: ["drop"], status: ["drop", "SUBMITTED", "FAILED"] });
+    let run = await stepTransfer(s.api, fresh());
+    run = await stepTransfer(s.api, run); // the read failed too: still open, nothing sent
+    expect(transferOpen(run)).toBe(true);
+    run = await stepTransfer(s.api, run); // SUBMITTED: it arrived
+    run = await stepTransfer(s.api, run); // FAILED: the chain decided
+    expect(s.submits).toHaveLength(1);
+    expect(run.view?.state).toBe("FAILED");
+    expect(transferOpen(run)).toBe(false);
+  });
+
+  test("a refusal is an answer: the run ends and a new cash out may start", async () => {
+    const s = server({ submit: ["refuse"], status: [] });
+    const run = await stepTransfer(s.api, fresh());
+    expect(run.rejected).toBe("This review expired. Nothing was sent. Start again.");
+    expect(transferOpen(run)).toBe(false);
+  });
+
+  test("the sheets never prepare or sign anew while a signed transfer has no outcome", () => {
+    const wallet = readCode(join(WEB, "components/webapp/money/WalletSheet.tsx"));
+    expect(wallet).toContain("if (!form.ok || !w?.wallet || open_) return;");
+    expect(wallet).toContain("if (view.v !== \"review\" || open_) return;");
+    expect(wallet).toContain("startTransferRun(runKey, api, signed);");
+    // The key is spent only when the outcome is known, a refusal, or a lapsed review.
+    expect(wallet).toMatch(/useEffect\(\(\) => \{\s*if \(!outcome\) return;\s*intent\.current = null;/);
+    expect(wallet).toContain("if (e instanceof BffRejected) intent.current = null;");
+    expect(wallet).toContain('if (e instanceof TradeError && e.kind === "expired") intent.current = null;');
+    expect(wallet.match(/intent\.current = null;/g)?.length).toBe(3);
+    const deposit = readCode(join(WEB, "components/webapp/money/DepositSheet.tsx"));
+    expect(deposit).toContain("onSigned={(signed) => startTransferRun(runKey, api, signed)}");
+    expect(deposit).toMatch(/\{run \? \(/);
+    for (const code of [wallet, deposit]) expect(code).not.toMatch(/sendTransfer|transferSubmit/);
+    const runs = readCode(join(WEB, "components/webapp/money/transferRuns.ts"));
+    expect(runs).toMatch(/export function startTransferRun\([^)]*\) \{\s*if \(transferOpen\(runs\.get\(key\)\)\) return;/);
+    expect(runs).toMatch(/export function clearTransferRun\(key: string\) \{\s*if \(transferOpen\(runs\.get\(key\)\)\) return;/);
   });
 });
 
@@ -829,13 +926,6 @@ describe("a lapsed transfer review", () => {
     expect(stopLine(new TradeError("expired"), "x")).toBe("The price moved. Try again.");
   });
 
-  test("a READY review spends its key: the next review asks with a new one", () => {
-    for (const f of ["components/webapp/money/WalletSheet.tsx", "components/webapp/money/DepositSheet.tsx"]) {
-      const code = readFileSync(join(WEB, f), "utf8");
-      expect({ f, spent: /A review lives 60 s and its key is spent[\s\S]{0,120}intent\.current = null;/.test(code) }).toEqual({ f, spent: true });
-      expect({ f, refusal: code.includes("if (e instanceof BffRejected) intent.current = null;") }).toEqual({ f, refusal: true });
-    }
-  });
 });
 
 describe("collecting a win", () => {
@@ -917,7 +1007,25 @@ describe("the deposit sheet", () => {
     expect(card.map((t) => t.id)).toEqual(["send", "card"]);
     expect(card[1]).toEqual({ id: "card", test: false, presetsUsd: ["10", "25"] });
     expect(depositTiles(null, true)).toEqual([]);
-    expect(depositTiles(options({ sendUsdc: { address: "not-an-address", mint: "", network: "solana-mainnet", uri: "" } }), false)).toEqual([]);
+  });
+
+  test("Send USDC: the QR is built here from the checked trading wallet and the USDC mint; anything else is an error, never a QR", () => {
+    const me = owner.publicKey.toBase58();
+    const good = depositTiles(options(), false, me).find((t) => t.id === "send");
+    // The server's own link (with its amount) is never used.
+    expect(good).toEqual({ id: "send", address: me, uri: `solana:${me}?spl-token=${USDC.toBase58()}`, ok: true });
+    const evil = thief.publicKey.toBase58();
+    for (const [name, o, known] of [
+      ["another address than the trading wallet", options({ sendUsdc: { address: evil, mint: USDC.toBase58(), network: "solana-mainnet", uri: `solana:${evil}` } }), me],
+      ["another mint", options({ sendUsdc: { address: me, mint: FAKE_MINT.toBase58(), network: "solana-mainnet", uri: "" } }), me],
+      ["not an address", options({ sendUsdc: { address: "not-an-address", mint: USDC.toBase58(), network: "solana-mainnet", uri: "" } }), me],
+      ["the server's trading wallet is not the one this browser knows", options(), evil],
+    ] as const) {
+      expect({ name, tile: depositTiles(o, false, known).find((t) => t.id === "send") }).toEqual({ name, tile: expect.objectContaining({ ok: false, uri: "" }) });
+    }
+    const sheet = readCode(join(WEB, "components/webapp/money/DepositSheet.tsx"));
+    expect(sheet).toMatch(/if \(!tile\.ok\) \{\s*return \(/);
+    expect(sheet).toContain("depositTiles(options.data, browser.length > 0, trading)");
   });
 
   test("test money is always marked test", () => {
@@ -925,6 +1033,8 @@ describe("the deposit sheet", () => {
     expect(tiles.find((t) => t.id === "card")).toMatchObject({ test: true });
     const sheet = readFileSync(join(WEB, "components/webapp/money/DepositSheet.tsx"), "utf8");
     expect(sheet).toMatch(/tile\.test \?[\s\S]{0,80}Test/);
+    // On the pay button and on the order screen after it.
+    expect(sheet.match(/\{tile\.test \? <span className="wa-chip wa-chip--test">Test<\/span> : null\}/g)?.length).toBe(2);
   });
 
   test("watching the balance: a waiting call continues once it covers what it needs; otherwise any new USDC", () => {
@@ -1119,5 +1229,83 @@ describe("keep free makes a new free call", () => {
     expect(sheet).toMatch(/if \(pathname === appPath\.call\(oldId\)\) router\.replace\(appPath\.call\(entry\.call\.id\)\);/);
     // A refusal (market closed, price unreadable) leaves the pending call as it was, with the server's line.
     expect(sheet).toMatch(/catch \(e\) \{\s*if \(alive\.current\) setView\(\{ v: "stuck", moneyCall, line: lineOf\(e\), busy: null \}\);/);
+  });
+});
+
+describe("security review fixes", () => {
+  test("the silent top-up never spends more than the server's hard cap, whatever is asked", async () => {
+    const asked: string[] = [];
+    const api = { topUpOrder: async (_w: string, a: string) => (asked.push(a), { status: "REFUSED" as const, reason: "ENOUGH_SOL" as const, message: "" }), topUpExecute: async () => ({ status: "SUCCESS" as const, signature: "s" }) };
+    const signerFor = async () => checkedSigner(OWNER, async (b) => b);
+    expect(MAX_TOPUP_BASE_UNITS).toBe(25_000_000n);
+    await expect(topUp({ api, signerFor }, OWNER, "25000001")).rejects.toBeInstanceOf(MoneyStop);
+    expect(asked).toEqual([]);
+    expect(await topUp({ api, signerFor }, OWNER, "25000000")).toBe("done");
+  });
+
+  test("the swap check refuses more than $25 in, and a rate under 1,000,000 lamports a dollar", async () => {
+    const JUP_IX = (keys: PublicKey[], ixs: MessageV0["compiledInstructions"]) => ixs.find((ix) => keys[ix.programIdIndex]!.toBase58() === JUP)!;
+    const big = mutateSwap(METIS.unsignedBase64, ({ keys, ixs }) => {
+      const ix = JUP_IX(keys, ixs);
+      Buffer.from(ix.data.buffer, ix.data.byteOffset).writeBigUInt64LE(30_000_000n, 8);
+    });
+    await expect(checkGaslessSwap(big, metisExpected({ inAmount: 30_000_000n }))).rejects.toBeInstanceOf(UnsafeTransaction);
+    // 12.54 USDC for 0.001 SOL: a rate no top-up should sign silently.
+    const cheap = mutateSwap(METIS.unsignedBase64, ({ keys, ixs }) => {
+      const ix = JUP_IX(keys, ixs);
+      Buffer.from(ix.data.buffer, ix.data.byteOffset).writeBigUInt64LE(1_000_000n, 16);
+    });
+    await expect(checkGaslessSwap(cheap, metisExpected({ quotedOutLamports: 998_900n }))).rejects.toBeInstanceOf(UnsafeTransaction);
+    // The real shapes still pass (8.4M lamports a dollar).
+    await checkGaslessSwap(base64ToBytes(METIS.unsignedBase64), metisExpected());
+    await checkGaslessSwap(base64ToBytes(RFQ.unsignedBase64), rfqExpected());
+  });
+
+  test("From your wallet pays only the trading wallet this browser knows, and shows it", () => {
+    const sheet = readCode(join(WEB, "components/webapp/money/DepositSheet.tsx"));
+    expect(sheet).toContain("const trading = own.enabled ? own.address : (wallet.data?.wallet?.address ?? null);");
+    expect(sheet).toContain("to={trading!}");
+    expect(sheet).toMatch(/\) : serverTrading !== trading \? \(/);
+    expect(sheet).toContain('if (own.enabled && (await own.ensure()).address !== to) throw new TradeError("mismatch");');
+    expect(sheet).toContain("{ from, to, amountBaseUnits: amount }");
+    expect(sheet).toMatch(/<code className="wa-addr-full wa-mono" aria-label="To your wallet">\s*\{to\}\s*<\/code>/);
+  });
+
+  test("money is never written to the browser's saved cache, nor restored from an old one", () => {
+    expect(persistable(["money", "wallet"])).toBe(false);
+    expect(persistable(["feed", "global"])).toBe(true);
+    const state = { mutations: [], queries: [
+      { queryKey: ["money", "wallet"], state: { data: { balance: { usdcBaseUnits: "12190000" } } } },
+      { queryKey: ["money", "deposit", ""], state: { data: { sendUsdc: { address: "x" } } } },
+      { queryKey: ["feed", "global"], state: { data: { pages: [1], pageParams: [null] } } },
+    ] };
+    expect((trimForStorage(state) as { queries: Array<{ queryKey: unknown[] }> }).queries.map((q) => q.queryKey[0])).toEqual(["feed"]);
+    const storage = memoryStorage();
+    storage.setItem("cb.app.cache.v1.u1", JSON.stringify({ v: 1, savedAt: 1_000, state }));
+    expect((loadCache(storage, "u1", 2_000) as { queries: Array<{ queryKey: unknown[] }> }).queries.map((q) => q.queryKey[0])).toEqual(["feed"]);
+    expect(saveCache(storage, "u2", state, 1_000)).toBe(true);
+    expect(storage.getItem("cb.app.cache.v1.u2")).not.toContain("money");
+    expect(readCode(join(WEB, "components/webapp/data.tsx"))).toContain('q.state.status === "success" && persistable(q.queryKey)');
+  });
+
+  test("the cash-out review shows the whole address and the amount to the last base unit", () => {
+    expect([exactUsd("12190001"), exactUsd("5000000"), exactUsd("9200000"), exactUsd("10000"), exactUsd("1")]).toEqual(["$12.190001", "$5", "$9.20", "$0.01", "$0.000001"]);
+    const sheet = readCode(join(WEB, "components/webapp/money/WalletSheet.tsx"));
+    expect(sheet).toContain('<code className="wa-addr-full wa-mono">{view.ready.review.to}</code>');
+    expect(sheet).toContain("<b>{exactUsd(view.ready.review.amountBaseUnits)}</b>");
+    expect(sheet).toContain("`Send ${exactUsd(view.ready.review.amountBaseUnits)}`");
+    expect(sheet).not.toContain("shortWallet(view.ready.review.to)");
+  });
+
+  test("a call going through is the grey pending mark: no pink pulse, no \"$5 on YES\"", () => {
+    for (const f of ["components/webapp/money/MoneyCallSheet.tsx", "components/webapp/money/PendingCalls.tsx"]) {
+      const code = readCode(join(WEB, f));
+      expect({ f, pink: /wa-pulse|onSide\(/.test(code) }).toEqual({ f, pink: false });
+    }
+    const sheet = readCode(join(WEB, "components/webapp/money/MoneyCallSheet.tsx"));
+    expect(sheet).toMatch(/<span className="wa-wait">\s*<Icon name="sand-watch" size=\{36\} \/>\s*<\/span>\s*<PendingChip amount=\{mark\} state="pending" \/>/);
+    const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
+    expect(css).toMatch(/\.wa-wait \{[^}]*color: var\(--wa-muted\);[^}]*\}/);
+    expect(css).not.toMatch(/\.wa-wait \{[^}]*animation/);
   });
 });

@@ -19,7 +19,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BffRejected } from "@/lib/webapp/bff";
-import { callCta, onSide, progressOf, usd, type MoneyCallView } from "@/lib/webapp/money";
+import { callCta, progressOf, usd, type MoneyCallView } from "@/lib/webapp/money";
 import { advanceCall, confirmCall, type CallIntent, type CallStep } from "@/lib/webapp/moneyFlow";
 import { TradeError } from "@/lib/webapp/trade";
 import { appPath } from "@/lib/webapp/paths";
@@ -29,7 +29,7 @@ import { useToast } from "../data";
 import { Icon } from "../Icon";
 import { keys, useAfterCall } from "../queries";
 import { useApi } from "../session";
-import { FreeChip, PantaMark, Sheet, Spinner, StateScreen } from "../ui";
+import { FreeChip, PantaMark, PendingChip, Sheet, Spinner, StateScreen } from "../ui";
 import { DepositSheet } from "./DepositSheet";
 import { moneyKeys, type StartCall } from "./moneyContext";
 import { moneyLine as lineOf, useSignerFor } from "./signers";
@@ -287,7 +287,8 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
     else if (view.v === "review") setView({ v: "stuck", moneyCall: view.step.moneyCall, line: null, busy: null });
     else onDone();
   };
-  const stamp = onSide(intent.amountBaseUnits, request.label);
+  // Not funded yet: the grey pending mark, never the pink "$5 on YES" a fill earns.
+  const mark = `${usd(intent.amountBaseUnits)} · ${request.label}`;
 
   return (
     <Sheet
@@ -371,10 +372,10 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
         </div>
       ) : view.v === "pending" ? (
         <div className="wa-state wa-state--compact" role="status" aria-live="polite">
-          <span className="wa-pulse">
+          <span className="wa-wait">
             <Icon name="sand-watch" size={36} />
           </span>
-          <p>{stamp}</p>
+          <PendingChip amount={mark} state="pending" />
           <p className="wa-state-sub">Going through</p>
         </div>
       ) : view.v === "stuck" ? (
@@ -382,8 +383,10 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
           <StateScreen art="error" line={view.line} full={false} compact />
         ) : (
           <div className="wa-state wa-state--compact" role="status">
-            <Icon name="sand-watch" size={36} />
-            <p>{stamp}</p>
+            <span className="wa-wait">
+              <Icon name="sand-watch" size={36} />
+            </span>
+            <PendingChip amount={mark} state="pending" />
           </div>
         )
       ) : view.v === "error" ? (

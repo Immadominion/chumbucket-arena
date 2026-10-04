@@ -4,49 +4,55 @@
  * The wallet sheet, behind the balance pill: the balance, add funds, cash
  * out, and recent money activity (`money.activity`, compact rows with
  * icons). Cash out sends USDC to any Solana wallet: an address and an
- * amount, a review, then the wallet signs a transfer checked against the
- * contract's rules (`checkedSigner(...).signTransfer`) and the BFF submits
- * it. Sent means SUBMITTED until the chain shows it landed.
+ * amount, a review of exactly what will be signed (the full address, the
+ * amount to the last base unit), then the wallet signs a transfer checked
+ * against the contract's rules (`checkedSigner(...).signTransfer`).
+ *
+ * Once signed, the transfer is a run (`transferRuns.ts`): the same signed
+ * bytes are pushed until the chain decides, through lost replies and a
+ * closed sheet, and nothing new is prepared meanwhile. Sent means SUBMITTED
+ * until the chain shows it landed.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { ago, shortWallet } from "@/lib/webapp/format";
 import { BffRejected } from "@/lib/webapp/bff";
-import { activityRow, balanceUsd, cashOutForm, explorerTx, usd, type TransferView } from "@/lib/webapp/money";
-import { prepareTransfer, sendTransfer, type TransferReady } from "@/lib/webapp/moneyFlow";
+import { ago } from "@/lib/webapp/format";
+import { activityRow, balanceUsd, cashOutForm, exactUsd, explorerTx, usd } from "@/lib/webapp/money";
+import { prepareTransfer, signTransfer, transferOpen, type TransferReady } from "@/lib/webapp/moneyFlow";
+import { TradeError } from "@/lib/webapp/trade";
 import { useNow, useToast } from "../data";
 import { Icon } from "../Icon";
-import { useApi } from "../session";
+import { useApi, useViewer } from "../session";
 import { Sheet, Spinner, StateScreen } from "../ui";
 import { moneyKeys, useMoneyActivity, useMoneyWallet } from "./moneyContext";
 import { moneyLine, useSignerFor } from "./signers";
+import { clearTransferRun, startTransferRun, transferKey, useTransferRun } from "./transferRuns";
 import { WinningsCard } from "./Winnings";
 
-type View =
-  | { v: "home" }
-  | { v: "cashout" }
-  | { v: "review"; ready: TransferReady }
-  | { v: "sending"; transfer: TransferView };
-
-const POLL_MS = 3_000;
+type View = { v: "home" } | { v: "cashout" } | { v: "review"; ready: TransferReady };
 
 export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onClose: () => void; onAddFunds: () => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const toast = useToast();
   const now = useNow();
+  const viewer = useViewer();
   const signerFor = useSignerFor();
   const wallet = useMoneyWallet(open);
   const activity = useMoneyActivity(open);
+  const runKey = transferKey(viewer.userId, "cash_out");
+  const run = useTransferRun(runKey);
   const [view, setView] = useState<View>({ v: "home" });
   const [address, setAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [max, setMax] = useState(false);
   const [line, setLine] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // One key per cash out, kept until its outcome is known: a lost reply asks again with it.
   const intent = useRef<{ key: string; destination: string; amount: string } | null>(null);
   const w = wallet.data ?? null;
+  const open_ = transferOpen(run);
 
   useEffect(() => {
     if (open) return;
@@ -54,29 +60,20 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
     setLine(null);
   }, [open]);
 
-  // Sent: the BFF's answer until the chain shows it landed, or says it failed.
-  const sendingId = view.v === "sending" && view.transfer.state === "SUBMITTED" ? view.transfer.transferId : null;
+  // The outcome is known (landed, failed, or refused): the balance moves, and the key is spent.
+  const outcome = run && !open_ ? `${run.transferId}:${run.view?.state ?? ""}:${run.rejected ?? ""}` : null;
   useEffect(() => {
-    if (!sendingId) return;
-    const t = setInterval(() => {
-      api
-        .transferStatus(sendingId)
-        .then((v) => {
-          if (v.state === "SUBMITTED") return;
-          setView({ v: "sending", transfer: v });
-          void qc.invalidateQueries({ queryKey: moneyKeys.wallet });
-          void qc.invalidateQueries({ queryKey: moneyKeys.activity });
-          if (v.state === "FAILED") setLine("It didn’t go through. Nothing was sent.");
-        })
-        .catch(() => undefined);
-    }, POLL_MS);
-    return () => clearInterval(t);
-  }, [api, qc, sendingId]);
+    if (!outcome) return;
+    intent.current = null;
+    void qc.invalidateQueries({ queryKey: moneyKeys.wallet });
+    void qc.invalidateQueries({ queryKey: moneyKeys.activity });
+  }, [outcome, qc]);
 
   const form = cashOutForm({ address, amount, max }, w);
 
   async function review() {
-    if (!form.ok || !w?.wallet) return;
+    // Nothing new while a signed cash out has no outcome yet.
+    if (!form.ok || !w?.wallet || open_) return;
     const from = w.wallet.address;
     setBusy(true);
     setLine(null);
@@ -89,15 +86,10 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
         { from, to: form.destination, amountBaseUnits: form.amountBaseUnits },
         { api, signerFor },
       );
-      if (step.step === "invalid") {
-        setLine(step.message);
-      } else {
-        // A review lives 60 s and its key is spent: the next review starts afresh.
-        intent.current = null;
-        setView({ v: "review", ready: step.ready });
-      }
+      if (step.step === "invalid") setLine(step.message);
+      else setView({ v: "review", ready: step.ready });
     } catch (e) {
-      // A dropped reply keeps the key (the same review comes back); a refusal starts afresh.
+      // A refusal (an expired review among them) is an answer: start afresh. A lost reply keeps the key.
       if (e instanceof BffRejected) intent.current = null;
       setLine(moneyLine(e, "transfer"));
     } finally {
@@ -106,15 +98,18 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
   }
 
   async function send() {
-    if (view.v !== "review") return;
+    if (view.v !== "review" || open_) return;
     setBusy(true);
     setLine(null);
     try {
-      const transfer = await sendTransfer(api, await signerFor(view.ready.review.from), view.ready);
-      setView({ v: "sending", transfer });
+      const signed = await signTransfer(await signerFor(view.ready.review.from), view.ready);
+      // From here the signed bytes are pushed until the chain decides.
+      startTransferRun(runKey, api, signed);
+      setView({ v: "home" });
     } catch (e) {
+      // Nothing was signed or sent. A lapsed review is spent; a declined one can be asked for again.
+      if (e instanceof TradeError && e.kind === "expired") intent.current = null;
       setLine(moneyLine(e, "transfer"));
-      // A lapsed quote is built again from the form.
       setView({ v: "cashout" });
     } finally {
       setBusy(false);
@@ -122,17 +117,20 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
   }
 
   const done = () => {
+    if (open_) return onClose();
+    if (run?.view?.state === "CONFIRMED") toast(`Sent ${exactUsd(run.amountBaseUnits)}`);
+    clearTransferRun(runKey);
     setAddress("");
     setAmount("");
     setMax(false);
     setLine(null);
-    if (view.v === "sending" && view.transfer.state === "CONFIRMED") toast(`Sent ${usd(view.transfer.amountBaseUnits)}`);
     setView({ v: "home" });
   };
 
   // Never a made-up number: no answer yet reads "Wallet", not $0.00.
   const balance = w ? balanceUsd(w.balance?.usdcBaseUnits) : null;
-  const title = view.v === "home" ? (balance ?? "Wallet") : view.v === "sending" ? usd(view.transfer.amountBaseUnits) : "Cash out";
+  const sending = run !== null;
+  const title = sending ? exactUsd(run.amountBaseUnits) : view.v === "home" ? (balance ?? "Wallet") : "Cash out";
   const items = activity.data?.items ?? [];
 
   return (
@@ -142,24 +140,35 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
       busy={busy}
       title={title}
       footer={
-        view.v === "cashout" ? (
+        sending ? (
+          <button type="button" className="wa-btn wa-btn--soft wa-btn--block" onClick={done}>
+            Done
+          </button>
+        ) : view.v === "cashout" ? (
           <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={!form.ok || busy} onClick={() => void review()}>
             {busy ? <Spinner /> : <Icon name="arrow-up" size={20} />}
-            <span className="wa-btn-label">{form.ok ? `Cash out ${usd(form.amountBaseUnits)}` : "Cash out"}</span>
+            <span className="wa-btn-label">{form.ok ? `Cash out ${exactUsd(form.amountBaseUnits)}` : "Cash out"}</span>
           </button>
         ) : view.v === "review" ? (
           <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={busy} onClick={() => void send()}>
             {busy ? <Spinner /> : <Icon name="check-solid" size={20} />}
-            <span className="wa-btn-label">{`Send ${usd(view.ready.review.amountBaseUnits)}`}</span>
-          </button>
-        ) : view.v === "sending" ? (
-          <button type="button" className="wa-btn wa-btn--soft wa-btn--block" onClick={done}>
-            Done
+            <span className="wa-btn-label">{`Send ${exactUsd(view.ready.review.amountBaseUnits)}`}</span>
           </button>
         ) : undefined
       }
     >
-      {view.v === "home" ? (
+      {sending ? (
+        run.rejected || run.view?.state === "FAILED" ? (
+          <StateScreen art="error" line={run.rejected ?? "It didn’t go through. Nothing was sent."} full={false} compact />
+        ) : (
+          <div className="wa-state wa-state--compact" role="status" aria-live="polite">
+            <span className="wa-wait">
+              <Icon name={run.view?.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
+            </span>
+            <p className="wa-state-sub wa-mono wa-addr-full">{run.to}</p>
+          </div>
+        )
+      ) : view.v === "home" ? (
         <>
           <div className="wa-walletacts">
             <button type="button" className="wa-btn wa-btn--primary wa-btn--sm" onClick={onAddFunds}>
@@ -242,7 +251,7 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
                 className="wa-input"
                 inputMode="decimal"
                 aria-label="Amount in dollars"
-                value={max ? balanceUsd(w?.balance?.usdcBaseUnits).slice(1) : amount}
+                value={max ? exactUsd(w?.balance?.usdcBaseUnits).slice(1) : amount}
                 disabled={max}
                 aria-invalid={!form.ok && form.field === "amount" && !!form.line}
                 onChange={(e) => setAmount(e.target.value)}
@@ -259,34 +268,24 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
           ) : null}
         </div>
       ) : view.v === "review" ? (
+        // Exactly what will be signed: the whole address, the amount to the last base unit.
         <div className="wa-review" role="group" aria-label="Review">
-          <div className="wa-review-row wa-review-row--strong">
-            <Icon name="arrow-up" size={20} />
-            <span className="wa-review-label">To</span>
-            <b className="wa-mono">{shortWallet(view.ready.review.to)}</b>
-          </div>
           <div className="wa-review-row wa-review-row--strong">
             <Icon name="wallet" size={20} />
             <span className="wa-review-label">Amount</span>
-            <b>{usd(view.ready.review.amountBaseUnits)}</b>
+            <b>{exactUsd(view.ready.review.amountBaseUnits)}</b>
           </div>
+          <div className="wa-review-row wa-review-row--strong wa-review-row--top">
+            <Icon name="arrow-up" size={20} />
+            <span className="wa-review-label">To</span>
+          </div>
+          <code className="wa-addr-full wa-mono">{view.ready.review.to}</code>
           {line ? (
             <p className="wa-hint wa-hint--error" role="alert">
               {line}
             </p>
           ) : null}
         </div>
-      ) : view.v === "sending" ? (
-        view.transfer.state === "FAILED" ? (
-          <StateScreen art="error" line={line ?? "It didn’t go through. Nothing was sent."} full={false} compact />
-        ) : (
-          <div className="wa-state wa-state--compact" role="status" aria-live="polite">
-            <span className="wa-pulse">
-              <Icon name={view.transfer.state === "CONFIRMED" ? "check-solid" : "sand-watch"} size={36} />
-            </span>
-            <p className="wa-mono">{shortWallet(view.transfer.to)}</p>
-          </div>
-        )
       ) : null}
     </Sheet>
   );

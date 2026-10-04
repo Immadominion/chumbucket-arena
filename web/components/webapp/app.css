@@ -2706,3 +2706,20 @@
   font-weight: 600;
   font-size: 14px;
 }
+
+/* Waiting on the chain: grey and still, never the pink of money in. */
+.wa-wait {
+  display: inline-grid;
+  color: var(--wa-muted);
+}
+/* An address exactly as it will be signed: whole, wrapped, never shortened. */
+.wa-addr-full {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f3f4f6;
+  font-size: 12.5px;
+  line-height: 1.45;
+  word-break: break-all;
+  text-align: left;
+}
