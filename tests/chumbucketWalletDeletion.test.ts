@@ -15,7 +15,9 @@ import { resolveTrustConfig } from "../src/trust/config.ts";
 import { buildTrustRuntime, setTrustRuntime } from "../src/trust/runtime.ts";
 import { InMemoryTrustStore, RecordingAuthUserAdmin } from "../src/trust/store.ts";
 import { CASH_OUT_FIRST, FUNDS_UNREADABLE } from "../src/trust/TrustService.ts";
-import { ChumbucketFundsGuard, SOL_DUST_LAMPORTS, USDC_DUST_BASE_UNITS, type FundsVerdict } from "../src/wallet/deletionGuard.ts";
+import { ChumbucketFundsGuard, SOL_DUST_LAMPORTS, SupabaseChumbucketLinks, USDC_DUST_BASE_UNITS, type FundsVerdict } from "../src/wallet/deletionGuard.ts";
+import { SupabasePantaTradingStore } from "../src/prediction/PantaTradingStore.ts";
+import { PantaPositionsService } from "../src/prediction/PantaPositions.ts";
 import { FakeIdentityStore, FakeJwtVerifier } from "./authIdentityFixtures.ts";
 import { harness, person, testApp } from "./socialCallsFixtures.ts";
 
@@ -23,17 +25,19 @@ const OWN = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 const APP = "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T";
 
 function guard(over: {
-  links?: Array<{ address: string; walletType: string }> | "down";
+  /** The account's Chumbucket wallets, active or revoked (what the reader answers). */
+  links?: string[] | "down";
   balance?: { usdc?: bigint; lamports?: bigint } | "down" | null;
-  positions?: Array<{ owner: string; status: PantaPositionStatus }> | "down" | null;
+  positions?: Array<{ owner: string; status: PantaPositionStatus; walletShares?: string | null; claim?: { state: string } | null }> | "down" | null;
   holdings?: PantaPositionsPage["holdings"];
 } = {}) {
   const reads: string[] = [];
+  const positionReads: unknown[] = [];
   const g = new ChumbucketFundsGuard({
     links: {
-      activeVerified: async () => {
+      chumbucketWallets: async () => {
         if (over.links === "down") throw new Error("synthetic");
-        return (over.links ?? [{ address: OWN, walletType: "chumbucket" }, { address: APP, walletType: "mwa" }]).map((l) => ({ ...l, primary: false }));
+        return over.links ?? [OWN];
       },
     },
     balances:
@@ -51,21 +55,22 @@ function guard(over: {
       over.positions === null
         ? null
         : {
-            positions: async () => {
+            positions: async (_userId: string, opts: { all: true }) => {
+              positionReads.push(opts);
               if (over.positions === "down") throw new Error("synthetic");
               return {
-                positions: (over.positions ?? []).map((p) => ({ ...p }) as unknown as PantaPosition),
+                positions: (over.positions ?? []).map((p) => ({ walletShares: null, claim: null, ...p }) as unknown as PantaPosition),
                 holdings: over.holdings ?? "live",
               } as PantaPositionsPage;
             },
           },
   });
-  return { g, reads };
+  return { g, reads, positionReads };
 }
 
 describe("the Chumbucket wallet must be empty", () => {
   test("no Chumbucket wallet: clear, and nothing is read", async () => {
-    const { g, reads } = guard({ links: [{ address: APP, walletType: "mwa" }] });
+    const { g, reads } = guard({ links: [] });
     expect(await g.verdict("u-ann")).toBe("clear");
     expect(reads).toEqual([]);
   });
@@ -78,12 +83,30 @@ describe("the Chumbucket wallet must be empty", () => {
     expect(dust.reads).toEqual([OWN]);
   });
 
+  test("every position is read, and a void one owes its stake until claimed or emptied", async () => {
+    const all = guard();
+    expect(await all.g.verdict("u-ann")).toBe("clear");
+    expect(all.positionReads).toEqual([{ all: true }]);
+    expect(await guard({ positions: [{ owner: OWN, status: "void", walletShares: "12.5" }] }).g.verdict("u-ann")).toBe("funds");
+    expect(await guard({ positions: [{ owner: OWN, status: "void", walletShares: "12.5" }], holdings: "unavailable" }).g.verdict("u-ann")).toBe("unknown");
+    expect(await guard({ positions: [{ owner: OWN, status: "void", walletShares: "12.5", claim: { state: "CONFIRMED" } }] }).g.verdict("u-ann")).toBe("clear");
+    expect(await guard({ positions: [{ owner: OWN, status: "void", walletShares: "0" }] }).g.verdict("u-ann")).toBe("clear");
+    expect(await guard({ positions: [{ owner: OWN, status: "void", walletShares: null }] }).g.verdict("u-ann")).toBe("clear");
+  });
+
+  test("a revoked Chumbucket wallet still counts: its key went nowhere", async () => {
+    // The reader answers revoked links too; the guard checks each one.
+    const both = guard({ links: [OWN, APP], balance: { usdc: 0n } });
+    expect(await both.g.verdict("u-ann")).toBe("clear");
+    expect(both.reads).toEqual([OWN, APP]);
+  });
+
   test("an open position or unclaimed winnings on it is money; another wallet's is not", async () => {
     for (const status of ["pending", "open", "awaiting_result", "won_claimable", "claiming"] as const) {
       expect(await guard({ positions: [{ owner: OWN, status }] }).g.verdict("u-ann")).toBe("funds");
     }
     expect(await guard({ positions: [{ owner: APP, status: "open" }] }).g.verdict("u-ann")).toBe("clear");
-    for (const status of ["claimed", "lost", "void", "failed", "won"] as const) {
+    for (const status of ["claimed", "lost", "failed", "won"] as const) {
       expect(await guard({ positions: [{ owner: OWN, status }] }).g.verdict("u-ann")).toBe("clear");
     }
     // A win whose claimability Panta did not answer for may still pay.
@@ -94,6 +117,56 @@ describe("the Chumbucket wallet must be empty", () => {
     for (const over of [{ links: "down" as const }, { balance: "down" as const }, { balance: null }, { positions: null }, { positions: "down" as const }]) {
       expect(await guard(over).g.verdict("u-ann")).toBe("unknown");
     }
+  });
+});
+
+describe("the readers behind it", () => {
+  test("Chumbucket links: this account, this label, revoked included; a full page is refused", async () => {
+    const urls: URL[] = [];
+    const rows = (n: number) => Array.from({ length: n }, () => ({ wallet_address: OWN }));
+    const reader = (answer: unknown, status = 200) =>
+      new SupabaseChumbucketLinks({ supabaseUrl: "https://synthetic.invalid", serviceRoleKey: "synthetic-only" },
+        Object.assign(async (url: Parameters<typeof fetch>[0]) => {
+          urls.push(new URL(String(url)));
+          return new Response(JSON.stringify(answer), { status });
+        }, { preconnect: fetch.preconnect }) as typeof fetch);
+    const user = "10000000-0000-4000-8000-000000000001";
+    expect(await reader(rows(2)).chumbucketWallets(user)).toEqual([OWN, OWN]);
+    expect(Object.fromEntries(urls[0]!.searchParams)).toEqual({ user_id: `eq.${user}`, wallet_type: "eq.chumbucket", select: "wallet_address", limit: "100" });
+    await expect(reader(rows(100)).chumbucketWallets(user)).rejects.toThrow();
+    await expect(reader({ message: "no" }, 500).chumbucketWallets(user)).rejects.toThrow();
+    await expect(reader([]).chumbucketWallets("u-ann")).rejects.toThrow();
+  });
+
+  test("positions({ all }) reads every order, and refuses on a ledger that cannot", async () => {
+    const calls: string[] = [];
+    const base = { markets: { getMarket: () => undefined, getResolution: () => undefined }, claims: null, holdings: null } as never;
+    const newest = new PantaPositionsService({ ...(base as object), ledger: { listForUser: async () => { calls.push("newest"); return []; } } } as never);
+    await expect(newest.positions("u-ann", { all: true })).rejects.toThrow("cannot read every order");
+    const every = new PantaPositionsService({ ...(base as object), ledger: {
+      listForUser: async () => { calls.push("newest"); return []; },
+      listAllForUser: async () => { calls.push("all"); return []; },
+    } } as never);
+    await every.positions("u-ann", { all: true });
+    await every.positions("u-ann");
+    expect(calls).toEqual(["all", "newest"]);
+  });
+
+  test("every order is read, page by page, never a silent truncation", async () => {
+    const offsets: string[] = [];
+    let total = 450;
+    const store = new SupabasePantaTradingStore({ supabaseUrl: "https://synthetic.invalid", serviceRoleKey: "synthetic-only" },
+      Object.assign(async (url: Parameters<typeof fetch>[0]) => {
+        const params = new URL(String(url)).searchParams;
+        const offset = Number(params.get("offset"));
+        offsets.push(String(offset));
+        const n = Math.max(0, Math.min(200, total - offset));
+        return new Response(JSON.stringify(Array.from({ length: n }, (_, i) => ({ id: `r${offset + i}` }))), { status: 200 });
+      }, { preconnect: fetch.preconnect }) as typeof fetch);
+    expect(await store.listAllForUser("10000000-0000-4000-8000-000000000001")).toHaveLength(450);
+    expect(offsets).toEqual(["0", "200", "400"]);
+    total = 1_000_000;
+    await expect(store.listAllForUser("10000000-0000-4000-8000-000000000001")).rejects.toThrow("more rows");
   });
 });
 

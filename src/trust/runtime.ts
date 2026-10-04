@@ -15,10 +15,9 @@ import { WriteRateLimiter } from "./rateLimit.ts";
 import { InMemoryTrustStore, UnconfiguredAuthUserAdmin, type AuthUserAdmin, type TrustStore } from "./store.ts";
 import { GoTrueAuthUserAdmin, SupabaseTrustStore } from "./supabaseStore.ts";
 import { TrustService } from "./TrustService.ts";
-import { SupabaseLinkedWalletReader } from "../deposits/accounts.ts";
 import { depositsRuntimeFor } from "../deposits/runtime.ts";
 import { pantaLifecycleFor } from "../prediction/PantaTradingRuntime.ts";
-import { ChumbucketFundsGuard, type FundsGuard } from "../wallet/deletionGuard.ts";
+import { ChumbucketFundsGuard, SupabaseChumbucketLinks, type FundsGuard } from "../wallet/deletionGuard.ts";
 
 export interface TrustRuntime {
   config: TrustConfig;
@@ -39,7 +38,7 @@ export interface BuildTrustRuntimeOverrides {
 /** Deletion waits for an empty Chumbucket wallet (src/wallet/deletionGuard.ts). */
 function chumbucketFundsGuard(appConfig: AppConfig, social: NonNullable<AppConfig["social"]>): FundsGuard {
   return new ChumbucketFundsGuard({
-    links: new SupabaseLinkedWalletReader(social),
+    links: new SupabaseChumbucketLinks(social),
     balances: depositsRuntimeFor(appConfig).balances,
     positions: () => {
       try {
