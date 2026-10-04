@@ -82,6 +82,20 @@ function limiter(config: AppConfig): MoneyRateLimiter {
   return held;
 }
 
+/** Stable reasons for the call refusals a money client branches on. */
+const CALLS_REASONS: Partial<Record<string, string>> = {
+  CALL_MARKET_CLOSED: "MARKET_CLOSED",
+  CALL_ALREADY_MADE: "CALL_ALREADY_MADE",
+  RESPONSE_SELF: "RESPONSE_SELF",
+  RESPONSE_DUPLICATE: "RESPONSE_DUPLICATE",
+};
+/** …and for the trade path's. */
+const VENUE_REASONS: Partial<Record<string, string>> = {
+  FUNDED_POSITIONS_DISABLED: "TRADING_PAUSED",
+  WALLET_NOT_LINKED: "WALLET_NOT_LINKED",
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+};
+
 function venueCode(code: string): TRPC_ERROR_CODE_KEY {
   switch (code) {
     case "FUNDED_POSITIONS_DISABLED": return "PRECONDITION_FAILED";
@@ -99,13 +113,18 @@ async function run<T>(procedure: string, action: () => Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
     if (error instanceof TRPCError) throw error;
-    if (isMoneyError(error)) {
-      // Public details (our own ids and codes) ride in the error's data.details.
-      throw new TRPCError({ code: CODES[error.code], message: error.message, ...(error.publicDetails ? { cause: error } : {}) });
+    // Every money refusal carries a stable reason in data.details (docs/money-api.md).
+    if (isMoneyError(error)) throw new TRPCError({ code: CODES[error.code], message: error.message, cause: error });
+    if (isCallsError(error)) {
+      const mapped = callsTrpcError(error);
+      const reason = CALLS_REASONS[error.code];
+      throw reason ? new TRPCError({ code: mapped.code, message: mapped.message, cause: { publicDetails: { reason } } }) : mapped;
     }
-    if (isCallsError(error)) throw callsTrpcError(error);
     if (isTrustError(error)) throw trustTrpcError(error);
-    if (isVenueError(error)) throw new TRPCError({ code: venueCode(error.code), message: error.message });
+    if (isVenueError(error)) {
+      const reason = VENUE_REASONS[error.code];
+      throw new TRPCError({ code: venueCode(error.code), message: error.message, ...(reason ? { cause: { publicDetails: { reason } } } : {}) });
+    }
     if (isPgrestError(error)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Money isn't available right now. Nothing was charged. Try again shortly." });
     console.warn("[money] failed", JSON.stringify({ procedure, error: error instanceof Error ? error.name : "unknown" }));
     throw new TRPCError({ code: "BAD_GATEWAY", message: "Something went wrong. Nothing was charged. Try again." });

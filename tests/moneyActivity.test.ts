@@ -115,8 +115,24 @@ describe("money routes", () => {
       cause: new MoneyError("TRANSFER_IN_FLIGHT", "m", { reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000001" }) });
     expect(format({ shape, error: inFlight, type: "mutation", path: "money.cashOutPrepare", input: undefined, ctx: undefined }).data.details)
       .toEqual({ reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000001" });
+    // Every money refusal carries a stable reason; mapped call/venue refusals too.
+    const reasonOf = (cause: unknown) => format({ shape, error: new TRPCError({ code: "PRECONDITION_FAILED", message: "m", cause }),
+      type: "mutation", path: "money.retry", input: undefined, ctx: undefined }).data.details;
+    expect(reasonOf(new MoneyError("PRICE_MOVED", "m"))).toEqual({ reason: "PRICE_MOVED" });
+    expect(reasonOf(new MoneyError("NOT_TRADABLE", "m"))).toEqual({ reason: "NOT_TRADABLE" });
+    expect(reasonOf(new MoneyError("EXPIRED", "m", { reason: "REVIEW_EXPIRED" }))).toEqual({ reason: "REVIEW_EXPIRED" });
+    expect(reasonOf({ publicDetails: { reason: "MARKET_CLOSED" } })).toEqual({ reason: "MARKET_CLOSED" });
     const other = new TRPCError({ code: "BAD_GATEWAY", message: "m", cause: new Error("secret upstream body") });
     expect(format({ shape, error: other, type: "mutation", path: "x", input: undefined, ctx: undefined }).data).not.toHaveProperty("details");
+  });
+
+  test("through the router, a refusal reaches the client with its reason", async () => {
+    const app = await createApp({ config: loadConfig({}) });
+    const error = await moneyRouter.createCaller({ app }).wallet().catch((e: unknown) => e) as TRPCError;
+    expect(error.code).toBe("PRECONDITION_FAILED");
+    const format = (moneyRouter._def._config as { errorFormatter: (o: unknown) => { data: Record<string, unknown> } }).errorFormatter;
+    const shape = { message: error.message, code: -32012, data: { code: error.code, httpStatus: 412, path: "money.wallet" } };
+    expect(format({ shape, error, type: "mutation", path: "money.wallet", input: undefined, ctx: undefined }).data.details).toEqual({ reason: "DISABLED" });
   });
 
   test("polled money reads never spend the write budget", () => {

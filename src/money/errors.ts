@@ -22,12 +22,16 @@ export type MoneyErrorCode =
 
 export class MoneyError extends Error {
   /**
-   * `publicDetails`: machine-readable facts the client may act on (sent as
-   * the error's `data.details`). Only ever our own ids and codes.
+   * Machine-readable facts the client branches on, sent as the error's
+   * `data.details` (src/api/trpc.ts): always a stable `reason` (the code,
+   * unless a more precise one is given, e.g. CALL_EXPIRED / REVIEW_EXPIRED),
+   * plus our own ids where useful. Never provider text.
    */
-  constructor(readonly code: MoneyErrorCode, message: string, readonly publicDetails?: Record<string, string>) {
+  readonly publicDetails: Record<string, string>;
+  constructor(readonly code: MoneyErrorCode, message: string, details: Record<string, string> = {}) {
     super(message);
     this.name = "MoneyError";
+    this.publicDetails = { reason: code, ...details };
   }
 }
 

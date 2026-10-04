@@ -215,7 +215,8 @@ describe("submit and status", () => {
     await expect(r.service.submit("ann", out.transfer.transferId, sign(other.transaction))).rejects.toMatchObject({ code: "BAD_SIGNATURE" });
     await expect(r.service.submit("bob", out.transfer.transferId, sign(out.transaction.payload))).rejects.toMatchObject({ code: "NOT_FOUND" });
     r.advance(61_000);
-    await expect(r.service.submit("ann", out.transfer.transferId, sign(out.transaction.payload))).rejects.toMatchObject({ code: "EXPIRED" });
+    await expect(r.service.submit("ann", out.transfer.transferId, sign(out.transaction.payload))).rejects.toMatchObject({ code: "EXPIRED",
+      publicDetails: { reason: "REVIEW_EXPIRED" } });
     expect(r.chain.broadcasts).toHaveLength(0);
   });
 

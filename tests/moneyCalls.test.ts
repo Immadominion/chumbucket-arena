@@ -317,7 +317,7 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     const out = await ready(r);
     r.panta.fail(out.trade.order.orderId);
     r.h.clock.advance(MIN + 1);
-    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "MARKET_CLOSED" });
+    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "MARKET_CLOSED", publicDetails: { reason: "MARKET_CLOSED" } });
     expect(r.store.rows.get(out.call.call.id)!.state).toBe("PENDING");
     expect(r.h.calls.getCall(out.call.call.id)!.hiddenAt).toBeNull();
     expect(await r.money.sweep()).toMatchObject({ expired: 1 });
@@ -361,7 +361,7 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     r.panta.fail(out.trade.order.orderId);
     r.h.clock.advance(2 * MIN);
     expect((await r.money.status("ann", out.call.call.id)).moneyCall).toMatchObject({ state: "PENDING", canRetry: false, canKeepFree: false, canDiscard: false });
-    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED" });
+    await expect(r.money.keepFree("ann", out.call.call.id)).rejects.toMatchObject({ code: "EXPIRED", publicDetails: { reason: "CALL_EXPIRED" } });
     expect(r.store.rows.get(out.call.call.id)).toMatchObject({ state: "EXPIRED", ended_reason: "expired" });
     await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "STATE" });
   });
@@ -377,7 +377,7 @@ describe("failed or abandoned: retry, keep free, discard, or expire", () => {
     if (again.status === "READY") r.panta.fail(again.trade.order.orderId);
     // The price moved: no re-quote; the person starts a new call.
     r.h.venue.appendSnapshot({ marketId: "m", yesProbability: 0.6, observedAt: r.h.clock.now() + 2, source: "venue" });
-    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "PRICE_MOVED" });
+    await expect(r.money.retry(ann, out.call.call.id)).rejects.toMatchObject({ code: "PRICE_MOVED", publicDetails: { reason: "PRICE_MOVED" } });
     expect(r.store.rows.get(out.call.call.id)!.attempts).toBe(2);
   });
 

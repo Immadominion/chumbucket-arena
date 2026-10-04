@@ -489,7 +489,7 @@ export class MoneyCallsService {
   private async assertAlive(row: MoneyCallRow): Promise<void> {
     if (this.now() < Date.parse(row.expires_at)) return;
     await this.end(row, "expired").catch(() => undefined);
-    throw new MoneyError("EXPIRED", "This call wasn't finished in time. Make it again.");
+    throw new MoneyError("EXPIRED", "This call wasn't finished in time. Make it again.", { reason: "CALL_EXPIRED" });
   }
 
   private amount(value: string): bigint {

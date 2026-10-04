@@ -333,7 +333,7 @@ export class TransferService {
       if (existing.state !== "BUILT") return { status: "SENT", transfer: this.view(await this.reconcile(existing)) };
       if (existing.prepared.expiresAt <= this.now()) {
         await this.deps.store.update(existing.id, "BUILT", { state: "FAILED" }).catch(() => null);
-        throw new MoneyError("EXPIRED", "This review expired. Nothing was sent. Start again.");
+        throw new MoneyError("EXPIRED", "This review expired. Nothing was sent. Start again.", { reason: "REVIEW_EXPIRED" });
       }
       return this.ready(existing);
     }
@@ -421,7 +421,9 @@ export class TransferService {
     }
     if (row.state === "CONFIRMED") return this.view(row);
     if (row.state === "BUILT") {
-      if (row.prepared.expiresAt <= this.now()) throw new MoneyError("EXPIRED", "The approval arrived after the review expired. Nothing was sent.");
+      if (row.prepared.expiresAt <= this.now()) {
+        throw new MoneyError("EXPIRED", "The approval arrived after the review expired. Nothing was sent.", { reason: "REVIEW_EXPIRED" });
+      }
       const saved = await this.deps.store.update(row.id, "BUILT", { state: "SUBMITTED", signature: tx.signature, signed_transaction: signedTransaction });
       row = saved ?? await this.own(userId, transferId);
       if (row.signature !== tx.signature || row.signed_transaction !== signedTransaction) {
