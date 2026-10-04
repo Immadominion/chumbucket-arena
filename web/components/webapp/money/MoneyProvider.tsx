@@ -10,6 +10,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { sideName } from "@/lib/webapp/money";
+import { moneyOn } from "@/lib/webapp/rollout";
 import { useViewer } from "../session";
 import { rememberAmount } from "./AmountRow";
 import { DepositSheet } from "./DepositSheet";
@@ -20,7 +21,8 @@ import { WalletSheet } from "./WalletSheet";
 export function MoneyProvider({ children }: { children: React.ReactNode }) {
   const viewer = useViewer();
   const status = useMoneyStatus();
-  const enabled = status.data?.enabled === true;
+  // The server's answer for this account (admins only during rollout); anything else is off.
+  const enabled = moneyOn(status.data);
   const wallet = useMoneyWallet(enabled);
   const [request, setRequest] = useState<(CallRequest & { id: number }) | null>(null);
   const [sheet, setSheet] = useState<"wallet" | "deposit" | null>(null);

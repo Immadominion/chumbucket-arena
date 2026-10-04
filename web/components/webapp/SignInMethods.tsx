@@ -31,6 +31,7 @@ import {
   type SignInMethodRow,
   type SignInMethods as Methods,
 } from "@/lib/webapp/linking";
+import { linkingOn } from "@/lib/webapp/rollout";
 import { accessToken } from "./authClient";
 import { useToast } from "./data";
 import { Icon } from "./Icon";
@@ -75,7 +76,6 @@ export function SignInMethods() {
   const qc = useQueryClient();
   const wallets = useWallets();
   const [data, setData] = useState<Methods | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
   const [line, setLine] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [move, setMove] = useState<Move | null>(null);
@@ -88,10 +88,8 @@ export function SignInMethods() {
     if (!token) return;
     try {
       setData(await auth.api.signInMethods(token));
-      setUnavailable(false);
     } catch {
       // A server without sign-in methods yet: Settings simply doesn't show them.
-      setUnavailable(true);
     }
   }, [auth.api]);
 
@@ -215,7 +213,9 @@ export function SignInMethods() {
     }
   };
 
-  if (data === null && unavailable) return null;
+  // Linking is the server's answer for this account (admins only during
+  // rollout): off, unanswered or unavailable, Settings shows none of it.
+  if (!linkingOn(data)) return null;
   const rows = data?.methods ?? [];
   const current = rows.find((r) => r.current) ?? null;
   const missing = data?.linking ? missingKinds(rows) : [];
@@ -230,11 +230,6 @@ export function SignInMethods() {
         </p>
       ) : null}
       <ul className="wa-menu">
-        {data === null ? (
-          <li className="wa-signins-loading">
-            <Spinner />
-          </li>
-        ) : null}
         {rows.map((row) => (
           <li key={row.id}>
             <div className="wa-signin">
