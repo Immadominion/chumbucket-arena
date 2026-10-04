@@ -207,11 +207,9 @@ export async function maybe<T>(p: Promise<T>): Promise<T | null> {
 // ── presentation helpers (pure) ──────────────────────────────────────────────
 
 /**
- * A Panta price as the percent people read: `0.62` -> "62%". YES and NO are
- * each the 0..1 per-share price on Panta's 1e9 PRICE_SCALE: USDC markets from
- * the partner API, SOL markets from the program's `last_yes_price` and its
- * complement (src/prediction/PantaProgram.ts), which panta.market shows as the
- * odds. So both quote assets read the same way, never with a unit.
+ * One side's price read alone as a percent: `0.62` -> "62%". Only for a price
+ * with nothing to weigh it against (its pair unpublished); a market's two
+ * sides go through `pairPercent`, so they always add up.
  *
  * Whole percent, rounded half-up on the decimal string (no float drift). A
  * live price under half a percent reads "<1%" and one at 99.5% or more ">99%",
@@ -232,14 +230,59 @@ export function percentLabel(price: string | null | undefined): string | null {
   return `${Math.floor((tenths + 5) / 10)}%`;
 }
 
-/** The percent a call was made at, for its own side ("62%"), or null. */
+/** A plain decimal as [digits, decimal places]; null if it is not one. */
+function decimalParts(value: string | null | undefined): [bigint, number] | null {
+  const m = typeof value === "string" ? /^(\d+)(?:\.(\d+))?$/.exec(value.trim()) : null;
+  if (!m) return null;
+  const fraction = m[2] ?? "";
+  return [BigInt(`${m[1]}${fraction}`), fraction.length];
+}
+
+/**
+ * A market's two sides as percents that always add up to 100. Panta's USDC
+ * prices are independent venue prices: they need not sum to 1, and either can
+ * exceed 1 (YES 1.25 / NO 0.35). So YES reads yes / (yes + no) and NO reads
+ * 100 minus that rounded YES; a SOL market's complementary pair
+ * (`last_yes_price` / 1e9 and its complement, src/prediction/PantaProgram.ts)
+ * reads exactly as its own figures. Exact integer arithmetic, half-up; "<1%" /
+ * ">99%" at the ends. A side alone (its pair unpublished) reads as itself
+ * (`percentLabel`); both missing, or both zero, read null.
+ */
+export function pairPercent(
+  yes: string | null | undefined,
+  no: string | null | undefined,
+): { yes: string | null; no: string | null } {
+  const y = decimalParts(yes);
+  const n = decimalParts(no);
+  if (!y || !n) return { yes: y ? percentLabel(yes) : null, no: n ? percentLabel(no) : null };
+  const places = Math.max(y[1], n[1]);
+  const ys = y[0] * 10n ** BigInt(places - y[1]);
+  const ns = n[0] * 10n ** BigInt(places - n[1]);
+  const sum = ys + ns;
+  if (sum === 0n) return { yes: null, no: null };
+  // round(100 · yes / sum), half-up: floor((200 · yes + sum) / (2 · sum)).
+  const pct = Number((ys * 200n + sum) / (sum * 2n));
+  if (pct === 0 && ys > 0n) return { yes: "<1%", no: ">99%" };
+  if (pct === 100 && ns > 0n) return { yes: ">99%", no: "<1%" };
+  return { yes: `${pct}%`, no: `${100 - pct}%` };
+}
+
+/** One side's percent out of a market's price, weighed against the other. */
+export function sidePercent(
+  price: Pick<SharePrice, "yesPrice" | "noPrice"> | null | undefined,
+  side: Side,
+): string | null {
+  if (!price) return null;
+  const pair = pairPercent(price.yesPrice, price.noPrice);
+  return side === "YES" ? pair.yes : pair.no;
+}
+
+/** The percent a call was made at, for its own side ("59%"), or null. */
 export function entryPercent(call: {
   side: Side;
   entryPrice?: Pick<SharePrice, "yesPrice" | "noPrice"> | null;
 }): string | null {
-  const p = call.entryPrice;
-  if (!p) return null;
-  return percentLabel(call.side === "YES" ? p.yesPrice : p.noPrice);
+  return sidePercent(call.entryPrice, call.side);
 }
 
 export function sideLabel(market: Market, side: Side): string {

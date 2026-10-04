@@ -304,17 +304,25 @@ describe("web app procedures", () => {
 // ── formatting ───────────────────────────────────────────────────────────────
 
 describe("web app formatting", () => {
-  test("a Panta price shows as a percent only while fresh, per side; otherwise a quiet null (never 'stale')", () => {
-    expect(livePercent(price(), "YES", NOW)).toBe("62%");
-    expect(livePercent(price(), "NO", NOW)).toBe("43%");
-    expect(livePercent(price({ yesPrice: "1.2" }), "YES", NOW)).toBeNull(); // not a 0..1 price
+  test("a Panta price shows as percents that add up, only while fresh; otherwise a quiet null (never 'stale')", () => {
+    // Independent USDC prices (0.62 + 0.43 > 1): YES = yes / (yes + no), NO = 100 − YES.
+    expect(livePercent(price(), "YES", NOW)).toBe("59%");
+    expect(livePercent(price(), "NO", NOW)).toBe("41%");
+    expect(livePercent(price({ yesPrice: "1.25", noPrice: "0.35" }), "YES", NOW)).toBe("78%");
+    expect(livePercent(price({ yesPrice: "1.25", noPrice: "0.35" }), "NO", NOW)).toBe("22%");
+    expect(livePercent(price({ yesPrice: "0.625", noPrice: "0.375" }), "YES", NOW)).toBe("63%");
+    expect(livePercent(price({ yesPrice: "0.625", noPrice: "0.375" }), "NO", NOW)).toBe("37%");
     expect(livePercent(price({ observedAt: NOW - 11 * 60_000 }), "YES", NOW)).toBeNull();
+    // One side missing: the other reads alone; above a whole share, alone, is null.
     expect(livePercent(price({ noPrice: null }), "NO", NOW)).toBeNull();
+    expect(livePercent(price({ noPrice: null }), "YES", NOW)).toBe("62%");
+    expect(livePercent(price({ yesPrice: "1.2", noPrice: null }), "YES", NOW)).toBeNull();
     expect(livePercent(null, "YES", NOW)).toBeNull();
   });
 
   test("the percent a call was made at is the call's own side", () => {
-    expect(calledAt({ side: "NO", entryPrice: price({ noPrice: "0.47" }) })).toBe("47%");
+    expect(calledAt({ side: "NO", entryPrice: price({ yesPrice: "0.53", noPrice: "0.47" }) })).toBe("47%");
+    expect(calledAt({ side: "NO", entryPrice: price() })).toBe("41%");
     expect(calledAt({ side: "YES", entryPrice: null })).toBeNull();
   });
 

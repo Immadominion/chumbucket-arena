@@ -18,6 +18,7 @@ import {
   getPerson,
   isFreeCall,
   outcomeCopy,
+  pairPercent,
   percentLabel,
   recordLabel,
   safeAvatar,
@@ -111,6 +112,22 @@ describe("presentation", () => {
     expect(percentLabel("1")).toBe("100%");
     expect(percentLabel("1.000")).toBe("100%");
     for (const bad of [null, undefined, "", "-1", "abc", "1.2", "2", "1e-3", "0.5%"]) expect(percentLabel(bad)).toBeNull();
+  });
+
+  test("a market's two sides read as percents that add up: YES = yes / (yes + no)", () => {
+    expect(pairPercent("0.62", "0.43")).toEqual({ yes: "59%", no: "41%" });
+    expect(pairPercent("1.25", "0.35")).toEqual({ yes: "78%", no: "22%" });
+    expect(pairPercent("0.625", "0.375")).toEqual({ yes: "63%", no: "37%" });
+    expect(pairPercent("0.671739755", "0.328260245")).toEqual({ yes: "67%", no: "33%" });
+    expect(pairPercent("0.004", "0.996")).toEqual({ yes: "<1%", no: ">99%" });
+    expect(pairPercent("0.996", "0.004")).toEqual({ yes: ">99%", no: "<1%" });
+    expect(pairPercent("1", "0")).toEqual({ yes: "100%", no: "0%" });
+    // One side missing reads alone; none, or both zero, reads null.
+    expect(pairPercent("0.62", null)).toEqual({ yes: "62%", no: null });
+    expect(pairPercent(null, "0.43")).toEqual({ yes: null, no: "43%" });
+    expect(pairPercent("1.25", null)).toEqual({ yes: null, no: null });
+    expect(pairPercent(null, undefined)).toEqual({ yes: null, no: null });
+    expect(pairPercent("0", "0")).toEqual({ yes: null, no: null });
   });
 
   test("a SOL-quoted call reads as the same percent: the program's price is the 0..1 figure", () => {
