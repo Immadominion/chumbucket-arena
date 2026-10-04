@@ -40,27 +40,59 @@ const cx = (...names: Array<string | false | undefined>) => names.filter(Boolean
 /* ── shared SVG filters ─────────────────────────────────────────────────── */
 
 /**
+ * The Figma page's film grain, as the live page drew it: its 220px tile of
+ * black noise (each pixel a random alpha), shown at 160px, repeated, in
+ * soft-light at 45% over everything under the content. Soft light leaves
+ * white and black as they are, so on the page it only shows on the pink:
+ * the glows and the ribbon.
+ */
+const GRAIN = { src: "/site/grain.png", size: 160, strength: 0.45 };
+
+/** The ribbon's artboard (HeroRibbon), with room for its swing. */
+const RIBBON_BOX = { x: -30, y: -30, w: 648, h: 418 };
+
+/**
  * Render once per page. `cb-glow` is the 60px blur that turns an ellipse
- * into a glow; `cb-grain` lays the film grain the Figma page used (a noise
- * texture in soft-light at 45%) over whatever it is applied to, without
- * leaking grain onto the white page around it.
+ * into a glow; `cb-grain-<shape>` grains a whole glow after its 70% opacity,
+ * as the Figma texture sat over the finished glow; `cb-grain` grains the
+ * ribbon. Each grain filter covers its artwork's own box in user space, so
+ * the tile (anchored at 0,0) always lies inside it and the grain scales with
+ * the artwork, as the Figma page scaled with the screen.
  */
 export function DecorDefs() {
   return (
     <svg width="0" height="0" aria-hidden="true" focusable="false" style={{ position: "absolute" }}>
       <defs>
-        {/* Glow with grain: blur, then the grain, all inside the ellipse's
-            own filter region (a filter on the wrapping group would be clipped
-            to the group's box). */}
-        <filter id="cb-glow" x="-100%" y="-150%" width="300%" height="400%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="60" result="glow" />
-          <GrainSteps source="glow" />
-        </filter>
-        <filter id="cb-glow-plain" x="-100%" y="-150%" width="300%" height="400%">
+        <filter id="cb-glow" x="-100%" y="-150%" width="300%" height="400%">
           <feGaussianBlur stdDeviation="60" />
         </filter>
-        <filter id="cb-grain" x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
-          <GrainSteps source="SourceGraphic" />
+        {(Object.keys(GLOWS) as GlowShape[]).map((shape) => {
+          const g = GLOWS[shape];
+          return (
+            <filter
+              key={shape}
+              id={`cb-grain-${shape}`}
+              filterUnits="userSpaceOnUse"
+              x={-GLOW_PAD}
+              y={-GLOW_PAD}
+              width={g.w + 2 * GLOW_PAD}
+              height={g.h + 2 * GLOW_PAD}
+              colorInterpolationFilters="sRGB"
+            >
+              <GrainSteps />
+            </filter>
+          );
+        })}
+        <filter
+          id="cb-grain"
+          filterUnits="userSpaceOnUse"
+          x={RIBBON_BOX.x}
+          y={RIBBON_BOX.y}
+          width={RIBBON_BOX.w}
+          height={RIBBON_BOX.h}
+          colorInterpolationFilters="sRGB"
+        >
+          <GrainSteps />
         </filter>
       </defs>
     </svg>
@@ -68,28 +100,24 @@ export function DecorDefs() {
 }
 
 /**
- * Film grain over `source`, as the Figma page had it: grey noise in
- * soft-light at 45% over the source composited on white paper. The white is
- * then taken back out (minus white where the source is absent), so the
- * result is the source's own alpha with grain inside it: over the white page
- * it looks exactly like the composite, and no grain leaks around it.
+ * The grain over the filtered artwork, as the Figma page composited it: the
+ * noise tile in soft-light over the artwork on white paper, mixed in at the
+ * layer's 45%. The white is then taken back out (minus white where the
+ * artwork is absent), so the result is the artwork's own alpha with grain
+ * inside it: over the white page it looks exactly like the composite, and
+ * no grain leaks around it.
  */
-function GrainSteps({ source }: { source: string }) {
+function GrainSteps() {
   return (
     <>
-      <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" seed="4" stitchTiles="stitch" result="noise" />
-      <feColorMatrix
-        in="noise"
-        type="matrix"
-        values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 1"
-        result="grey"
-      />
+      <feImage href={GRAIN.src} x="0" y="0" width={GRAIN.size} height={GRAIN.size} preserveAspectRatio="none" result="tile" />
+      <feTile in="tile" result="noise" />
       <feFlood floodColor="#fff" result="paper" />
-      <feComposite in={source} in2="paper" operator="over" result="onPaper" />
-      <feBlend in="grey" in2="onPaper" mode="soft-light" result="grained" />
-      <feComposite in="grained" in2="onPaper" operator="arithmetic" k1="0" k2="0.45" k3="0.55" k4="0" result="mixed" />
-      <feComposite in="paper" in2={source} operator="out" result="paperAround" />
-      <feComposite in="mixed" in2="paperAround" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0" />
+      <feComposite in="SourceGraphic" in2="paper" operator="over" result="onPaper" />
+      <feBlend in="noise" in2="onPaper" mode="soft-light" result="blended" />
+      <feComposite in="blended" in2="onPaper" operator="arithmetic" k1="0" k2={GRAIN.strength} k3={1 - GRAIN.strength} k4="0" result="grained" />
+      <feComposite in="paper" in2="SourceGraphic" operator="out" result="paperAround" />
+      <feComposite in="grained" in2="paperAround" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0" />
     </>
   );
 }
@@ -175,6 +203,22 @@ export function Glow({
     "--w": g.w + 2 * pad,
     "--pad": pad,
   } as CSSProperties;
+  const glow = (
+    <g opacity="0.7">
+      {g.ellipses.map((e: Ellipse, i) => (
+        <ellipse
+          key={i}
+          cx={e.cx}
+          cy={e.cy}
+          rx={e.rx}
+          ry={e.ry}
+          className={e.tone === "hot" ? "cb-glow__hot" : "cb-glow__soft"}
+          transform={e.rotate ? `rotate(${e.rotate} ${e.cx} ${e.cy})` : undefined}
+          filter="url(#cb-glow)"
+        />
+      ))}
+    </g>
+  );
   return (
     <svg
       className={cx("cb-glow cb-at", className)}
@@ -184,20 +228,7 @@ export function Glow({
       aria-hidden="true"
       focusable="false"
     >
-      <g opacity="0.7">
-        {g.ellipses.map((e: Ellipse, i) => (
-          <ellipse
-            key={i}
-            cx={e.cx}
-            cy={e.cy}
-            rx={e.rx}
-            ry={e.ry}
-            className={e.tone === "hot" ? "cb-glow__hot" : "cb-glow__soft"}
-            transform={e.rotate ? `rotate(${e.rotate} ${e.cx} ${e.cy})` : undefined}
-            filter={grain ? "url(#cb-glow)" : "url(#cb-glow-plain)"}
-          />
-        ))}
-      </g>
+      {grain ? <g filter={`url(#cb-grain-${shape})`}>{glow}</g> : glow}
     </svg>
   );
 }
