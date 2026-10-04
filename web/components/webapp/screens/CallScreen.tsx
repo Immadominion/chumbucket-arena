@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * A call: who said what, when, at what price, and — once Panta settles —
+ * A call: who said what, when, at what percent, and — once Panta settles —
  * whether they were right. Answer it with Back, Fade or Dare (three big
  * icons); your own call takes timestamped updates and shares as a receipt.
  */
@@ -11,10 +11,10 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   ago,
+  calledAt,
   canAnswer,
   closesIn,
   isSettled,
-  lockedPrice,
   outcomeLabel,
   outcomeOf,
   shortDay,
@@ -30,7 +30,7 @@ import { Icon } from "../Icon";
 import { keys, useCallDetail } from "../queries";
 import { ResponseSheet } from "../ResponseSheet";
 import { useApi, useViewer } from "../session";
-import { Avatar, Sheet, SidePill, Spinner, TopBar } from "../ui";
+import { Avatar, CallMarkChip, Sheet, SidePill, Spinner, TopBar } from "../ui";
 import { screenError } from "./common";
 
 export function CallScreen({ callId }: { callId: string }) {
@@ -84,7 +84,7 @@ function CallBody({ detail }: { detail: CallDetail }) {
   const outcome = outcomeOf(entry);
   const open = takesCalls(market, now) && !settled;
   const answerable = canAnswer(entry, viewer.userId, now);
-  const price = lockedPrice(call);
+  const price = calledAt(call);
   const left = closesIn(market.closesAt, now);
   const updates = detail.updates ?? [];
 
@@ -128,11 +128,18 @@ function CallBody({ detail }: { detail: CallDetail }) {
         ) : null}
 
         <div className="wa-chips" style={{ marginTop: 14 }}>
-          <span className="wa-chip" title="Locked">
-            <Icon name="lock" size={14} />
-            <span className="wa-sr">Locked </span>
+          <CallMarkChip entry={entry} />
+          {price ? (
+            <span className="wa-chip" title={`Called at ${price}`}>
+              <Icon name="chart-pie" size={14} />
+              <span className="wa-sr">Called at </span>
+              {price}
+            </span>
+          ) : null}
+          <span className="wa-chip" title="Called">
+            <Icon name="clock" size={14} />
+            <span className="wa-sr">Called </span>
             {stamp(call.lockedAt)}
-            {price ? ` · ${price}` : ""}
           </span>
           {!settled && left ? (
             <span className="wa-chip">
@@ -145,12 +152,6 @@ function CallBody({ detail }: { detail: CallDetail }) {
             <span className="wa-chip">
               <Icon name="group-151" size={14} />
               Followers
-            </span>
-          ) : null}
-          {entry.funding ? (
-            <span className="wa-chip wa-chip--ok">
-              <Icon name="wallet" size={14} />
-              Traded
             </span>
           ) : null}
           {entry.viewerHasCalled || own ? (

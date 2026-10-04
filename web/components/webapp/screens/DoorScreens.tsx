@@ -10,11 +10,11 @@ import { useEffect, useRef, useState } from "react";
 import { normaliseUsername, USERNAME_FORMAT, WALLET_COPY } from "@/lib/webapp/identity";
 import type { UsernameStatus } from "@/lib/webapp/api";
 import { bffCall } from "@/lib/webapp/bff";
-import { ago, closesIn, isSettled, lockedPrice, outcomeOf, sideLabel } from "@/lib/webapp/format";
+import { ago, calledAt, closesIn, isSettled, outcomeOf, sideLabel } from "@/lib/webapp/format";
 import type { CallFeedEntry, FeedPage } from "@/lib/webapp/types";
 import { Icon } from "../Icon";
 import { useAuth } from "../session";
-import { Avatar, OutcomeBadge, Sheet, SidePill, Spinner } from "../ui";
+import { Avatar, CallMarkChip, OutcomeBadge, Sheet, SidePill, Spinner } from "../ui";
 import { onWalletsChange, solanaWallets, type StandardWallet } from "../wallets";
 
 /* eslint-disable @next/next/no-img-element */
@@ -176,7 +176,7 @@ function LivePreview() {
         <div className="wa-door-stack">
           {entries.map((e) => {
             const left = closesIn(e.market.closesAt, now);
-            const price = lockedPrice(e.call);
+            const price = calledAt(e.call);
             return (
               <div key={e.call.id} className="wa-card wa-call wa-door-card">
                 <div className="wa-call-head">
@@ -202,9 +202,10 @@ function LivePreview() {
                       {left}
                     </span>
                   ) : null}
+                  <CallMarkChip entry={e} />
                   {price ? (
                     <span className="wa-chip">
-                      <Icon name="lock" size={14} />
+                      <Icon name="chart-pie" size={14} />
                       {price}
                     </span>
                   ) : null}

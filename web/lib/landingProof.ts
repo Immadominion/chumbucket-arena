@@ -8,7 +8,7 @@
  * made up; with nothing to show it says so.
  */
 
-import { entryLabel, outcomeCopy, sideLabel, type CallFeedEntry, type Person } from "./callsBff";
+import { callMark, entryPercent, outcomeCopy, sideLabel, type CallFeedEntry, type Person } from "./callsBff";
 
 export type ProofState =
   /** The feed could not be read (BFF down or slow). */
@@ -55,15 +55,18 @@ export function dayLabel(ms: number | null | undefined): string | null {
 
 /**
  * The plain account of a call, in the app's words:
- * "Dominion (@dev) called Yes at 50¢ on 1 Oct 2026. Panta settled it No."
+ * "Dominion (@dev) made a free call: Yes at 62% on 1 Oct 2026. Panta settled it No."
+ * Only an unfunded call is called free; a confirmed fill is a funded call.
  */
 export function callSentence(entry: CallFeedEntry): string {
   const { call, author, market, result } = entry;
-  const price = entryLabel(call);
+  const pct = entryPercent(call);
   // No-break spaces: "2 Oct 2026" never splits across lines.
   const day = dayLabel(call.lockedAt)?.replace(/ /g, "\u00A0");
   const who = `${author.displayName} (@${author.handle})`;
-  const said = `${who} called ${sideLabel(market, call.side)}${price ? ` at ${price}` : ""}${day ? ` on ${day}` : ""}.`;
+  const mark = callMark(entry);
+  const verb = mark === "free" ? "made a free call:" : mark === "funded" ? "made a funded call:" : "called";
+  const said = `${who} ${verb} ${sideLabel(market, call.side)}${pct ? ` at ${pct}` : ""}${day ? ` on ${day}` : ""}.`;
 
   let outcome: string;
   if (!result || result.outcome === "PENDING") outcome = "Panta hasn’t settled it yet.";

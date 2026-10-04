@@ -61,8 +61,10 @@ export interface OgCardInput {
   lead: string;
   /** The side pill, e.g. "YES"; omitted for person/market cards. */
   pill?: { text: string; side: "YES" | "NO" } | null;
-  /** e.g. "at 50¢" */
+  /** e.g. "at 62%" */
   trailing?: string | null;
+  /** The call's money mark after the trailing text: a ghost "Free" chip, or solid pink "Funded". */
+  mark?: "free" | "funded" | null;
   /** The market question or a person's record line. */
   body: string;
   /** Bottom-right stamp, e.g. "CORRECT". */
@@ -139,6 +141,22 @@ export async function ogCard(input: OgCardInput): Promise<ImageResponse> {
                 </div>
               ) : null}
               {input.trailing ? <div style={{ display: "flex", color: MUTED }}>{input.trailing}</div> : null}
+              {input.mark ? (
+                <div
+                  style={{
+                    display: "flex",
+                    fontSize: 28,
+                    fontWeight: 800,
+                    padding: "4px 18px",
+                    borderRadius: 999,
+                    color: input.mark === "free" ? MUTED : INK,
+                    background: input.mark === "free" ? "transparent" : CORAL,
+                    border: `3px solid ${input.mark === "free" ? MUTED : CORAL}`,
+                  }}
+                >
+                  {input.mark === "free" ? "Free" : "Funded"}
+                </div>
+              ) : null}
             </div>
             <div
               style={{

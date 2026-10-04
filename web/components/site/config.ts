@@ -49,9 +49,9 @@ export const NAV_ITEMS = [
  */
 export const SCREENS = {
   home: { src: "/product-shots/home-feed.webp", label: "Home: a receipt banner over the feed of calls" },
-  call: { src: "/product-shots/call-on-record.webp", label: "A call: “You’re on record”, with its locked side, price and time" },
+  call: { src: "/product-shots/call-on-record.webp", label: "A call: “You’re on record”, with its side, percent and time" },
   receipt: { src: "/product-shots/receipt-missed.webp", label: "A receipt: “Missed this one.”, settled by Panta" },
-  markets: { src: "/product-shots/markets.webp", label: "Markets: categories and YES / NO prices in USDC per share" },
+  markets: { src: "/product-shots/markets.webp", label: "Markets: categories and each side’s percent" },
   profile: { src: "/product-shots/profile-record.webp", label: "Profile: wallet and the record of calls" },
   welcome: { src: "/product-shots/welcome.webp", label: "Welcome: “Call it before it happens.”" },
 } as const;

@@ -1,4 +1,4 @@
-import { getMarket, priceLabel, sideLabel, statusCopy, whenLabel } from "@/lib/callsBff";
+import { getMarket, percentLabel, sideLabel, statusCopy, whenLabel } from "@/lib/callsBff";
 import { OG_SIZE, ogCard } from "@/lib/ogCard";
 
 export const runtime = "nodejs";
@@ -13,8 +13,8 @@ export default async function Image({ params }: { params: Promise<Params> | Para
   const { marketId } = await Promise.resolve(params);
   try {
     const { market, sharePrice } = await getMarket(decodeURIComponent(marketId));
-    const yes = priceLabel(sharePrice?.yesPrice, sharePrice?.currency);
-    const no = priceLabel(sharePrice?.noPrice, sharePrice?.currency);
+    const yes = percentLabel(sharePrice?.yesPrice);
+    const no = percentLabel(sharePrice?.noPrice);
     const prices =
       yes || no
         ? `${sideLabel(market, "YES")} ${yes ?? "–"} · ${sideLabel(market, "NO")} ${no ?? "–"}`

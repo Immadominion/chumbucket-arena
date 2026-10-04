@@ -114,19 +114,29 @@ describe("landing social proof", () => {
     expect(recentPeople(many, many[0]!).map((p) => p.id)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
   });
 
-  test("the sentence states who, which side, the locked price, the day and Panta's result", () => {
+  test("the sentence states who, that it was free, which side, the percent, the day and Panta's result", () => {
     const author = person("dev", { displayName: "Dominion" });
     expect(callSentence(entry("x", { author, outcome: "INCORRECT" }))).toBe(
-      `Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta settled it No.`,
+      `Dominion (@dev) made a free call: Yes at 50% on ${DAY}. Panta settled it No.`,
     );
-    expect(callSentence(entry("y", { author }))).toBe(`Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta hasn’t settled it yet.`);
+    expect(callSentence(entry("y", { author }))).toBe(`Dominion (@dev) made a free call: Yes at 50% on ${DAY}. Panta hasn’t settled it yet.`);
     expect(callSentence(entry("z", { author, outcome: "VOID", price: null }))).toBe(
-      `Dominion (@dev) called Yes on ${DAY}. Panta voided the market.`,
+      `Dominion (@dev) made a free call: Yes on ${DAY}. Panta voided the market.`,
     );
     expect(callSentence(entry("t", { author, thesis: "  ETF bid is priced in " }))).toBe(
-      `“ETF bid is priced in” Dominion (@dev) called Yes at 50¢ on ${DAY}. Panta hasn’t settled it yet.`,
+      `“ETF bid is priced in” Dominion (@dev) made a free call: Yes at 50% on ${DAY}. Panta hasn’t settled it yet.`,
     );
     expect(dayLabel(null)).toBeNull();
+  });
+
+  test("never 'free' once money is involved, and never cents", () => {
+    const author = person("dev", { displayName: "Dominion" });
+    const funded = { ...entry("f", { author, price: "0.625" }), funding: { state: "FILLED", venue: "panta" } };
+    expect(callSentence(funded)).toBe(`Dominion (@dev) made a funded call: Yes at 63% on ${DAY}. Panta hasn’t settled it yet.`);
+    const submitted = entry("s", { author });
+    submitted.call.fundingState = "SUBMITTED";
+    expect(callSentence(submitted)).toBe(`Dominion (@dev) called Yes at 50% on ${DAY}. Panta hasn’t settled it yet.`);
+    for (const e of [funded, submitted, entry("u", { author })]) expect(callSentence(e)).not.toMatch(/¢|\$|USDC|SOL/);
   });
 
   test("a receipt is only promised once Panta has settled", () => {

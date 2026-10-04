@@ -9,7 +9,7 @@
  *   With fewer people than circles the rest stay open seats, and the line
  *   under the title says how many there really are.
  * - The card is the newest settled public call: the market, who called
- *   which side at what price, and how Panta settled it.
+ *   which side at what percent, and how Panta settled it.
  *
  * Rendered on the server and refreshed every minute; honest empty and
  * failure states otherwise. Motion (landing-motion.css, "Social proof"):
@@ -179,7 +179,7 @@ export function SocialProof({ state, callers }: { state: ProofState; callers: Ca
             <>
               <p className="cb-proof__question">No public calls yet.</p>
               <p className="cb-proof__text">
-                Public calls show up here as people make them: who called it, which side, the price they locked and how
+                Public calls show up here as people make them: who called it, which side, at what percent, and how
                 Panta settled it.
               </p>
               <p className="cb-proof__status">

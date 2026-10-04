@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * Back, Fade or Dare someone's call: one sheet, one tap. Back and Fade lock
+ * Back, Fade or Dare someone's call: one sheet, one tap. Back and Fade make
  * the viewer's own free call (same side, or the other side); Dare sends the
  * author a free invitation to go on record. None of them moves money.
  */
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { opposite, sideLabel } from "@/lib/webapp/format";
+import { callMark, opposite, sideLabel } from "@/lib/webapp/format";
 import type { CallFeedEntry, ResponseKind } from "@/lib/webapp/types";
 import { actionError, useToast } from "./data";
 import { Icon } from "./Icon";
 import { useAfterCall } from "./queries";
 import { useApi } from "./session";
-import { Sheet, SidePill, Spinner } from "./ui";
+import { FreeChip, Sheet, SidePill, Spinner } from "./ui";
 
 const MAX = 280;
 
@@ -44,7 +44,8 @@ export function ResponseSheet({
       }),
     onSuccess: (res) => {
       afterCall(res.resultingCall, market.id);
-      toast(kind === "challenge" ? "Dare sent" : "You’re on record");
+      const free = res.resultingCall && callMark(res.resultingCall) === "free";
+      toast(kind === "challenge" ? "Dare sent" : `Called ${sideLabel(market, mySide)}${free ? " · Free" : ""}`);
       setText("");
       setWriting(false);
       onClose();
@@ -64,7 +65,7 @@ export function ResponseSheet({
       onClose={() => !send.isPending && onClose()}
       busy={send.isPending}
       title={title}
-      subtitle={kind === "challenge" ? "A free dare to call it. No money moves." : "Free call. Locked once you tap."}
+      subtitle={kind === "challenge" ? "A dare to call it." : undefined}
       footer={
         <button
           type="button"
@@ -74,6 +75,7 @@ export function ResponseSheet({
         >
           {send.isPending ? <Spinner /> : <Icon name={kind === "back" ? "plus" : kind === "fade" ? "exchange" : "lightning"} size={20} />}
           {cta}
+          <FreeChip />
         </button>
       }
     >

@@ -12,7 +12,7 @@ import { notFound, redirect } from "next/navigation";
 import { CallReceipt } from "@/components/public/CallReceipt";
 import OpenInApp from "@/components/public/OpenInApp";
 import { PublicShell, Unavailable } from "@/components/public/PublicShell";
-import { NotFound, entryLabel, getCall, sideLabel, type CallDetail } from "@/lib/callsBff";
+import { NotFound, callMark, entryPercent, getCall, sideLabel, type CallDetail } from "@/lib/callsBff";
 
 type Params = { challengeId: string };
 
@@ -34,8 +34,9 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
     return { title: "A call on Chumbucket", robots: { index: false } };
   }
   const { call, author, market } = detail.entry;
-  const price = entryLabel(call);
-  const title = `${author.displayName} called ${sideLabel(market, call.side)}${price ? ` at ${price}` : ""}`;
+  const pct = entryPercent(call);
+  const free = callMark(detail.entry) === "free";
+  const title = `${author.displayName} called ${sideLabel(market, call.side)}${pct ? ` at ${pct}` : ""}${free ? " · Free" : ""}`;
   const description = `“${market.question}” — see the receipt, then back or fade it on Chumbucket.`;
   return {
     title: `${title} · Chumbucket`,

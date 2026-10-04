@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * A market: the question, YES and NO with Panta's prices, and a free call in
- * one tap. Tap a side, then Lock. Once you are on record the community split
+ * A market: the question, YES and NO with each side's percent, and a free call in
+ * one tap. Tap a side, then Call. Once you are on record the community split
  * opens (the BFF sends it only then), and once Panta settles it your result
  * shows there too. A market that no longer takes calls shows no YES / NO and
  * offers no trade (its chip says closed or settled). The rules and the venue
@@ -14,11 +14,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  calledAt,
+  callMark,
   closesIn,
   closingSoon,
-  livePrice,
-  livePriceParts,
-  lockedPrice,
+  livePercent,
   outcomeLabel,
   outcomeOf,
   shortDay,
@@ -38,12 +38,12 @@ import { actionError, useNow, useToast } from "../data";
 import { Icon } from "../Icon";
 import { useAfterCall, useMarket } from "../queries";
 import { useApi } from "../session";
-import { Sheet, Spinner, TopBar } from "../ui";
+import { CallMarkChip, FreeChip, Sheet, Spinner, TopBar } from "../ui";
 import { screenError } from "./common";
 
 const MAX = 280;
-/** Your call's band: locked while open, then the result's own mark (as on the receipt). */
-const RESULT_ICON: Record<CallOutcome, string> = { PENDING: "lock-solid", CORRECT: "check-solid", INCORRECT: "cross", VOID: "cancel" };
+/** Your call's band: on record while open, then the result's own mark (as on the receipt). */
+const RESULT_ICON: Record<CallOutcome, string> = { PENDING: "check", CORRECT: "check-solid", INCORRECT: "cross", VOID: "cancel" };
 
 export function MarketScreen({ marketId }: { marketId: string }) {
   const q = useMarket(marketId, { live: true });
@@ -108,7 +108,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
       ),
     onSuccess: (entry) => {
       afterCall(entry, market.id);
-      toast("You’re on record");
+      toast(`Called ${sideLabel(market, entry.call.side)}${callMark(entry) === "free" ? " · Free" : ""}`);
       setPick(null);
       setThesis("");
       setWriting(false);
@@ -117,10 +117,7 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
   });
 
   const big = (side: Side) => {
-    const price = livePrice(sharePrice, side, now);
-    // In the market's own unit: a SOL price sets its unit small beside the
-    // figure (under it where the box is narrow), never as cents.
-    const parts = livePriceParts(sharePrice, side, now);
+    const pct = livePercent(sharePrice, side, now);
     return (
       <button
         type="button"
@@ -128,20 +125,11 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
         aria-pressed={pick === side}
         disabled={!open || !!viewerCall || lock.isPending}
         onClick={() => setPick((p) => (p === side ? null : side))}
-        aria-label={`${side}${price ? `, ${price} a share on Panta` : ""}`}
+        aria-label={`${side}${pct ? `, ${pct}` : ""}`}
       >
         <span className="wa-bigpick-side">{side}</span>
         {sideLabel(market, side).toUpperCase() !== side ? <span className="wa-bigpick-label">{sideLabel(market, side)}</span> : null}
-        <span className="wa-bigpick-price">
-          {parts ? (
-            <>
-              <span>{parts.value}</span>
-              {parts.unit ? <span className="wa-price-unit"> {parts.unit}</span> : null}
-            </>
-          ) : (
-            "—"
-          )}
-        </span>
+        <span className="wa-bigpick-price">{pct ?? "—"}</span>
       </button>
     );
   };
@@ -178,12 +166,17 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
             <div className={`wa-onrecord wa-onrecord--${mine}`}>
               <Icon name={RESULT_ICON[mine]} size={22} />
               <div className="wa-onrecord-text">
-                <strong>You called {sideLabel(market, viewerCall.call.side)}</strong>
+                <span className="wa-onrecord-head">
+                  <strong>
+                    You called {sideLabel(market, viewerCall.call.side)}
+                    {calledAt(viewerCall.call) ? ` · ${calledAt(viewerCall.call)}` : ""}
+                  </strong>
+                  <CallMarkChip entry={viewerCall} />
+                </span>
                 <span>
                   {mine !== "PENDING" ? <b className="wa-onrecord-result">{outcomeLabel(mine)} · </b> : null}
-                  {lockedPrice(viewerCall.call) ? `${lockedPrice(viewerCall.call)} · ` : ""}
                   <time dateTime={new Date(viewerCall.call.lockedAt).toISOString()} title={stamp(viewerCall.call.lockedAt)}>
-                    <span className="wa-sr">Locked </span>
+                    <span className="wa-sr">Called </span>
                     {shortDay(viewerCall.call.lockedAt, now)}
                   </time>
                 </span>
@@ -261,8 +254,9 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
                 disabled={lock.isPending || thesis.length > MAX}
                 onClick={() => lock.mutate()}
               >
-                {lock.isPending ? <Spinner /> : <Icon name="lock" size={20} />}
-                Lock {sideLabel(market, pick)}
+                {lock.isPending ? <Spinner /> : null}
+                Call {sideLabel(market, pick)}
+                <FreeChip />
               </button>
             </div>
           </div>

@@ -62,6 +62,35 @@ export function SidePill({ side, label }: { side: "YES" | "NO"; label: string })
   return <span className={`pub-side pub-side-${side === "YES" ? "yes" : "no"}`}>{label}</span>;
 }
 
+/**
+ * The one Free marker, as in the app: a ghost chip with the gift icon (Basil
+ * present-outline), so a free call never reads as money.
+ */
+export function FreeMark() {
+  return (
+    <span className="pub-mark pub-mark-free" title="Free call">
+      <svg aria-hidden width="14" height="14" viewBox="0 0 24 24">
+        <path fill="currentColor" fillRule="evenodd" clipRule="evenodd" d="M6.25 5.5A3.25 3.25 0 0 1 12 3.423a3.25 3.25 0 0 1 5.24 3.827H18A2.75 2.75 0 0 1 20.75 10v2a1.75 1.75 0 0 1-1.281 1.687c.144 1.826.06 3.665-.25 5.473a2.46 2.46 0 0 1-2.15 2.028l-.915.102a37.4 37.4 0 0 1-8.309 0l-.914-.102a2.46 2.46 0 0 1-2.15-2.028a22 22 0 0 1-.25-5.473A1.75 1.75 0 0 1 3.25 12v-2A2.75 2.75 0 0 1 6 7.25h.76a3.24 3.24 0 0 1-.51-1.75m5 0a1.75 1.75 0 1 0-3.5 0a1.75 1.75 0 0 0 3.5 0m3.25 1.75a1.75 1.75 0 1 0 0-3.5a1.75 1.75 0 0 0 0 3.5M4.75 10c0-.69.56-1.25 1.25-1.25h5.25v3.5H5a.25.25 0 0 1-.25-.25zm8 3.75h5.219c.14 1.72.064 3.453-.228 5.156a.96.96 0 0 1-.839.791l-.914.103q-1.615.18-3.238.214zm0-1.5H19a.25.25 0 0 0 .25-.25v-2c0-.69-.56-1.25-1.25-1.25h-5.25zm-1.5 1.5v6.264a36 36 0 0 1-3.238-.214l-.914-.103a.96.96 0 0 1-.839-.79a20.6 20.6 0 0 1-.228-5.157z" />
+      </svg>
+      <span className="cb-visually-hidden">Free call</span>
+      <span aria-hidden>Free</span>
+    </span>
+  );
+}
+
+/** Money in, solid pink: only for a fill Panta confirmed (Basil wallet-solid). */
+export function FundedMark() {
+  return (
+    <span className="pub-mark pub-mark-funded" title="Funded on Panta">
+      <svg aria-hidden width="14" height="14" viewBox="0 0 24 24">
+        <path fill="currentColor" fillRule="evenodd" clipRule="evenodd" d="m21.01 10.171l.003 3.623q-.039.518-.099 1.034a1.27 1.27 0 0 1-1.122 1.105c-1.84.206-3.744.206-5.584 0a1.27 1.27 0 0 1-1.122-1.105a24.3 24.3 0 0 1 0-5.656a1.27 1.27 0 0 1 1.122-1.105a25.4 25.4 0 0 1 5.584 0c.587.065 1.055.53 1.122 1.105q.058.499.096 1M17 10.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 0 0 0-3" />
+        <path fill="currentColor" d="M20.404 6.04c.155.269-.137.57-.446.536a27 27 0 0 0-5.916 0a2.77 2.77 0 0 0-2.446 2.422a26 26 0 0 0 0 6.004a2.77 2.77 0 0 0 2.446 2.422a27 27 0 0 0 5.916 0c.311-.035.606.269.449.54a4.97 4.97 0 0 1-3.78 2.45l-.652.068a44.7 44.7 0 0 1-9.956-.069l-.432-.051a3.93 3.93 0 0 1-3.432-3.384a37.6 37.6 0 0 1 0-9.956a3.93 3.93 0 0 1 3.432-3.384l.432-.051a44.7 44.7 0 0 1 9.956-.069l.652.069a4.96 4.96 0 0 1 3.777 2.453" />
+      </svg>
+      Funded
+    </span>
+  );
+}
+
 export function ExternalIcon() {
   return (
     <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

@@ -1,14 +1,14 @@
 /**
- * A call, as its receipt: who said what, when, at what price, and what the
- * venue later decided. The same five facts the app's receipt card shows, and
- * nothing that looks like money on a free call (nor "free" on a funded one).
+ * A call, as its receipt: who said what, when, at what percent, and what the
+ * venue later decided. The same five facts the app's receipt card shows, the
+ * Free mark on a free call, and never "free" on a funded one.
  */
 
 import Link from "next/link";
 import {
   avatarSrc,
-  entryLabel,
-  isFreeCall,
+  callMark,
+  entryPercent,
   outcomeCopy,
   recordLabel,
   sideLabel,
@@ -16,12 +16,18 @@ import {
   whenLabel,
   type CallFeedEntry,
 } from "@/lib/callsBff";
-import { Avatar, ExternalIcon, SidePill } from "./PublicShell";
+import { Avatar, ExternalIcon, FreeMark, FundedMark, SidePill } from "./PublicShell";
+
+/** Free, funded, or nothing for a state in between (see callMark). */
+function CallMark({ entry }: { entry: CallFeedEntry }) {
+  const mark = callMark(entry);
+  return mark === "free" ? <FreeMark /> : mark === "funded" ? <FundedMark /> : null;
+}
 
 export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry; headingLevel?: 1 | 2 }) {
   const { call, author, market, result } = entry;
   const side = sideLabel(market, call.side);
-  const entryPrice = entryLabel(call);
+  const pct = entryPercent(call);
   const outcome = outcomeCopy(result);
   const venue = venueUrl(market);
   const Heading = headingLevel === 1 ? "h1" : "h2";
@@ -44,7 +50,7 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
 
       <p className="pub-receipt-says">
         called <SidePill side={call.side} label={side} />
-        {entryPrice ? <span className="pub-receipt-at"> at {entryPrice}</span> : null}
+        {pct ? <span className="pub-receipt-at"> at {pct}</span> : null} <CallMark entry={entry} />
       </p>
       <Heading id={`q-${call.id}`} className="pub-question">
         <Link href={`/m/${encodeURIComponent(market.id)}`}>{market.question}</Link>
@@ -54,14 +60,14 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
 
       <dl className="pub-facts">
         <div>
-          <dt>Locked</dt>
+          <dt>Called</dt>
           <dd>
             <time dateTime={new Date(call.lockedAt).toISOString()}>{whenLabel(call.lockedAt)}</time>
           </dd>
         </div>
         <div>
-          <dt>Entry price</dt>
-          <dd>{entryPrice ? `${entryPrice} per ${side} share` : "Not recorded"}</dd>
+          <dt>Called at</dt>
+          <dd>{pct ? `${pct} ${side}` : "Not recorded"}</dd>
         </div>
         <div>
           <dt>Result</dt>
@@ -89,10 +95,6 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
         <span>
           <strong>{entry.backCount}</strong> backed · <strong>{entry.fadeCount}</strong> faded
         </span>
-        {/* Never "free" once any funding state exists; see isFreeCall. */}
-        {isFreeCall(call) ? (
-          <span className="pub-receipt-free">Free call · no money at stake</span>
-        ) : null}
       </footer>
     </article>
   );
@@ -102,7 +104,7 @@ export function CallReceipt({ entry, headingLevel = 1 }: { entry: CallFeedEntry;
 export function CallRow({ entry, showAuthor = true }: { entry: CallFeedEntry; showAuthor?: boolean }) {
   const { call, author, market, result } = entry;
   const outcome = outcomeCopy(result);
-  const entryPrice = entryLabel(call);
+  const pct = entryPercent(call);
   return (
     <li className="pub-row">
       <Link href={`/c/${encodeURIComponent(call.id)}`} className="pub-row-link">
@@ -112,7 +114,7 @@ export function CallRow({ entry, showAuthor = true }: { entry: CallFeedEntry; sh
             {showAuthor ? <span className="pub-row-name">{author.displayName}</span> : null}
             <span className="pub-row-called">
               called <SidePill side={call.side} label={sideLabel(market, call.side)} />
-              {entryPrice ? ` at ${entryPrice}` : ""}
+              {pct ? ` at ${pct}` : ""} <CallMark entry={entry} />
             </span>
           </span>
           <span className="pub-row-q">{market.question}</span>

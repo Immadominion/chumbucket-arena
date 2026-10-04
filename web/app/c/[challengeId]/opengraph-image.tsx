@@ -1,4 +1,4 @@
-import { entryLabel, getCall, outcomeCopy, sideLabel, whenLabel } from "@/lib/callsBff";
+import { callMark, entryPercent, getCall, outcomeCopy, sideLabel, whenLabel } from "@/lib/callsBff";
 import { OG_SIZE, ogCard } from "@/lib/ogCard";
 
 export const runtime = "nodejs";
@@ -16,12 +16,13 @@ export default async function Image({ params }: { params: Promise<Params> | Para
     const { entry } = await getCall(challengeId);
     const { call, author, market, result } = entry;
     const outcome = outcomeCopy(result);
-    const price = entryLabel(call);
+    const pct = entryPercent(call);
     return ogCard({
       eyebrow: "ON THE RECORD",
       lead: `${author.displayName} called`,
       pill: { text: sideLabel(market, call.side), side: call.side },
-      trailing: price ? `at ${price}` : null,
+      trailing: pct ? `at ${pct}` : null,
+      mark: callMark(entry),
       body: market.question,
       stamp:
         outcome.tone === "won"
@@ -31,7 +32,7 @@ export default async function Image({ params }: { params: Promise<Params> | Para
             : outcome.tone === "void"
               ? { text: "VOID", tone: "neutral" }
               : { text: "PENDING", tone: "neutral" },
-      footer: `Locked ${whenLabel(call.lockedAt) ?? ""} · on Panta`,
+      footer: `Called ${whenLabel(call.lockedAt) ?? ""}`,
     });
   } catch {
     return ogCard({

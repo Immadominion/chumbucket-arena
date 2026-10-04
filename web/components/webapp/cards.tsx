@@ -2,8 +2,9 @@
 
 /**
  * The cards every list is made of: a call, a market, a person. Compact and
- * icon-led: who, which side, the question, then chips for time and price and
- * the one or two actions that fit. Nothing a person has to read twice.
+ * icon-led: who, which side, the question, then chips for time, Free (or
+ * the funded mark) and the percent it was called at, and the one or two
+ * actions that fit. Nothing a person has to read twice.
  */
 
 import Link from "next/link";
@@ -13,10 +14,9 @@ import {
   canAnswer,
   closesIn,
   closingSoon,
+  calledAt,
   isSettled,
-  livePrice,
-  livePriceParts,
-  lockedPrice,
+  livePercent,
   outcomeOf,
   recordA11y,
   recordToken,
@@ -31,7 +31,7 @@ import { Icon } from "./Icon";
 import { useFollow, useMarket } from "./queries";
 import { ResponseSheet } from "./ResponseSheet";
 import { useViewer } from "./session";
-import { Avatar, OutcomeBadge, SidePill } from "./ui";
+import { Avatar, CallMarkChip, OutcomeBadge, SidePill } from "./ui";
 
 /** Share a public link: the system share sheet where there is one, else the clipboard. */
 export function useShare() {
@@ -59,7 +59,7 @@ export function CallCard({ entry, showAuthor = true }: { entry: CallFeedEntry; s
   const { call, author, market } = entry;
   const settled = isSettled(entry);
   const left = closesIn(market.closesAt, now);
-  const price = lockedPrice(call);
+  const price = calledAt(call);
   const answerable = canAnswer(entry, viewer.userId, now);
   const own = call.userId === viewer.userId;
   const side = sideLabel(market, call.side);
@@ -104,10 +104,11 @@ export function CallCard({ entry, showAuthor = true }: { entry: CallFeedEntry; s
               {left}
             </span>
           ) : null}
+          <CallMarkChip entry={entry} />
           {price ? (
-            <span className="wa-chip" title={`Locked at ${price}`}>
-              <Icon name="lock" size={14} />
-              <span className="wa-sr">Locked at </span>
+            <span className="wa-chip" title={`Called at ${price}`}>
+              <Icon name="chart-pie" size={14} />
+              <span className="wa-sr">Called at </span>
               {price}
             </span>
           ) : null}
@@ -115,12 +116,6 @@ export function CallCard({ entry, showAuthor = true }: { entry: CallFeedEntry; s
             <span className="wa-chip" title="Followers only">
               <Icon name="group-151" size={14} />
               <span className="wa-sr">Followers only</span>
-            </span>
-          ) : null}
-          {entry.funding ? (
-            <span className="wa-chip wa-chip--ok" title="Traded on Panta">
-              <Icon name="wallet" size={14} />
-              Traded
             </span>
           ) : null}
           {!showAuthor ? <span className="wa-chip wa-chip--plain">{ago(call.createdAt, now)}</span> : null}
@@ -182,25 +177,15 @@ export function MarketCard({ market }: { market: Market }) {
   const mine = detail.data?.viewerCall ?? null;
 
   const pick = (side: Side) => {
-    const price = livePrice(snapshot, side, now);
-    const parts = livePriceParts(snapshot, side, now);
+    const pct = livePercent(snapshot, side, now);
     return (
       <Link
         href={`${appPath.market(market.id)}?pick=${side}`}
         className={`wa-pick wa-pick--${side}`}
-        aria-label={`Call ${side} on ${market.question}${price ? `, ${price} a share on Panta` : ""}`}
+        aria-label={`Call ${side} on ${market.question}${pct ? `, ${pct}` : ""}`}
       >
         <span>{sideLabel(market, side)}</span>
-        <span className="wa-pick-price">
-          {parts ? (
-            <>
-              {parts.value}
-              {parts.unit ? <span className="wa-price-unit"> {parts.unit}</span> : null}
-            </>
-          ) : (
-            "—"
-          )}
-        </span>
+        <span className="wa-pick-price">{pct ?? "—"}</span>
       </Link>
     );
   };

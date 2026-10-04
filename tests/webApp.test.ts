@@ -43,13 +43,13 @@ import {
 } from "../web/lib/webapp/filters.ts";
 import {
   ago,
+  callMark,
+  calledAt,
   canAnswer,
   closesIn,
   closingSoon,
   joined,
-  livePrice,
-  livePriceParts,
-  lockedPrice,
+  livePercent,
   recordA11y,
   recordToken,
   shortDay,
@@ -304,29 +304,40 @@ describe("web app procedures", () => {
 // ── formatting ───────────────────────────────────────────────────────────────
 
 describe("web app formatting", () => {
-  test("a Panta price shows only while fresh, per side; otherwise a quiet null (never 'stale')", () => {
-    expect(livePrice(price(), "YES", NOW)).toBe("62¢");
-    expect(livePrice(price(), "NO", NOW)).toBe("43¢");
-    expect(livePrice(price({ yesPrice: "1.2" }), "YES", NOW)).toBe("$1.20");
-    expect(livePrice(price({ observedAt: NOW - 11 * 60_000 }), "YES", NOW)).toBeNull();
-    expect(livePrice(price({ noPrice: null }), "NO", NOW)).toBeNull();
-    expect(livePrice(null, "YES", NOW)).toBeNull();
+  test("a Panta price shows as a percent only while fresh, per side; otherwise a quiet null (never 'stale')", () => {
+    expect(livePercent(price(), "YES", NOW)).toBe("62%");
+    expect(livePercent(price(), "NO", NOW)).toBe("43%");
+    expect(livePercent(price({ yesPrice: "1.2" }), "YES", NOW)).toBeNull(); // not a 0..1 price
+    expect(livePercent(price({ observedAt: NOW - 11 * 60_000 }), "YES", NOW)).toBeNull();
+    expect(livePercent(price({ noPrice: null }), "NO", NOW)).toBeNull();
+    expect(livePercent(null, "YES", NOW)).toBeNull();
   });
 
-  test("the locked price is the call's own side", () => {
-    expect(lockedPrice({ side: "NO", entryPrice: price({ noPrice: "0.47" }) })).toBe("47¢");
-    expect(lockedPrice({ side: "YES", entryPrice: null })).toBeNull();
+  test("the percent a call was made at is the call's own side", () => {
+    expect(calledAt({ side: "NO", entryPrice: price({ noPrice: "0.47" }) })).toBe("47%");
+    expect(calledAt({ side: "YES", entryPrice: null })).toBeNull();
   });
 
-  test("a SOL-quoted market's price reads in SOL, never as cents or dollars", () => {
+  test("a SOL-quoted market reads as the same percent, never in SOL, cents or dollars", () => {
+    // last_yes_price / 1e9 and its complement: the figure panta.market shows.
     const sol = price({ currency: "SOL", yesPrice: "0.671739755", noPrice: "0.328260245" });
-    expect(livePrice(sol, "YES", NOW)).toBe("0.67 SOL");
-    expect(livePriceParts(sol, "NO", NOW)).toEqual({ value: "0.33", unit: "SOL" });
-    expect(livePriceParts(price(), "YES", NOW)).toEqual({ value: "62¢", unit: null });
-    expect(livePrice({ ...sol, observedAt: NOW - 11 * 60_000 }, "YES", NOW)).toBeNull();
-    expect(lockedPrice({ side: "YES", entryPrice: sol })).toBe("0.67 SOL");
-    for (const label of [livePrice(sol, "YES", NOW), lockedPrice({ side: "NO", entryPrice: sol })]) {
-      expect(label).not.toMatch(/[¢$]|USDC/);
+    expect(livePercent(sol, "YES", NOW)).toBe("67%");
+    expect(livePercent(sol, "NO", NOW)).toBe("33%");
+    expect(livePercent({ ...sol, observedAt: NOW - 11 * 60_000 }, "YES", NOW)).toBeNull();
+    expect(calledAt({ side: "YES", entryPrice: sol })).toBe("67%");
+    for (const label of [livePercent(sol, "YES", NOW), calledAt({ side: "NO", entryPrice: sol }), livePercent(price(), "YES", NOW)]) {
+      expect(label).toMatch(/^\d{1,3}%$/);
+      expect(label).not.toMatch(/[¢$]|USDC|SOL/);
+    }
+  });
+
+  test("a call is marked Free, Funded only on a confirmed fill, and nothing in between", () => {
+    const free = entry();
+    expect(callMark(free)).toBe("free");
+    expect(callMark({ ...free, funding: { venue: "panta" } })).toBe("funded");
+    expect(callMark({ ...free, call: { ...free.call, fundingState: "FILLED" } })).toBe("funded");
+    for (const state of ["QUOTED", "SUBMITTED", "PARTIAL", "FAILED"] as const) {
+      expect(callMark({ ...free, call: { ...free.call, fundingState: state } })).toBeNull();
     }
   });
 
@@ -762,6 +773,32 @@ describe("web app rules", () => {
     expect(screen).toContain("wa-respond--two");
     // …so none of the response tiles is ever a disabled button that looks live.
     for (const m of screen.matchAll(/<button[^>]*wa-respond-btn[^>]*>/g)) expect(m[0]).not.toContain("disabled");
+  });
+
+  test("a free call never reads as a trade: percent only, the Free mark, and no 'Lock'", () => {
+    const MONEYISH = [/¢/, /a share on Panta/i, /per share/i, /USDC\s*\/\s*share/i, /SOL\s*\/\s*share/i, /Locked at/i, /\bLock \{/, /["'>]\s*Lock\b/, /Traded/];
+    for (const { file, text } of files) {
+      if (file.endsWith(".css")) continue;
+      for (const pattern of MONEYISH) expect({ file, match: text.match(pattern)?.[0] ?? null }).toEqual({ file, match: null });
+    }
+    const ui = readCode(join(WEB, "components/webapp/ui.tsx"));
+    expect(ui).toMatch(/export function FreeChip\(\)[\s\S]*?wa-chip--free[\s\S]*?name="present"[\s\S]*?Free call[\s\S]*?>Free</);
+    expect(ui).toMatch(/export function FundedChip[\s\S]*?wa-chip--funded[\s\S]*?"Funded"/);
+    // One marker everywhere a call shows.
+    for (const screen of ["cards.tsx", "screens/CallScreen.tsx", "screens/MarketScreen.tsx", "screens/DoorScreens.tsx"]) {
+      expect({ screen, marked: /<CallMarkChip entry=/.test(readCode(join(WEB, "components/webapp", screen))) }).toEqual({ screen, marked: true });
+    }
+    const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
+    // The CTA is a call, carrying the Free mark; the toast says free.
+    expect(market).toMatch(/Call \{sideLabel\(market, pick\)\}\s*<FreeChip \/>/);
+    expect(market).toContain('toast(`Called ${sideLabel(market, entry.call.side)}${callMark(entry) === "free" ? " · Free" : ""}`)');
+    expect(market).toContain("You called {sideLabel(market, viewerCall.call.side)}");
+    const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
+    expect(respond).toContain("<FreeChip />");
+    expect(respond).not.toMatch(/Locked once you tap/);
+    const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
+    expect(css).toMatch(/\.wa-chip--free \{[^}]*background: transparent/);
+    expect(css).toMatch(/\.wa-chip--funded \{[^}]*background: var\(--wa-coral\)/);
   });
 
   test("a settled, closed or SOL-quoted market offers no trade, and shows your result", () => {

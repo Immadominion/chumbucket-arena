@@ -12,15 +12,13 @@ import {
   CALLS_BFF_URL,
   NotFound,
   Unavailable,
-  centsLabel,
-  entryLabel,
+  callMark,
+  entryPercent,
   getCall,
   getPerson,
   isFreeCall,
   outcomeCopy,
-  priceLabel,
-  priceParts,
-  priceUnit,
+  percentLabel,
   recordLabel,
   safeAvatar,
   venueUrl,
@@ -97,46 +95,33 @@ describe("the BFF reader", () => {
 });
 
 describe("presentation", () => {
-  test("prices read as cents below a dollar and dollars above; junk is null", () => {
-    expect(centsLabel("0.5")).toBe("50¢");
-    expect(centsLabel("0.521")).toBe("52.1¢");
-    expect(centsLabel("0.05")).toBe("5¢");
-    expect(centsLabel("1.2")).toBe("$1.20");
-    expect(centsLabel(null)).toBeNull();
-    expect(centsLabel("")).toBeNull();
-    expect(centsLabel("-1")).toBeNull();
-    expect(centsLabel("abc")).toBeNull();
+  test("a price reads as a whole percent, half-up on the decimal string; junk is null", () => {
+    expect(percentLabel("0.5")).toBe("50%");
+    expect(percentLabel("0.62")).toBe("62%");
+    expect(percentLabel("0.625")).toBe("63%");
+    expect(percentLabel("0.6249")).toBe("62%");
+    expect(percentLabel("0.005")).toBe("1%");
+    expect(percentLabel("0.05")).toBe("5%");
+    // An open market never reads as certain either way.
+    expect(percentLabel("0.0049")).toBe("<1%");
+    expect(percentLabel("0.000000001")).toBe("<1%");
+    expect(percentLabel("0.9949")).toBe("99%");
+    expect(percentLabel("0.995")).toBe(">99%");
+    expect(percentLabel("0")).toBe("0%");
+    expect(percentLabel("1")).toBe("100%");
+    expect(percentLabel("1.000")).toBe("100%");
+    for (const bad of [null, undefined, "", "-1", "abc", "1.2", "2", "1e-3", "0.5%"]) expect(percentLabel(bad)).toBeNull();
   });
 
-  test("a SOL-quoted market's price reads in SOL, never as dollars or cents", () => {
-    expect(priceLabel("0.671739755", "SOL")).toBe("0.67 SOL");
-    expect(priceLabel("0.001", "SOL")).toBe("<0.01 SOL");
-    expect(priceLabel(null, "SOL")).toBeNull();
-    expect(priceLabel("-1", "SOL")).toBeNull();
-    expect(priceLabel("0.5", "USDC")).toBe("50¢");
-    expect(priceLabel("0.5", undefined)).toBe("50¢");
-    expect(priceUnit("SOL")).toBe("SOL");
-    expect(priceUnit(undefined)).toBe("USDC");
-    const call = { side: "NO", entryPrice: { venue: "panta", currency: "SOL", unit: "per_share",
-      yesPrice: "0.671739755", noPrice: "0.328260245", observedAt: 1, attribution: "Powered by Panta" } };
-    expect(entryLabel(call as never)).toBe("0.33 SOL");
-    expect(entryLabel(call as never)).not.toMatch(/[$¢]/);
-  });
-
-  test("price parts: the figure, and a unit only where the figure carries none", () => {
-    expect(priceParts("0.671739755", "SOL")).toEqual({ value: "0.67", unit: "SOL" });
-    expect(priceParts("0.001", "SOL")).toEqual({ value: "<0.01", unit: "SOL" });
-    expect(priceParts("0.5", "USDC")).toEqual({ value: "50¢", unit: null });
-    expect(priceParts("1.2", null)).toEqual({ value: "$1.20", unit: null });
-    for (const bad of [null, undefined, "", "-1", "abc"]) {
-      expect(priceParts(bad, "SOL")).toBeNull();
-      expect(priceParts(bad, "USDC")).toBeNull();
-    }
-    // priceLabel is exactly the parts joined, in both units.
-    for (const [price, cur] of [["0.671739755", "SOL"], ["0.5", "USDC"], ["2", undefined]] as const) {
-      const parts = priceParts(price, cur)!;
-      expect(priceLabel(price, cur)).toBe(parts.unit ? `${parts.value} ${parts.unit}` : parts.value);
-    }
+  test("a SOL-quoted call reads as the same percent: the program's price is the 0..1 figure", () => {
+    // PantaProgram: last_yes_price / 1e9 for YES, its complement for NO.
+    const entryPrice = { venue: "panta", currency: "SOL", unit: "per_share",
+      yesPrice: "0.671739755", noPrice: "0.328260245", observedAt: 1, attribution: "Powered by Panta" };
+    expect(entryPercent({ side: "NO", entryPrice })).toBe("33%");
+    expect(entryPercent({ side: "YES", entryPrice })).toBe("67%");
+    expect(entryPercent({ side: "YES", entryPrice: { ...entryPrice, currency: "USDC" } })).toBe("67%");
+    expect(entryPercent({ side: "YES", entryPrice: null })).toBeNull();
+    expect(entryPercent({ side: "NO", entryPrice })).not.toMatch(/[$¢]|SOL|USDC/);
   });
 
   test("outcomes and records", () => {
@@ -163,6 +148,34 @@ describe("presentation", () => {
 });
 
 describe("honesty of the receipt", () => {
+  test("Free only for an unfunded call, Funded only for a confirmed fill", () => {
+    expect(callMark({ call: { fundingState: "NONE" } })).toBe("free");
+    expect(callMark({ call: { fundingState: "NONE" }, funding: null })).toBe("free");
+    expect(callMark({ call: { fundingState: "NONE" }, funding: { state: "FILLED", venue: "panta" } })).toBe("funded");
+    expect(callMark({ call: { fundingState: "FILLED" } })).toBe("funded");
+    for (const state of ["QUOTED", "SUBMITTED", "PARTIAL", "FAILED"]) expect(callMark({ call: { fundingState: state } })).toBeNull();
+  });
+
+  test("the receipt, its link preview and its title carry the percent and the mark, never cents or a share price", () => {
+    const web = join(import.meta.dir, "../web");
+    const strip = (p: string) => readFileSync(join(web, p), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const receipt = strip("components/public/CallReceipt.tsx");
+    expect(receipt).toContain("<FreeMark />");
+    expect(receipt).toContain("<FundedMark />");
+    expect(receipt.match(/<CallMark entry=\{entry\} \/>/g)?.length).toBe(2); // the receipt and the row
+    const shell = strip("components/public/PublicShell.tsx");
+    expect(shell).toMatch(/export function FreeMark\(\)[\s\S]*?pub-mark-free[\s\S]*?Free call[\s\S]*?>Free</);
+    expect(strip("app/c/[challengeId]/opengraph-image.tsx")).toContain("mark: callMark(entry)");
+    expect(strip("app/c/[challengeId]/page.tsx")).toContain('${free ? " · Free" : ""}');
+    for (const p of ["components/public/CallReceipt.tsx", "app/c/[challengeId]/page.tsx", "app/c/[challengeId]/opengraph-image.tsx",
+      "app/m/[marketId]/page.tsx", "app/m/[marketId]/opengraph-image.tsx", "lib/ogCard.tsx"]) {
+      const text = strip(p);
+      for (const pattern of [/¢/, /per share/i, /\bshare\b(?!-)/i, /Locked/, /no money at stake/i, /priceUnit|priceParts|centsLabel/]) {
+        expect({ p, match: text.match(pattern)?.[0] ?? null }).toEqual({ p, match: null });
+      }
+    }
+  });
+
   test("only an unfunded call may be labelled free", () => {
     expect(isFreeCall({ fundingState: "NONE" })).toBe(true);
     // Older payloads without the field are free calls (funding never shipped).

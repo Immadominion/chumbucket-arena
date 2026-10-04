@@ -11,9 +11,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { avatarSrc } from "@/lib/callsBff";
-import { initials, outcomeLabel } from "@/lib/webapp/format";
+import { callMark, initials, outcomeLabel } from "@/lib/webapp/format";
 import { appPath, canGoBack, nextTrail } from "@/lib/webapp/paths";
-import type { CallOutcome, Side } from "@/lib/webapp/types";
+import type { CallFeedEntry, CallOutcome, Side } from "@/lib/webapp/types";
 import { Icon } from "./Icon";
 
 /* eslint-disable @next/next/no-img-element */
@@ -57,6 +57,33 @@ export function OutcomeBadge({ outcome }: { outcome: CallOutcome }) {
       {outcomeLabel(outcome)}
     </span>
   );
+}
+
+/** The one Free marker: a ghost chip, so it never reads as money. */
+export function FreeChip() {
+  return (
+    <span className="wa-chip wa-chip--free" title="Free call">
+      <Icon name="present" size={14} />
+      <span className="wa-sr">Free call</span>
+      <span aria-hidden>Free</span>
+    </span>
+  );
+}
+
+/** Money in, solid pink: "$5" once an amount is known, else "Funded". Only for a confirmed fill. */
+export function FundedChip({ amount }: { amount?: string | null }) {
+  return (
+    <span className="wa-chip wa-chip--funded" title="Funded on Panta">
+      <Icon name="wallet-solid" size={14} />
+      {amount ?? "Funded"}
+    </span>
+  );
+}
+
+/** Free, funded, or nothing for a state in between (see callMark). */
+export function CallMarkChip({ entry }: { entry: Pick<CallFeedEntry, "call" | "funding"> }) {
+  const mark = callMark(entry);
+  return mark === "free" ? <FreeChip /> : mark === "funded" ? <FundedChip /> : null;
 }
 
 export type ArtName = "empty_calls" | "error" | "inbox" | "offline" | "people" | "record" | "search" | "success";

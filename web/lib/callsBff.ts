@@ -126,6 +126,8 @@ export interface CallFeedEntry {
   result: CallResult | null;
   backCount: number;
   fadeCount: number;
+  /** Set only when Panta confirmed a fill behind this call. Carries no amount. */
+  funding?: { state?: string; venue?: string } | null;
 }
 
 export interface CallDetail {
@@ -205,60 +207,39 @@ export async function maybe<T>(p: Promise<T>): Promise<T | null> {
 // ── presentation helpers (pure) ──────────────────────────────────────────────
 
 /**
- * A per-share USDC price as people read it: `0.5` -> "50¢", `1.2` -> "$1.20".
- * Panta's YES and NO prices are independent venue prices (not complementary
- * probabilities) and may exceed 1 USDC, so nothing here assumes 0..1.
- * Missing, negative or unparsable -> null.
+ * A Panta price as the percent people read: `0.62` -> "62%". YES and NO are
+ * each the 0..1 per-share price on Panta's 1e9 PRICE_SCALE: USDC markets from
+ * the partner API, SOL markets from the program's `last_yes_price` and its
+ * complement (src/prediction/PantaProgram.ts), which panta.market shows as the
+ * odds. So both quote assets read the same way, never with a unit.
+ *
+ * Whole percent, rounded half-up on the decimal string (no float drift). A
+ * live price under half a percent reads "<1%" and one at 99.5% or more ">99%",
+ * so an open market never reads as certain. Missing, negative, above 1 or
+ * unparsable -> null.
  */
-export function centsLabel(price: string | null | undefined): string | null {
-  if (price === null || price === undefined || price.trim() === "") return null;
-  const n = Number(price);
-  if (!Number.isFinite(n) || n < 0) return null;
-  if (n >= 1) return `$${n.toFixed(2)}`;
-  const cents = Math.round(n * 1000) / 10;
-  return `${Number.isInteger(cents) ? cents.toFixed(0) : cents.toFixed(1)}¢`;
+export function percentLabel(price: string | null | undefined): string | null {
+  const m = typeof price === "string" ? /^(\d+)(?:\.(\d+))?$/.exec(price.trim()) : null;
+  if (!m) return null;
+  const whole = Number(m[1]);
+  const fraction = (m[2] ?? "").replace(/0+$/, "");
+  if (whole > 1 || (whole === 1 && fraction)) return null;
+  if (whole === 1) return "100%";
+  if (!fraction) return "0%";
+  const tenths = Number(fraction.padEnd(3, "0").slice(0, 3)); // tenths of a percent, truncated
+  if (tenths < 5) return "<1%";
+  if (tenths >= 995) return ">99%";
+  return `${Math.floor((tenths + 5) / 10)}%`;
 }
 
-/**
- * A per-share price in its market's own unit. USDC reads as cents
- * (`centsLabel`); a SOL-quoted Panta market's price reads in SOL
- * (`0.67 SOL`), never converted to dollars or cents.
- */
-export function priceLabel(price: string | null | undefined, currency: string | null | undefined): string | null {
-  const parts = priceParts(price, currency);
-  return parts && (parts.unit ? `${parts.value} ${parts.unit}` : parts.value);
-}
-
-/**
- * `priceLabel` split for display: the figure, and the unit to set beside it
- * when the figure does not carry one. USDC: `{ value: "50¢", unit: null }`;
- * SOL: `{ value: "0.67", unit: "SOL" }`. Missing, negative or unparsable ->
- * null.
- */
-export function priceParts(
-  price: string | null | undefined,
-  currency: string | null | undefined,
-): { value: string; unit: "SOL" | null } | null {
-  if (currency !== "SOL") {
-    const cents = centsLabel(price);
-    return cents ? { value: cents, unit: null } : null;
-  }
-  if (price === null || price === undefined || price.trim() === "") return null;
-  const n = Number(price);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return { value: n > 0 && n < 0.005 ? "<0.01" : n.toFixed(2), unit: "SOL" };
-}
-
-/** "USDC" or "SOL": the unit a share price is quoted in. */
-export function priceUnit(currency: string | null | undefined): "USDC" | "SOL" {
-  return currency === "SOL" ? "SOL" : "USDC";
-}
-
-/** The price a call was locked at, for its own side, in its own unit. */
-export function entryLabel(call: Call): string | null {
+/** The percent a call was made at, for its own side ("62%"), or null. */
+export function entryPercent(call: {
+  side: Side;
+  entryPrice?: Pick<SharePrice, "yesPrice" | "noPrice"> | null;
+}): string | null {
   const p = call.entryPrice;
   if (!p) return null;
-  return priceLabel(call.side === "YES" ? p.yesPrice : p.noPrice, p.currency);
+  return percentLabel(call.side === "YES" ? p.yesPrice : p.noPrice);
 }
 
 export function sideLabel(market: Market, side: Side): string {
@@ -324,6 +305,16 @@ export function venueUrl(market: Market): string | null {
  */
 export function isFreeCall(call: Pick<Call, "fundingState">): boolean {
   return !call.fundingState || call.fundingState === "NONE";
+}
+
+/**
+ * The one money mark a call carries: `free` for an unfunded call, `funded`
+ * only for a fill Panta confirmed, and nothing for anything in between (a
+ * quote or a submitted order is neither free nor money in).
+ */
+export function callMark(entry: { call: Pick<Call, "fundingState">; funding?: unknown }): "free" | "funded" | null {
+  if (entry.funding || entry.call.fundingState === "FILLED") return "funded";
+  return isFreeCall(entry.call) ? "free" : null;
 }
 
 export function recordLabel(p: Person): string {
