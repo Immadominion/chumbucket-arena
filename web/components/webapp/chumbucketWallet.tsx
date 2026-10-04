@@ -2,9 +2,12 @@
 
 /**
  * The Chumbucket wallet in the browser: the account's one wallet (a Privy
- * embedded Solana wallet), the default way to pay for a trade. Behind
- * NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED and a Privy app id; without both,
- * nothing here loads and `useChumbucketWallet` answers "off".
+ * embedded Solana wallet), the default way to pay for a trade. Two gates:
+ * NEXT_PUBLIC_CHUMBUCKET_WALLET_ENABLED and a Privy app id say the bundle
+ * can run it (without both nothing here loads), and the server's
+ * `wallet.status` says whether it is on for THIS account (admins only during
+ * rollout). Until the server says `enabled`, `useChumbucketWallet` answers
+ * "off" and Privy is never loaded.
  *
  * One wallet per ACCOUNT: Privy is signed in with the BFF's own ten-minute
  * token (`wallet.privyToken`, sub = the account), never with a Supabase
@@ -23,6 +26,7 @@
 import dynamic from "next/dynamic";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { linkChumbucketWallet } from "@/lib/webapp/chumbucketLink";
+import { chumbucketWalletOn } from "@/lib/webapp/rollout";
 import { checkedSigner, type TradeSigner } from "@/lib/webapp/trade";
 import { accessToken } from "./authClient";
 import { useAuth } from "./session";
@@ -90,6 +94,10 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
   const api = auth.api;
   const userId = auth.status === "ready" ? (auth.identity?.userId ?? null) : null;
   const [address, setAddress] = useState<string | null>(null);
+  /** The server's answer for this account: off until it says so. */
+  const [on, setOn] = useState(false);
+  const onRef = useRef(false);
+  onRef.current = on;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** The account the Privy bridge is mounted for; null = not loaded. */
@@ -106,6 +114,7 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
     account.current = userId;
     if (previous === userId) return;
     setAddress(null);
+    setOn(false);
     setError(null);
     token.current = null;
     waiting.current = [];
@@ -122,7 +131,11 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
     let alive = true;
     api
       .walletStatus()
-      .then((s) => alive && account.current === userId && setAddress(s.account?.chumbucketWallet ?? null))
+      .then((s) => {
+        if (!alive || account.current !== userId) return;
+        setOn(chumbucketWalletOn(CHUMBUCKET_WALLET_ENABLED, s));
+        setAddress(s.account?.chumbucketWallet ?? null);
+      })
       .catch(() => undefined);
     return () => {
       alive = false;
@@ -175,6 +188,8 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
   const ensure = useCallback(async (): Promise<TradeSigner> => {
     const owner = account.current;
     if (!owner) throw new Error("signed out");
+    // Off for this account: Privy is never loaded.
+    if (!onRef.current) throw new Error("off");
     setBusy(true);
     setError(null);
     try {
@@ -198,14 +213,14 @@ function ChumbucketWalletOn({ children }: { children: React.ReactNode }) {
   }, [address, api, getBridge, signerFor]);
 
   const value = useMemo<ChumbucketWallet>(
-    () => ({ enabled: true, address, busy, error, ensure }),
-    [address, busy, error, ensure],
+    () => (on ? { enabled: true, address, busy, error, ensure } : OFF),
+    [address, busy, error, ensure, on],
   );
   return (
     <Ctx.Provider value={value}>
       {children}
       {/* Mounted for one account only; unmounted after its logout. */}
-      {hosted ? <PrivyBridgeHost key={hosted} appId={PRIVY_APP_ID} account={hosted} getToken={getToken} register={register} /> : null}
+      {hosted && on ? <PrivyBridgeHost key={hosted} appId={PRIVY_APP_ID} account={hosted} getToken={getToken} register={register} /> : null}
     </Ctx.Provider>
   );
 }

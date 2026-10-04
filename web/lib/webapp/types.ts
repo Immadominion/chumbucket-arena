@@ -111,7 +111,16 @@ export interface CallFeedEntry {
   backCount: number;
   fadeCount: number;
   viewerHasCalled: boolean;
-  funding?: { venue: string } | null;
+  /**
+   * FILLED calls only (public). With money calls on, it also carries the
+   * filled amount and side, for "$5 on YES" receipts and cards.
+   */
+  funding?: { state?: "FILLED"; venue: string; fundedAt?: number; amountBaseUnits?: string; side?: Side } | null;
+  /**
+   * The owner's own view of their call with money that isn't public: pending,
+   * expired, or FREE (replaced by a fresh free call). Never sent to anyone else.
+   */
+  money?: { state: "PENDING" | "EXPIRED" | "FREE"; amountBaseUnits: string; side: Side; expiresAt: number };
 }
 
 export interface FeedPage {

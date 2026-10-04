@@ -36,20 +36,53 @@ interface DehydratedLike {
   mutations?: unknown[];
 }
 
-/** Infinite queries keep their first page only: enough to open instantly. */
+/**
+ * Money is never kept in the browser: balances, activity, winnings, pending
+ * calls and deposit addresses (`["money", …]` queries) are always read fresh
+ * and never written to storage.
+ */
+export const persistable = (queryKey: unknown): boolean => !(Array.isArray(queryKey) && queryKey[0] === "money");
+
+/**
+ * The owner's own view of a call with money that isn't public (a call entry
+ * carrying `money`: pending, expired, or replaced by keep free). It is never
+ * written to the browser either.
+ */
+const ownerMoneyEntry = (v: unknown): boolean =>
+  !!v && typeof v === "object" && !Array.isArray(v) && "call" in v && (v as { money?: unknown }).money != null;
+
+/** Lists lose those entries; a field holding one (a market's `viewerCall`, a call's `parent`) becomes null. */
+function scrubOwnerMoney(v: unknown): unknown {
+  if (Array.isArray(v)) return v.filter((x) => !ownerMoneyEntry(x)).map(scrubOwnerMoney);
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = ownerMoneyEntry(x) ? null : scrubOwnerMoney(x);
+    return out;
+  }
+  return v;
+}
+
+/**
+ * Infinite queries keep their first page only: enough to open instantly.
+ * Money queries are dropped, and so is every trace of the owner's pending
+ * money view in the call, person, feed and market caches (a call screen for
+ * such a call is not kept at all).
+ */
 export function trimForStorage(state: unknown): unknown {
   const s = state as DehydratedLike | null;
   if (!s || !Array.isArray(s.queries)) return state;
   return {
     ...s,
     mutations: [],
-    queries: s.queries.map((q) => {
-      const data = q.state?.data as { pages?: unknown[]; pageParams?: unknown[] } | undefined;
-      if (data && Array.isArray(data.pages) && Array.isArray(data.pageParams) && data.pages.length > 1) {
-        return { ...q, state: { ...q.state, data: { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } } };
-      }
-      return q;
-    }),
+    queries: s.queries
+      .filter((q) => persistable(q.queryKey) && !ownerMoneyEntry((q.state?.data as { entry?: unknown } | undefined)?.entry))
+      .map((q) => {
+        const data = q.state?.data as { pages?: unknown[]; pageParams?: unknown[] } | undefined;
+        if (data && Array.isArray(data.pages) && Array.isArray(data.pageParams) && data.pages.length > 1) {
+          q = { ...q, state: { ...q.state, data: { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } } };
+        }
+        return q.state && "data" in q.state ? { ...q, state: { ...q.state, data: scrubOwnerMoney(q.state.data) } } : q;
+      }),
   };
 }
 
@@ -80,7 +113,8 @@ export function loadCache(storage: KeyValueStorage | null, userId: string, now: 
       storage.removeItem(cacheKey(userId));
       return null;
     }
-    return env.state ?? null;
+    // An older save may hold money queries: they are never restored.
+    return env.state ? trimForStorage(env.state) : null;
   } catch {
     return null;
   }

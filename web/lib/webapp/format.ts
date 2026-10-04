@@ -29,11 +29,12 @@ export function livePercent(snapshot: SharePrice | null | undefined, side: Side,
 export const calledAt = (call: Pick<Call, "side" | "entryPrice">): string | null => entryPercent(call);
 
 /**
- * Whether a trade can be offered on this market: a Panta market the BFF does
- * not mark untradable. A SOL-quoted market takes free calls, never a trade.
+ * Whether a trade (or a call with money) can be offered on this market: a
+ * Panta market the BFF does not mark untradable and that is not SOL-quoted.
+ * A SOL-quoted market takes free calls only, never money.
  */
-export const tradableMarket = (market: Pick<Market, "venue" | "tradable">): boolean =>
-  market.venue === "panta" && market.tradable !== false;
+export const tradableMarket = (market: Pick<Market, "venue" | "tradable"> & { quoteCurrency?: Market["quoteCurrency"] }): boolean =>
+  market.venue === "panta" && market.tradable !== false && market.quoteCurrency !== "SOL";
 
 export function sideLabel(market: Pick<Market, "outcomes">, side: Side): string {
   return market.outcomes.find((o) => o.side === side)?.label ?? (side === "YES" ? "Yes" : "No");

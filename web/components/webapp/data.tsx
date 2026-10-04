@@ -18,7 +18,7 @@ import {
 } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BffRejected, BffSignedOut } from "@/lib/webapp/bff";
-import { CACHE_MAX_AGE_MS, clearCache, loadCache, saveCache, type KeyValueStorage } from "@/lib/webapp/cache";
+import { CACHE_MAX_AGE_MS, clearCache, loadCache, persistable, saveCache, type KeyValueStorage } from "@/lib/webapp/cache";
 import { isPriceRefusal, PRICE_UPDATING } from "@/lib/webapp/prices";
 
 export function browserStorage(): KeyValueStorage | null {
@@ -69,7 +69,8 @@ export function DataProvider({ userId, children }: { userId: string; children: R
       saveCache(
         browserStorage(),
         userId,
-        dehydrate(client, { shouldDehydrateQuery: (q) => q.state.status === "success" }),
+        // Money is never written to the browser (see `persistable`).
+        dehydrate(client, { shouldDehydrateQuery: (q) => q.state.status === "success" && persistable(q.queryKey) }),
         Date.now(),
       );
     };

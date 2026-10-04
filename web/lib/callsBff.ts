@@ -126,8 +126,11 @@ export interface CallFeedEntry {
   result: CallResult | null;
   backCount: number;
   fadeCount: number;
-  /** Set only when Panta confirmed a fill behind this call. Carries no amount. */
-  funding?: { state?: string; venue?: string } | null;
+  /**
+   * Set only when Panta confirmed a fill behind this call. With calls with
+   * money on, it also carries the filled amount (USDC base units) and side.
+   */
+  funding?: { state?: string; venue?: string; amountBaseUnits?: string; side?: Side } | null;
 }
 
 export interface CallDetail {
@@ -358,6 +361,24 @@ export function isFreeCall(call: Pick<Call, "fundingState">): boolean {
 export function callMark(entry: { call: Pick<Call, "fundingState">; funding?: unknown }): "free" | "funded" | null {
   if (entry.funding || entry.call.fundingState === "FILLED") return "funded";
   return isFreeCall(entry.call) ? "free" : null;
+}
+
+/**
+ * A funded call's stamp, "$5 on YES", when the BFF sends the filled amount
+ * and side; null otherwise (the mark then just says Funded). Dollars only,
+ * rounded down to the cent.
+ */
+export function fundedLabel(entry: { funding?: CallFeedEntry["funding"]; market?: Pick<Market, "outcomes"> }): string | null {
+  const f = entry.funding;
+  if (!f || (f.state !== undefined && f.state !== "FILLED")) return null;
+  if (!f.amountBaseUnits || !/^[1-9][0-9]{0,15}$/.test(f.amountBaseUnits) || (f.side !== "YES" && f.side !== "NO")) return null;
+  // Below $1 a fill earns no stamp (the BFF sends no amount then either).
+  if (BigInt(f.amountBaseUnits) < 1_000_000n) return null;
+  const cents = BigInt(f.amountBaseUnits) / 10_000n;
+  const dollars = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const amount = cents % 100n === 0n ? `$${dollars}` : `$${dollars}.${(cents % 100n).toString().padStart(2, "0")}`;
+  const label = entry.market?.outcomes.find((o) => o.side === f.side)?.label;
+  return `${amount} on ${label && label.toUpperCase() !== f.side ? label : f.side}`;
 }
 
 export function recordLabel(p: Person): string {
