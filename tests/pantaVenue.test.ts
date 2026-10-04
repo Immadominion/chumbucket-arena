@@ -332,7 +332,7 @@ for (const missing of [{ yesPrice: null, noPrice: null }, { yesPrice: null }, { 
     expect((await h.sync.runOnce()).snapshotsRecorded).toBe(1);
     const before = h.store.latestSharePrice(marketUuid('panta', id))!;
     expect(h.service.openMarkets()).toEqual([]);
-    expect(() => h.service.createCall({ marketId: before.marketId, side: 'YES' }, 'alice')).toThrow('missing or stale');
+    expect(() => h.service.createCall({ marketId: before.marketId, side: 'YES' }, 'alice')).toThrow("isn't available right now");
     h.change({ yesPrice: '0.41', noPrice: '0.62' });
     // A repeated tick must not create a request/write loop.
     expect((await h.sync.runOnce()).snapshotsRecorded).toBe(0);
