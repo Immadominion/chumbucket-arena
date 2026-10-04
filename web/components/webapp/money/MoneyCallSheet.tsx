@@ -19,8 +19,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BffRejected } from "@/lib/webapp/bff";
-import { callCta, progressOf, usd, type MoneyCallView } from "@/lib/webapp/money";
-import { advanceCall, confirmCall, type CallIntent, type CallStep } from "@/lib/webapp/moneyFlow";
+import { callCta, progressOf, usd, type MoneyCallTarget, type MoneyCallView } from "@/lib/webapp/money";
+import { advanceCall, confirmCall, priceMoved, type CallIntent, type CallStep } from "@/lib/webapp/moneyFlow";
 import { TradeError } from "@/lib/webapp/trade";
 import { appPath } from "@/lib/webapp/paths";
 import type { CallFeedEntry, CallVisibility, MarketDetail } from "@/lib/webapp/types";
@@ -31,7 +31,7 @@ import { keys, useAfterCall } from "../queries";
 import { useApi } from "../session";
 import { FreeChip, PantaMark, PendingChip, Sheet, Spinner, StateScreen } from "../ui";
 import { DepositSheet } from "./DepositSheet";
-import { moneyKeys, type StartCall } from "./moneyContext";
+import { moneyKeys, useMoney, type StartCall } from "./moneyContext";
 import { moneyLine as lineOf, useSignerFor } from "./signers";
 
 /** What the flow was asked to do: a new call (one tap, one key), or the owner's pending one. */
@@ -44,7 +44,8 @@ type View =
   | { v: "funds"; neededBaseUnits: string; shortfallBaseUnits: string | null }
   | { v: "review"; step: Extract<CallStep, { step: "review" }>; signing: boolean }
   | { v: "pending"; moneyCall: MoneyCallView }
-  | { v: "stuck"; moneyCall: MoneyCallView; line: string | null; busy: "retry" | "free" | "drop" | null }
+  /** `moved`: the price left the call's range (PRICE_MOVED): it can't be funded any more, only made anew. */
+  | { v: "stuck"; moneyCall: MoneyCallView; line: string | null; busy: "retry" | "free" | "drop" | "new" | null; moved?: boolean }
   | { v: "error"; line: string };
 
 const POLL_MS = 3_000;
@@ -58,6 +59,7 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
   const pathname = usePathname();
   const own = useChumbucketWallet();
   const signerFor = useSignerFor();
+  const money = useMoney();
   const [hidden, setHidden] = useState(false);
   const [view, setView] = useState<View>(() =>
     request.mode === "resume"
@@ -119,7 +121,7 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
 
   /** Where the call stands now, from the BFF: pending, stuck (with a line), or finished. */
   const settle = useCallback(
-    async (line: string | null) => {
+    async (line: string | null, moved = false) => {
       const id = callId.current;
       if (!id) {
         setView({ v: "error", line: line ?? "Couldn’t reach Chumbucket. Try again." });
@@ -133,7 +135,7 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
         else if (p === "free") finish("free", null);
         else if (p === "expired") finish("dropped", null);
         else if (p === "pending") setView({ v: "pending", moneyCall });
-        else setView({ v: "stuck", moneyCall, line, busy: null });
+        else setView({ v: "stuck", moneyCall, line, busy: null, moved });
       } catch {
         if (alive.current) setView({ v: "error", line: line ?? "Couldn’t reach Chumbucket. Try again." });
       }
@@ -183,7 +185,8 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
         if (!alive.current) return;
         // A quote that lapsed on the way: ask again with the same key (the BFF re-quotes a pending call).
         if (e instanceof TradeError && e.kind === "expired" && reasks.current++ < 2) return void run(retry);
-        await settle(lineOf(e));
+        // PRICE_MOVED: no re-quote, no loop; the sheet offers a new call at today's price.
+        await settle(lineOf(e), priceMoved(e));
       }
     },
     [api, deps, finish, intent, own, request, settle],
@@ -256,8 +259,34 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
         finish("dropped", null);
       }
     } catch (e) {
-      if (alive.current) setView({ v: "stuck", moneyCall, line: lineOf(e), busy: null });
+      if (alive.current) setView({ v: "stuck", moneyCall, line: lineOf(e), busy: null, moved: priceMoved(e) || view.moved });
     }
+  }
+
+  /**
+   * The price moved: this call is dropped and a NEW call (a new key, today's
+   * price) starts in its place, for the same side, amount and target.
+   */
+  async function makeNew() {
+    if (view.v !== "stuck") return;
+    const { moneyCall } = view;
+    setView({ ...view, busy: "new" });
+    // A pending call that can't be funded is dropped first (one call per market); one already over needs nothing.
+    await api.discardCall(moneyCall.callId).catch(() => undefined);
+    refreshMoney();
+    const target: MoneyCallTarget =
+      request.mode === "new"
+        ? request.target
+        : moneyCall.kind === "own" || !moneyCall.targetCallId
+          ? { kind: "own", marketId: moneyCall.marketId, side: moneyCall.side }
+          : { kind: moneyCall.kind, targetCallId: moneyCall.targetCallId };
+    money.startCall({
+      target,
+      intent,
+      label: request.label,
+      thesis: request.mode === "new" ? (request.thesis ?? null) : request.call.call.thesis,
+      visibility: request.mode === "new" ? request.visibility : request.call.call.visibility,
+    });
   }
 
   // Waiting for funds: the deposit sheet, for exactly what this call needs.
@@ -304,7 +333,12 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
           </button>
         ) : view.v === "stuck" ? (
           <div className="wa-choices">
-            {view.moneyCall.canRetry ? (
+            {view.moved ? (
+              <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={view.busy !== null} onClick={() => void makeNew()}>
+                {view.busy === "new" ? <Spinner /> : <Icon name="plus" size={20} />}
+                <span className="wa-btn-label">{`New call · ${usd(intent.amountBaseUnits)}`}</span>
+              </button>
+            ) : view.moneyCall.canRetry ? (
               <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={view.busy !== null} onClick={() => void choose("retry")}>
                 {view.busy === "retry" ? <Spinner /> : <Icon name="wallet" size={20} />}
                 <span className="wa-btn-label">{`Try again · ${usd(intent.amountBaseUnits)}`}</span>

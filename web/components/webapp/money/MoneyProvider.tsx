@@ -23,6 +23,7 @@ export function MoneyProvider({ children }: { children: React.ReactNode }) {
   const status = useMoneyStatus();
   // The server's answer for this account (admins only during rollout); anything else is off.
   const enabled = moneyOn(status.data);
+  const known = status.isSuccess || status.isError;
   const wallet = useMoneyWallet(enabled);
   const [request, setRequest] = useState<(CallRequest & { id: number }) | null>(null);
   const [sheet, setSheet] = useState<"wallet" | "deposit" | null>(null);
@@ -35,6 +36,7 @@ export function MoneyProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<MoneyValue>(
     () => ({
       enabled,
+      known,
       status: enabled ? (status.data ?? null) : null,
       wallet: enabled ? (wallet.data ?? null) : null,
       startCall: (call) => {
@@ -51,7 +53,7 @@ export function MoneyProvider({ children }: { children: React.ReactNode }) {
       openDeposit: () => setSheet("deposit"),
       remember: (amount) => rememberAmount(viewer.userId, amount),
     }),
-    [enabled, status.data, viewer.userId, wallet.data],
+    [enabled, known, status.data, viewer.userId, wallet.data],
   );
 
   return (

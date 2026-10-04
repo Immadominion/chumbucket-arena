@@ -372,6 +372,8 @@ export function fundedLabel(entry: { funding?: CallFeedEntry["funding"]; market?
   const f = entry.funding;
   if (!f || (f.state !== undefined && f.state !== "FILLED")) return null;
   if (!f.amountBaseUnits || !/^[1-9][0-9]{0,15}$/.test(f.amountBaseUnits) || (f.side !== "YES" && f.side !== "NO")) return null;
+  // Below $1 a fill earns no stamp (the BFF sends no amount then either).
+  if (BigInt(f.amountBaseUnits) < 1_000_000n) return null;
   const cents = BigInt(f.amountBaseUnits) / 10_000n;
   const dollars = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const amount = cents % 100n === 0n ? `$${dollars}` : `$${dollars}.${(cents % 100n).toString().padStart(2, "0")}`;

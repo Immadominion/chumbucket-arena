@@ -316,7 +316,9 @@ function MarketBody({ detail, refetch }: { detail: MarketDetail; refetch: () => 
 
       {/* Trading is offered only while the market is open (a settled or closed market has nothing to trade),
           and only where Chumbucket can trade: a SOL-quoted Panta market takes free calls, never a trade. */}
-      {viewerCall && open && tradableMarket(market) && !money.enabled ? (
+      {/* Never for a call with money (pending, expired, kept free or funded through money.*): only the
+          server's answer that money is off for this account, and a call with no money row, show it. */}
+      {viewerCall && open && tradableMarket(market) && !money.enabled && money.known && !viewerCall.money ? (
         <button type="button" className="wa-disclosure" style={{ width: "100%", textAlign: "left" }} onClick={() => setTrading(true)}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 52, padding: "0 16px", fontWeight: 600, width: "100%" }}>
             <Icon name="wallet" size={20} />

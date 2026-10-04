@@ -38,6 +38,8 @@ export interface StartCall {
 
 export interface MoneyValue {
   enabled: boolean;
+  /** The server has answered `money.status` for this account (on or off). */
+  known: boolean;
   status: MoneyStatus | null;
   wallet: MoneyWallet | null;
   startCall(call: StartCall): void;
@@ -51,6 +53,8 @@ export interface MoneyValue {
 
 const OFF: MoneyValue = {
   enabled: false,
+  // No provider: no money at all.
+  known: true,
   status: null,
   wallet: null,
   startCall: () => undefined,

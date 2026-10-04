@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { checkGaslessSwap as serverSwapCheck, type ExpectedSwap as ServerExpectedSwap } from "../src/solTopUp/verify.ts";
 import { METIS, OWNER, RFQ } from "./fixtures/jupiterGasless.ts";
 import { fundedLabel } from "../web/lib/callsBff.ts";
-import { BffFailure, BffOffline, BffRejected } from "../web/lib/webapp/bff.ts";
+import { BffFailure, BffOffline, BffRejected, parseTrpcResponse } from "../web/lib/webapp/bff.ts";
 import { loadCache, persistable, saveCache, trimForStorage } from "../web/lib/webapp/cache.ts";
 import { checkPantaClaim, type ReviewedClaim } from "../web/lib/webapp/claimCheck.ts";
 import {
@@ -71,6 +71,9 @@ import {
   signTransfer,
   stepTransfer,
   transferOpen,
+  priceMoved,
+  transferInFlight,
+  watchRun,
   MAX_TOPUP_BASE_UNITS,
   type TransferRun,
   stopLine,
@@ -1228,7 +1231,7 @@ describe("keep free makes a new free call", () => {
     expect(sheet).toContain('finish(kept.moneyCall.state === "FUNDED" ? "funded" : "free", kept.call);');
     expect(sheet).toMatch(/if \(pathname === appPath\.call\(oldId\)\) router\.replace\(appPath\.call\(entry\.call\.id\)\);/);
     // A refusal (market closed, price unreadable) leaves the pending call as it was, with the server's line.
-    expect(sheet).toMatch(/catch \(e\) \{\s*if \(alive\.current\) setView\(\{ v: "stuck", moneyCall, line: lineOf\(e\), busy: null \}\);/);
+    expect(sheet).toMatch(/catch \(e\) \{\s*if \(alive\.current\) setView\(\{ v: "stuck", moneyCall, line: lineOf\(e\), busy: null, moved: priceMoved\(e\) \|\| view\.moved \}\);/);
   });
 });
 
@@ -1307,5 +1310,98 @@ describe("security review fixes", () => {
     const css = readFileSync(join(WEB, "components/webapp/app.css"), "utf8");
     expect(css).toMatch(/\.wa-wait \{[^}]*color: var\(--wa-muted\);[^}]*\}/);
     expect(css).not.toMatch(/\.wa-wait \{[^}]*animation/);
+  });
+});
+
+describe("contract 1e94ac3: a two-minute window, PRICE_MOVED, one transfer in flight, $1 funded", () => {
+  const conflict = { error: { json: { message: "Another transfer from this wallet is still going through. Try again when it's done.", code: -32009,
+    data: { code: "CONFLICT", details: { reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000009", junk: 5 } } } } };
+  const moved = { error: { json: { message: "The price moved since you made this call. Make a new call.", code: -32012, data: { code: "PRECONDITION_FAILED" } } } };
+  const caught = (body: unknown, status: number) => {
+    try {
+      parseTrpcResponse(status, body);
+    } catch (e) {
+      return e;
+    }
+    throw new Error("expected a refusal");
+  };
+
+  test("the BFF's data.details ride on its refusals (strings only)", () => {
+    const e = caught(conflict, 409) as BffRejected;
+    expect(e).toBeInstanceOf(BffRejected);
+    expect(e.details).toEqual({ reason: "TRANSFER_IN_FLIGHT", transferId: "40000000-0000-4000-8000-000000000009" });
+    expect(transferInFlight(e)).toBe("40000000-0000-4000-8000-000000000009");
+    expect(priceMoved(e)).toBe(false);
+    const m = caught(moved, 412);
+    expect(priceMoved(m)).toBe(true);
+    expect(transferInFlight(m)).toBeNull();
+    expect(priceMoved(new BffRejected("This call expired.", "PRECONDITION_FAILED"))).toBe(false);
+    expect(priceMoved(new BffRejected("x", "PRECONDITION_FAILED", { reason: "PRICE_MOVED" }))).toBe(true);
+  });
+
+  test("a second cash out while one is in flight follows that transfer instead of failing; a signed replay (SENT) too", async () => {
+    const h = rig([]);
+    const want = { from: owner.publicKey.toBase58(), to: friend.publicKey.toBase58(), amountBaseUnits: "5000000" };
+    expect(await prepareTransfer(async () => {
+      throw caught(conflict, 409);
+    }, want, h.deps)).toEqual({ step: "watch", transferId: "40000000-0000-4000-8000-000000000009", view: null });
+    const sentView = { transferId: "40000000-0000-4000-8000-000000000001", kind: "cash_out" as const, from: want.from, to: want.to, amountBaseUnits: "5000000", state: "SUBMITTED" as const, signature: "s", createdAt: 1, updatedAt: 1, expiresAt: 60_000 };
+    expect(await prepareTransfer(async () => ({ status: "SENT", transfer: sentView }), want, h.deps)).toEqual({ step: "watch", transferId: sentView.transferId, view: sentView });
+    // Any other refusal is still an error.
+    await expect(prepareTransfer(async () => {
+      throw new BffRejected("This review expired. Nothing was sent. Start again.", "PRECONDITION_FAILED");
+    }, want, h.deps)).rejects.toBeInstanceOf(BffRejected);
+  });
+
+  test("a followed transfer is only ever read, never re-sent; one still BUILT past its review is over", async () => {
+    const reads: string[] = [];
+    const submits: string[] = [];
+    const v = (state: "BUILT" | "SUBMITTED" | "CONFIRMED", expiresAt = Date.now() + 60_000) => ({ transferId: "t", kind: "cash_out" as const, from: "a", to: "b", amountBaseUnits: "7000000", state, signature: null, createdAt: 1, updatedAt: 1, expiresAt });
+    const states = [v("BUILT"), v("SUBMITTED"), v("CONFIRMED")];
+    const api = {
+      transferSubmit: async (id: string) => (submits.push(id), v("SUBMITTED")),
+      transferStatus: async (id: string) => (reads.push(id), states.shift()!),
+    };
+    let run = watchRun("t", null);
+    expect(transferOpen(run)).toBe(true);
+    run = await stepTransfer(api, run);
+    expect(run.amountBaseUnits).toBe("7000000");
+    run = await stepTransfer(api, run);
+    run = await stepTransfer(api, run);
+    expect(run.view?.state).toBe("CONFIRMED");
+    expect(submits).toEqual([]);
+    expect(reads).toHaveLength(3);
+    expect(transferOpen(watchRun("t", v("BUILT", 1_000)), 2_000)).toBe(false);
+    expect(transferOpen(watchRun("t", v("BUILT", 3_000)), 2_000)).toBe(true);
+  });
+
+  test("the sheets follow an in-flight transfer rather than erroring", () => {
+    const wallet = readCode(join(WEB, "components/webapp/money/WalletSheet.tsx"));
+    expect(wallet).toContain('else if (step.step === "watch") startTransferRun(runKey, api, watchRun(step.transferId, step.view));');
+    const deposit = readCode(join(WEB, "components/webapp/money/DepositSheet.tsx"));
+    expect(deposit).toMatch(/if \(step\.step === "watch"\) \{\s*onSigned\(watchRun\(step\.transferId, step\.view\)\);/);
+  });
+
+  test("PRICE_MOVED: no re-quote loop; the sheet drops the call and offers a new one at today's price", () => {
+    const sheet = readCode(join(WEB, "components/webapp/money/MoneyCallSheet.tsx"));
+    expect(sheet).toContain("await settle(lineOf(e), priceMoved(e));");
+    expect(sheet).toMatch(/view\.moved \? \([\s\S]{0,200}onClick=\{\(\) => void makeNew\(\)\}[\s\S]{0,200}`New call · \$\{usd\(intent\.amountBaseUnits\)\}`/);
+    expect(sheet).toMatch(/async function makeNew\(\) \{[\s\S]*?await api\.discardCall\(moneyCall\.callId\)\.catch\(\(\) => undefined\);[\s\S]*?money\.startCall\(\{/);
+    // The only automatic re-ask is a lapsed quote, at most twice.
+    expect(sheet.match(/reasks\.current\+\+ < 2/g)?.length).toBe(2);
+  });
+
+  test("funded only from $1: below it no $ stamp, on the app's cards or the public receipt", () => {
+    const name = (side: "YES" | "NO") => side;
+    const fill = (amountBaseUnits: string) => ({ state: "FILLED" as const, venue: "panta", fundedAt: 1, amountBaseUnits, side: "YES" as const });
+    expect(fundedStamp(entry({ funding: fill("999999") }), name)).toBeNull();
+    expect(fundedStamp(entry({ funding: fill("1000000") }), name)).toBe("$1 on YES");
+    expect(fundedLabel({ funding: fill("999999") })).toBeNull();
+    expect(fundedLabel({ funding: fill("1000000") })).toBe("$1 on YES");
+  });
+
+  test("the old Trade row is never offered for a call with money", () => {
+    const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
+    expect(market).toContain("{viewerCall && open && tradableMarket(market) && !money.enabled && money.known && !viewerCall.money ? (");
   });
 });
