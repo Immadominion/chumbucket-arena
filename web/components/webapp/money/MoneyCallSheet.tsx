@@ -67,12 +67,12 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
   const reasks = useRef(0);
   // Funds that landed by our reading but not the server's: stop asking on our own after a few.
   const fundRounds = useRef(0);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       alive.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const intent: CallIntent = useMemo(
     () =>
@@ -299,9 +299,15 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
                 </button>
               ) : null}
               {view.moneyCall.canDiscard ? (
-                <button type="button" className="wa-btn wa-btn--soft" disabled={view.busy !== null} onClick={() => void choose("drop")} aria-label="Drop this call">
-                  {view.busy === "drop" ? <Spinner /> : <Icon name="trash" size={18} />}
-                  Drop
+                <button
+                  type="button"
+                  className="wa-btn wa-btn--soft wa-btn--icon"
+                  disabled={view.busy !== null}
+                  onClick={() => void choose("drop")}
+                  aria-label="Drop this call"
+                  title="Drop"
+                >
+                  {view.busy === "drop" ? <Spinner /> : <Icon name="trash" size={20} />}
                 </button>
               ) : null}
             </div>
@@ -327,17 +333,17 @@ export function MoneyCallFlow({ request, onDone }: { request: CallRequest; onDon
         <div className="wa-review" role="group" aria-label="Review">
           <div className="wa-review-row wa-review-row--strong">
             <Icon name="wallet" size={20} />
-            <span>You pay</span>
+            <span className="wa-review-label">You pay</span>
             <b>{usd(intent.amountBaseUnits)}</b>
           </div>
           <div className="wa-review-row wa-review-row--strong">
             <Icon name="award" size={20} />
-            <span>If right</span>
+            <span className="wa-review-label">If right</span>
             <b>{view.step.reviewed.win}</b>
           </div>
           <div className="wa-review-row">
             <span aria-hidden className="wa-review-gap" />
-            <span>Fee</span>
+            <span className="wa-review-label">Fee</span>
             <span>{view.step.reviewed.fee}</span>
           </div>
           <div className="wa-review-mark">

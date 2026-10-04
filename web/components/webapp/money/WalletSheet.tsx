@@ -253,12 +253,12 @@ export function WalletSheet({ open, onClose, onAddFunds }: { open: boolean; onCl
         <div className="wa-review" role="group" aria-label="Review">
           <div className="wa-review-row wa-review-row--strong">
             <Icon name="arrow-up" size={20} />
-            <span>To</span>
+            <span className="wa-review-label">To</span>
             <b className="wa-mono">{shortWallet(view.ready.review.to)}</b>
           </div>
           <div className="wa-review-row wa-review-row--strong">
             <Icon name="wallet" size={20} />
-            <span>Amount</span>
+            <span className="wa-review-label">Amount</span>
             <b>{usd(view.ready.review.amountBaseUnits)}</b>
           </div>
           {line ? (

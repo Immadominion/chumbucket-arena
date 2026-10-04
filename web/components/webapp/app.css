@@ -2261,9 +2261,9 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 44px;
-  height: 40px;
-  padding: 0 14px;
+  min-width: 40px;
+  height: 38px;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--wa-pink-wash);
   color: var(--wa-pink-ink);
@@ -2290,7 +2290,7 @@
 .wa-amt--more,
 .wa-amt--plain {
   padding: 0;
-  width: 40px;
+  width: 38px;
   background: #f3f4f6;
   color: var(--wa-ink);
 }
@@ -2299,7 +2299,7 @@
 }
 .wa-amt--set {
   padding: 0;
-  width: 40px;
+  width: 38px;
   background: var(--wa-coral);
   color: var(--wa-ink);
 }
@@ -2311,7 +2311,7 @@
   min-width: 120px;
 }
 .wa-amount-input .wa-input {
-  min-height: 40px;
+  min-height: 38px;
   padding-left: 30px;
   padding-right: 12px;
   border-radius: 999px;
@@ -2337,6 +2337,9 @@
   .wa-lockbar-row .wa-btn--primary {
     padding: 0 12px;
     gap: 6px;
+  }
+  .wa-lockbar-row .wa-btn-verb {
+    display: none;
   }
 }
 
@@ -2391,7 +2394,7 @@
   color: var(--wa-muted);
   font-size: 13px;
 }
-.wa-review-row > span:not(.wa-review-gap) {
+.wa-review-label {
   flex: 1;
 }
 .wa-review-row--strong {
@@ -2426,6 +2429,13 @@
 }
 .wa-choices-row .wa-btn {
   flex: 1;
+}
+.wa-choices-row .wa-btn--icon {
+  flex: none;
+  width: 56px;
+  min-height: 56px;
+  padding: 0;
+  border-radius: 22px;
 }
 .wa-state .wa-state-sub {
   font-family: var(--wa-body);
@@ -2665,6 +2675,7 @@
 /* The owner's calls waiting on money. */
 .wa-pending {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   list-style: none;
   margin: 0 0 14px;

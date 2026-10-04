@@ -976,7 +976,7 @@ describe("web app money rules", () => {
   test("pink is money: Free is the ink button with the Free mark; an amount is the pink button with its dollars", () => {
     const button = readCode(join(MONEY, "CallButton.tsx"));
     expect(button).toMatch(/amount \? "wa-btn wa-btn--primary" : "wa-btn wa-btn--ink"/);
-    expect(button).toMatch(/<span className="wa-btn-label">\{label\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
+    expect(button).toMatch(/<span className="wa-btn-label">\{text\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
     for (const screen of ["screens/MarketScreen.tsx", "ResponseSheet.tsx"]) {
       const code = readCode(join(WEB, "components/webapp", screen));
       expect({ screen, row: code.includes("<AmountRow"), button: code.includes("<CallButton") }).toEqual({ screen, row: true, button: true });

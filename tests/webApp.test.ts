@@ -845,7 +845,7 @@ describe("web app rules", () => {
     // The CTA is a call: Free, it carries the Free mark (CallButton); the toast says free.
     expect(market).toMatch(/<CallButton\s+label=\{callCta\("own", sideName\(market, pick\), amount\)\}\s+amount=\{amount\}/);
     const button = readCode(join(WEB, "components/webapp/money/CallButton.tsx"));
-    expect(button).toMatch(/<span className="wa-btn-label">\{label\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
+    expect(button).toMatch(/<span className="wa-btn-label">\{text\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
     expect(market).toContain('toast(`Called ${sideLabel(market, entry.call.side)}${callMark(entry) === "free" ? " · Free" : ""}`)');
     expect(market).toContain("You called {sideLabel(market, viewerCall.call.side)}");
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
@@ -863,7 +863,7 @@ describe("web app rules", () => {
     // ink button with the Free mark, and only an amount turns it pink.
     const button = readCode(join(WEB, "components/webapp/money/CallButton.tsx"));
     expect(button).toMatch(/amount \? "wa-btn wa-btn--primary" : "wa-btn wa-btn--ink"/);
-    expect(button).toMatch(/<span className="wa-btn-label">\{label\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
+    expect(button).toMatch(/<span className="wa-btn-label">\{text\}<\/span>\s*\{amount \? null : <FreeChip \/>\}/);
     const market = readCode(join(WEB, "components/webapp/screens/MarketScreen.tsx"));
     expect(market).toMatch(/<CallButton[\s\S]*?amount=\{amount\}/);
     const respond = readCode(join(WEB, "components/webapp/ResponseSheet.tsx"));
