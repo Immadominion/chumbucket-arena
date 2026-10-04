@@ -74,13 +74,32 @@ export interface AccountSummary {
   displayName: string | null;
 }
 
+export type LinkOutcome = "already" | "link" | "fold";
+
+export type LinkRefusal =
+  | "ACCOUNT_HAS_MONEY"
+  | "ACCOUNT_FOLD_DISABLED"
+  | "ACCOUNT_NOT_FOLDABLE"
+  | "FOLD_NEEDS_PRIMARY_SIGN_IN"
+  | "FOLD_WALLET_CONFLICT";
+
 export interface LinkPreview {
   /** already: same account. link: a sign-in with no account joins this one. fold: the other account folds in. */
-  outcome: "already" | "link" | "fold";
+  outcome: LinkOutcome;
+  /** What the other side's sign-in proved: shown before Link/Move ("@handle → @account"). */
+  proof: { kind: MethodKind; label: string | null };
   into: AccountSummary;
   from: AccountSummary | null;
+  /** The account the proof reaches (null: none). Sent back with the confirm. */
+  otherUserId: string | null;
   /** Why it can't happen, when it can't. */
-  refusal: "ACCOUNT_HAS_MONEY" | "ACCOUNT_FOLD_DISABLED" | null;
+  refusal: LinkRefusal | null;
+}
+
+/** What the person saw and confirmed; the database refuses if it changed. */
+export interface LinkExpectation {
+  outcome: LinkOutcome;
+  otherUserId: string | null;
 }
 
 export interface LinkCompletion {
@@ -89,7 +108,20 @@ export interface LinkCompletion {
   foldedUserId: string | null;
   /** Follow pairs the fold copied, so a running calls mirror can learn them. */
   follows: [string, string][];
+  /** The folded account's devices, to tell them (never returned to a client). */
+  notify: { token: string; platform: string }[];
+  foldedHandle: string | null;
+  intoHandle: string | null;
 }
+
+const REFUSALS: Record<string, LinkRefusal> = {
+  has_money: "ACCOUNT_HAS_MONEY",
+  money_unverifiable: "ACCOUNT_NOT_FOLDABLE",
+  already_folded: "ACCOUNT_NOT_FOLDABLE",
+  same_account: "ACCOUNT_NOT_FOLDABLE",
+  not_primary_sign_in: "FOLD_NEEDS_PRIMARY_SIGN_IN",
+  wallet_conflict: "FOLD_WALLET_CONFLICT",
+};
 
 interface Deps {
   identity: WalletLinkService;
@@ -287,19 +319,23 @@ export class AccountLinkService {
       return { userId: id, handle: c?.handle ?? null, displayName: c?.displayName ?? null };
     };
     const outcome = preview.outcome === "already" || preview.outcome === "link" ? preview.outcome : "fold";
+    const method = preview.method === "x" || preview.method === "google" ? preview.method : "wallet";
+    const refusal = outcome !== "fold"
+      ? null
+      : typeof preview.refusal === "string"
+        ? (REFUSALS[preview.refusal] ?? "ACCOUNT_NOT_FOLDABLE")
+        : !this.deps.fold ? "ACCOUNT_FOLD_DISABLED" : null;
     return {
       outcome,
+      proof: { kind: method, label: typeof preview.proof_label === "string" ? preview.proof_label : null },
       into: card(into),
       from: other && outcome !== "already" ? card(other) : null,
-      refusal:
-        outcome !== "fold" ? null
-        : preview.refusal === "has_money" ? "ACCOUNT_HAS_MONEY"
-        : !this.deps.fold ? "ACCOUNT_FOLD_DISABLED"
-        : null,
+      otherUserId: other,
+      refusal,
     };
   }
 
-  async completeLink(otherAccessToken: string, ticket: string): Promise<LinkCompletion> {
+  async completeLink(otherAccessToken: string, ticket: string, expect: LinkExpectation): Promise<LinkCompletion> {
     this.requireLinking();
     const session = await this.otherSide(otherAccessToken);
     const done = await this.links().complete({
@@ -307,6 +343,8 @@ export class AccountLinkService {
       authUserId: session.authUserId,
       allowLink: this.deps.linking,
       allowFold: this.deps.fold,
+      expectedOutcome: expect.outcome,
+      expectedOtherUserId: expect.otherUserId,
     });
     if (!done.ok) {
       if (done.reason === "unknown_user" || done.reason === "owned") failAuth("ACCOUNT_NOT_FOLDABLE");
@@ -319,11 +357,22 @@ export class AccountLinkService {
             Array.isArray(p) && p.length === 2 && typeof p[0] === "string" && typeof p[1] === "string",
         )
       : [];
+    const notify = Array.isArray(done.notify)
+      ? (done.notify as unknown[]).flatMap((n) => {
+          const t = n as { token?: unknown; platform?: unknown } | null;
+          return t && typeof t.token === "string" && typeof t.platform === "string"
+            ? [{ token: t.token, platform: t.platform }]
+            : [];
+        })
+      : [];
     return {
       outcome: done.outcome === "folded" ? "folded" : done.outcome === "linked" ? "linked" : "already",
       userId: String(done.user_id ?? ""),
       foldedUserId: typeof done.folded_user_id === "string" ? done.folded_user_id : null,
       follows,
+      notify,
+      foldedHandle: typeof done.folded_handle === "string" ? done.folded_handle : null,
+      intoHandle: typeof done.into_handle === "string" ? done.into_handle : null,
     };
   }
 }

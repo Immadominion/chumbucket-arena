@@ -76,7 +76,15 @@ export interface AccountDeletion {
 }
 
 export type DeleteAccountOutcome =
-  | { ok: true; outcome: "deleted" | "already_deleted" | "no_profile"; userId: string | null }
+  | {
+      ok: true;
+      outcome: "deleted" | "already_deleted" | "no_profile";
+      userId: string | null;
+      /** Every Supabase sign-in of the person, to delete from Supabase Auth. */
+      authUserIds?: string[];
+      /** Accounts folded into this one, anonymised with it. */
+      foldedUserIds?: string[];
+    }
   | { ok: false; reason: "session_mismatch" | "unknown_user" | "missing_auth_user" };
 
 export interface DeletionRequest {

@@ -280,12 +280,30 @@ export class SupabaseTrustStore implements TrustStore {
   // ── deletion ──────────────────────────────────────────────────────────────
 
   async deleteAccount(input: { userId: string | null; authUserId: string }): Promise<DeleteAccountOutcome> {
-    const res = await this.pg.rpc<{ ok?: unknown; outcome?: unknown; reason?: unknown; user_id?: unknown }>(
-      "delete_account_v1",
-      { p_user_id: input.userId, p_auth_user_id: input.authUserId },
-    );
+    type Answer = {
+      ok?: unknown; outcome?: unknown; reason?: unknown; user_id?: unknown;
+      auth_user_ids?: unknown; folded_user_ids?: unknown;
+    };
+    const args = { p_user_id: input.userId, p_auth_user_id: input.authUserId };
+    // v2 (20261004120000) deletes the whole person from any sign-in; before
+    // that migration, v1 (the primary sign-in only) is the whole story.
+    let res: Answer | null | undefined;
+    try {
+      res = await this.pg.rpc<Answer>("delete_account_v2", args);
+    } catch (err) {
+      if (!(isPgrestError(err) && err.status === 404)) throw err;
+      res = await this.pg.rpc<Answer>("delete_account_v1", args);
+    }
+    const uuids = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)) : [];
     if (res && res.ok === true && (res.outcome === "deleted" || res.outcome === "already_deleted" || res.outcome === "no_profile")) {
-      return { ok: true, outcome: res.outcome, userId: typeof res.user_id === "string" ? res.user_id : null };
+      return {
+        ok: true,
+        outcome: res.outcome,
+        userId: typeof res.user_id === "string" ? res.user_id : null,
+        authUserIds: uuids(res.auth_user_ids),
+        foldedUserIds: uuids(res.folded_user_ids),
+      };
     }
     if (res && res.ok === false && (res.reason === "session_mismatch" || res.reason === "unknown_user" || res.reason === "missing_auth_user")) {
       return { ok: false, reason: res.reason };

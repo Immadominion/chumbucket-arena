@@ -28,9 +28,10 @@ import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-impo
 import { z } from "zod";
 import { AuthIdentityError, type AuthIdentityErrorCode } from "../auth/AuthIdentityError.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
-import { WalletLinkService } from "../auth/WalletLinkService.ts";
 import { ExistingAccountClaimService } from "../auth/ExistingAccountClaimService.ts";
 import { AccountLinkService, type LinkCompletion } from "../auth/AccountLinkService.ts";
+import { accountService } from "../auth/accountResolver.ts";
+import { accountRuntimeFor } from "../account/runtime.ts";
 import { SIWS_PROOF_VERSION } from "../auth/SiwsMessage.ts";
 import type { AppConfig } from "../config.ts";
 import { existingCallsRuntime } from "../calls/runtime.ts";
@@ -101,6 +102,9 @@ const TRPC_CODE: Record<AuthIdentityErrorCode, TRPC_ERROR_CODE_KEY> = {
   ACCOUNT_NOT_FOLDABLE: "CONFLICT",
   SIGN_IN_IN_USE: "CONFLICT",
   SIGN_IN_NOT_FOUND: "NOT_FOUND",
+  FOLD_NEEDS_PRIMARY_SIGN_IN: "CONFLICT",
+  FOLD_WALLET_CONFLICT: "CONFLICT",
+  LINK_PREVIEW_CHANGED: "CONFLICT",
 };
 
 /** Run a procedure body: DomainError -> transport via guard(), then our own
@@ -116,19 +120,8 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Build the service for this request from the app's own config. No wiring into
- *  createApp; the runtime is memoised per config object. */
-function serviceFor(config: AppConfig): WalletLinkService {
-  const rt = authIdentityRuntimeFor(config);
-  return new WalletLinkService({
-    store: rt.store,
-    verifier: rt.verifier,
-    policy: rt.policy,
-    walletProfileCarry: rt.walletProfileCarry === true,
-    ...(rt.accountLinks ? { accountLinks: rt.accountLinks } : {}),
-    accountLinking: rt.accountLinking === true,
-  });
-}
+/** The identity service: the one account resolver (src/auth/accountResolver.ts). */
+const serviceFor = accountService;
 
 function existingAccountService(config: AppConfig): ExistingAccountClaimService {
   const rt = authIdentityRuntimeFor(config);
@@ -167,6 +160,25 @@ async function refreshCallsAfterLink(config: AppConfig, done: LinkCompletion): P
   } catch {
     // Never fails the link, and never surfaces a store error to the caller.
   }
+}
+
+/**
+ * A fold tells the folded account's own devices, so a fold its owner did not
+ * expect is never silent. Best effort: the fold is already durable.
+ */
+async function notifyFolded(config: AppConfig, done: LinkCompletion): Promise<void> {
+  if (done.outcome !== "folded" || done.notify.length === 0) return;
+  const sender = accountRuntimeFor(config).sender;
+  if (!sender) return;
+  const message = {
+    title: "Account moved",
+    body:
+      done.foldedHandle && done.intoHandle
+        ? `@${done.foldedHandle} is now part of @${done.intoHandle}.`
+        : "This account is now part of another one.",
+    data: { kind: "account_folded" },
+  };
+  await Promise.allSettled(done.notify.map((d) => sender.send(d.token, message)));
 }
 
 /**
@@ -246,11 +258,15 @@ export const authRouter = router({
       }
       const rt = authIdentityRuntimeFor(ctx.app.config);
       if (!rt.store.enabled) throw new AuthIdentityError("IDENTITY_NOT_CONFIGURED");
+      // A sign-in that already reaches an account (the one resolver) is that account.
+      try {
+        const who = await serviceFor(ctx.app.config).authenticateSession(input.supabaseAccessToken);
+        return { userId: who.userId, authUserId: who.authUserId };
+      } catch (e) {
+        if (!(e instanceof AuthIdentityError) || e.code !== "AUTH_USER_UNLINKED") throw e;
+      }
       const session = await rt.verifier.verify(input.supabaseAccessToken);
       if (!session) throw new AuthIdentityError("AUTH_TOKEN_INVALID");
-      // A sign-in that already reaches an account is that account.
-      const existing = await rt.store.userIdForAuthUser(session.authUserId);
-      if (existing) return { userId: existing, authUserId: session.authUserId };
       const userId = await rt.store.createPersonForAuthUser(session.authUserId, input.displayName);
       return { userId, authUserId: session.authUserId };
     })),
@@ -470,13 +486,29 @@ export const authRouter = router({
       run(() => accountLinkService(ctx.app.config).previewLink(input.supabaseAccessToken, input.ticket)),
     ),
 
-  /** Complete the ticket with the other side's session. Audited. */
+  /**
+   * Complete the ticket with the other side's session, naming what the person
+   * was shown (the outcome and the other account): if either changed since,
+   * nothing happens. Audited; a fold tells the folded account's devices.
+   */
   completeSignInLink: publicProcedure
-    .input(z.object({ supabaseAccessToken: accessToken, ticket: linkTicket }).strict())
+    .input(z.object({
+      supabaseAccessToken: accessToken,
+      ticket: linkTicket,
+      expect: z.object({
+        outcome: z.enum(["already", "link", "fold"]),
+        otherUserId: z.string().uuid().nullable(),
+      }).strict(),
+    }).strict())
     .mutation(({ ctx, input }) =>
       run(async () => {
-        const done = await accountLinkService(ctx.app.config).completeLink(input.supabaseAccessToken, input.ticket);
+        const done = await accountLinkService(ctx.app.config).completeLink(
+          input.supabaseAccessToken,
+          input.ticket,
+          input.expect,
+        );
         await refreshCallsAfterLink(ctx.app.config, done);
+        await notifyFolded(ctx.app.config, done);
         return { outcome: done.outcome, userId: done.userId };
       }),
     ),

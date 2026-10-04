@@ -18,6 +18,7 @@ import { TRPCError } from "@trpc/server";
 import type { TRPC_ERROR_CODE_KEY } from "@trpc/server/unstable-core-do-not-import";
 import { z } from "zod";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
+import { resolveAccountOutcome } from "../auth/accountResolver.ts";
 import { callsRuntimeFor } from "../calls/runtime.ts";
 import { hasCredential, type ViewerContext } from "../calls/viewer.ts";
 import type { AppConfig } from "../config.ts";
@@ -267,7 +268,13 @@ export const accountProcedures = {
           if (done) return { ...done, userId: null };
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to delete your account." });
         }
-        const userId = await identity.store.userIdForAuthUser(session.authUserId);
+        // Any sign-in that reaches the account deletes the whole person
+        // (the one account resolver, src/auth/accountResolver.ts).
+        const resolved = await resolveAccountOutcome(ctx.app.config, token);
+        if (!resolved.ok && resolved.reason === "UNAVAILABLE") {
+          throw new TrustError("TRUST_DELETION_FAILED", "We couldn't reach your account. Nothing was changed. Try again.");
+        }
+        const userId = resolved.ok ? resolved.account.userId : null;
         return service.deleteAccount({ authUserId: session.authUserId, userId });
       }),
     ),
