@@ -2,18 +2,28 @@
 
 /**
  * A real Panta trade on your own call, signed in the browser (behind the
- * Chumbucket wallet flag). Pick an amount, pay with the Chumbucket wallet
- * (the default) or a browser wallet, and the BFF does the rest:
- * prepare → the wallet signs those exact bytes → submit. Only the BFF says
- * a trade went through, after Panta confirms and the chain shows the USDC
- * debit; until then the sheet says it is placing, never that it is done.
+ * Chumbucket wallet flag). Pick an amount and a wallet (the Chumbucket
+ * wallet by default, or a browser wallet), see what you pay and what you get
+ * if right, confirm, and the BFF does the rest: the wallet signs exactly the
+ * checked bytes and the BFF submits them. Only the BFF says a trade went
+ * through, after Panta confirms and the chain shows the USDC debit; until
+ * then the sheet says it is placing, never that it is done.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BffRejected } from "@/lib/webapp/bff";
 import { sideLabel } from "@/lib/webapp/format";
 import { appPath } from "@/lib/webapp/paths";
-import { isFinal, placeTrade, TradeError, usdToBaseUnits, type TradeOrder, type TradeSigner } from "@/lib/webapp/trade";
+import {
+  confirmTrade,
+  isFinal,
+  reviewTrade,
+  TradeError,
+  usdToBaseUnits,
+  type ReviewedTrade,
+  type TradeOrder,
+  type TradeSigner,
+} from "@/lib/webapp/trade";
 import type { CallFeedEntry, Market } from "@/lib/webapp/types";
 import { useChumbucketWallet } from "./chumbucketWallet";
 import { actionError } from "./data";
@@ -27,7 +37,7 @@ import { connect, onWalletsChange, signTransaction, transactionWallets, WalletDe
 const AMOUNTS = [5, 10, 25] as const;
 const OWN = "chumbucket";
 
-type Stage = "idle" | "wallet" | "signing" | "pending" | "filled" | "failed";
+type Stage = "idle" | "wallet" | "quoting" | "review" | "signing" | "pending" | "filled" | "failed";
 
 function useBrowserWallets(): StandardWallet[] {
   return useSyncExternalStore(
@@ -62,6 +72,7 @@ export function TradeSheet({
   const [payWith, setPayWith] = useState<string>(OWN);
   const [stage, setStage] = useState<Stage>("idle");
   const [order, setOrder] = useState<TradeOrder | null>(null);
+  const [reviewed, setReviewed] = useState<ReviewedTrade | null>(null);
   const [problem, setProblem] = useState<{ text: string; link?: boolean } | null>(null);
   // One intent per amount and wallet: a retry after a lost reply reuses its key.
   const intent = useRef<{ key: string; usd: number; payWith: string } | null>(null);
@@ -111,37 +122,75 @@ export function TradeSheet({
     return { address: account.address, sign: (bytes) => signTransaction(wallet, account, bytes) };
   }
 
-  async function buy() {
+  function failed(e: unknown) {
+    setStage("idle");
+    setReviewed(null);
+    if (e instanceof BffRejected && e.code === "UNPROCESSABLE_CONTENT") {
+      setProblem({ text: e.message, link: true });
+    } else if (e instanceof TradeError) {
+      // An expired quote is never renewed under the same key.
+      if (e.kind === "expired") intent.current = null;
+      setProblem({
+        text:
+          e.kind === "declined"
+            ? "Not signed. Nothing was spent."
+            : e.kind === "expired"
+              ? "The price moved. Try again."
+              : e.kind === "unsafe"
+                ? "This trade didn’t check out. Nothing was signed."
+                : "Your wallet changed the trade. Nothing was sent.",
+      });
+    } else if (e instanceof WalletDeclined) {
+      setProblem({ text: "Not signed. Nothing was spent." });
+    } else if (e instanceof BffRejected) {
+      setProblem({ text: e.message });
+    } else {
+      setProblem({ text: payWith === OWN && own.error ? own.error : actionError(e) });
+    }
+  }
+
+  /** Step one: the quote, checked to be exactly this buy, then shown. Nothing is signed yet. */
+  async function review() {
     setProblem(null);
     const same = intent.current && intent.current.usd === usd && intent.current.payWith === payWith;
     const key = same ? intent.current!.key : crypto.randomUUID();
     intent.current = { key, usd, payWith };
     try {
       const pay = await signer();
-      setStage("signing");
-      const placed = await placeTrade({ api, callId: call.call.id, amountBaseUnits: usdToBaseUnits(usd), idempotencyKey: key, signer: pay });
-      intent.current = null;
-      setOrder(placed);
-      setStage(placed.fundingState === "FILLED" ? "filled" : placed.fundingState === "FAILED" ? "failed" : "pending");
+      setStage("quoting");
+      const checked = await reviewTrade({
+        api,
+        callId: call.call.id,
+        venueMarketId: market.venueMarketId,
+        side: call.call.side,
+        amountBaseUnits: usdToBaseUnits(usd),
+        idempotencyKey: key,
+        signer: pay,
+      });
+      setReviewed(checked);
+      setStage("review");
     } catch (e) {
-      setStage("idle");
-      if (e instanceof BffRejected && e.code === "UNPROCESSABLE_CONTENT") {
-        setProblem({ text: e.message, link: true });
-      } else if (e instanceof TradeError) {
-        // An expired quote is never renewed under the same key.
-        if (e.kind === "expired") intent.current = null;
-        setProblem({ text: e.kind === "declined" ? "Not signed. Nothing was spent." : e.kind === "expired" ? "The price moved. Try again." : "Your wallet changed the trade. Nothing was sent." });
-      } else if (e instanceof WalletDeclined) {
-        setProblem({ text: "Not signed. Nothing was spent." });
-      } else if (e instanceof BffRejected) {
-        setProblem({ text: e.message });
-      } else {
-        setProblem({ text: payWith === OWN && own.error ? own.error : actionError(e) });
-      }
+      failed(e);
     }
   }
 
-  const busy = stage === "wallet" || stage === "signing";
+  /** Step two, after the person confirmed: sign those bytes, submit them. */
+  async function confirm() {
+    if (!reviewed) return;
+    setProblem(null);
+    setStage("signing");
+    try {
+      const placed = await confirmTrade({ api, reviewed });
+      intent.current = null;
+      setReviewed(null);
+      setOrder(placed);
+      setStage(placed.fundingState === "FILLED" ? "filled" : placed.fundingState === "FAILED" ? "failed" : "pending");
+    } catch (e) {
+      failed(e);
+    }
+  }
+
+  const busy = stage === "wallet" || stage === "quoting" || stage === "signing";
   const done = stage === "pending" || stage === "filled" || stage === "failed";
   return (
     <Sheet
@@ -154,10 +203,15 @@ export function TradeSheet({
           <button type="button" className="wa-btn wa-btn--soft wa-btn--block" onClick={onClose}>
             Done
           </button>
+        ) : stage === "review" || stage === "signing" ? (
+          <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={busy} onClick={() => void confirm()}>
+            {busy ? <Spinner /> : <Icon name="check-solid" size={20} />}
+            {busy ? "Placing…" : `Confirm ${reviewed?.pay ?? ""}`}
+          </button>
         ) : (
-          <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={busy} onClick={() => void buy()}>
+          <button type="button" className="wa-btn wa-btn--primary wa-btn--block" disabled={busy} onClick={() => void review()}>
             {busy ? <Spinner /> : <Icon name="wallet" size={20} />}
-            {stage === "wallet" ? "Setting up wallet…" : stage === "signing" ? "Placing…" : `Buy ${side} · $${usd}`}
+            {stage === "wallet" ? "Setting up wallet…" : stage === "quoting" ? "Getting your price…" : `Buy ${side} · $${usd}`}
           </button>
         )
       }
@@ -172,6 +226,24 @@ export function TradeSheet({
                 ? "It didn’t go through"
                 : "Placing your trade"}
           </p>
+        </div>
+      ) : reviewed && (stage === "review" || stage === "signing") ? (
+        // What it costs and what it pays, in dollars only: no per-share price.
+        <div role="group" aria-label="Review" style={{ display: "grid", gap: 12 }}>
+          {[
+            { icon: "wallet", label: "You pay", value: reviewed.pay, strong: true },
+            { icon: "award", label: "You get if right", value: reviewed.win, strong: true },
+            { icon: null, label: "Fee", value: reviewed.fee, strong: false },
+          ].map((row) => (
+            <div
+              key={row.label}
+              style={{ display: "flex", alignItems: "center", gap: 10, ...(row.strong ? {} : { color: "var(--wa-muted)", fontSize: 13 }) }}
+            >
+              {row.icon ? <Icon name={row.icon} size={20} /> : <span style={{ width: 20 }} aria-hidden />}
+              <span style={{ flex: 1 }}>{row.label}</span>
+              <span style={row.strong ? { fontWeight: 700 } : undefined}>{row.value}</span>
+            </div>
+          ))}
         </div>
       ) : (
         <>
