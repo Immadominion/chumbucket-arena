@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chumbucket Deck</title>
+<meta name="description" content="Chumbucket: FOMO for prediction markets. Make calls on Panta markets, tail or fade friends with USDC, keep the receipt.">
+<meta property="og:title" content="Chumbucket: FOMO for prediction markets">
+<meta property="og:description" content="Make calls on Panta markets, tail or fade friends with USDC, keep the receipt.">
+<meta property="og:image" content="https://chumbucket.fun/deck/slides/01.png">
+<meta property="og:url" content="https://chumbucket.fun/deck/">
+<meta name="twitter:card" content="summary_large_image">
+<base href="/deck/">
+<link rel="icon" href="/img/bucket-64.png" sizes="64x64" type="image/png">
+<link rel="preload" href="assets/PPNeueMachina-Ultrabold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/PPNeueMachina-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:"Machina";src:url("assets/PPNeueMachina-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:"Machina";src:url("assets/PPNeueMachina-Ultrabold.woff2") format("woff2");font-weight:800;font-style:normal;font-display:block}
+
+:root{
+  --ink:#000;
+  --paper:#faf6f7;
+  --mist:#f5eef1;
+  --pink:#ff5a76;
+  --pink-soft:#ffb0c0;
+  --pink-strong:#ff3355;
+  --pink-deep:#e0294d;
+  --plum:#26161b;
+  --muted:rgb(0 0 0 / .55);
+  --line:rgb(0 0 0 / .1);
+  --s:.5;
+  --gap:32px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{scroll-snap-type:y proximity;background:#ece6e8}
+body{font-family:"Machina",system-ui,"Helvetica Neue",Arial,sans-serif;color:var(--ink);background:#ece6e8;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+img,svg{display:block}
+p,h1,h2,h3,ul,ol{margin:0;padding:0}
+ul,ol{list-style:none}
+a{color:inherit;text-decoration:none}
+
+/* ── viewer ─────────────────────────────────────────────────────────── */
+.deck{display:flex;flex-direction:column;align-items:center;gap:var(--gap);padding:var(--gap) 0}
+.frame{position:relative;flex:none;width:calc(1920px * var(--s));height:calc(1080px * var(--s));overflow:hidden;border-radius:calc(18px * var(--s) + 4px);box-shadow:0 18px 50px rgb(38 22 27 / .12);scroll-snap-align:center;background:#fff}
+.slide{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;background:#fff;transform:scale(var(--s));transform-origin:0 0;isolation:isolate}
+.pdf{position:fixed;right:24px;bottom:24px;z-index:10;display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:40px;background:#000;color:#fff;font-size:15px;line-height:20px;font-weight:800;box-shadow:0 12px 30px rgb(0 0 0 / .22)}
+.pdf svg{width:18px;height:18px}
+.pdf:hover{background:var(--plum)}
+@media (max-width:700px){.pdf{right:12px;bottom:12px;padding:8px 13px;gap:7px;font-size:13px}.pdf svg{width:15px;height:15px}}
+html.export,html.export body{background:#fff}
+html.export .deck{gap:0;padding:0}
+html.export .frame{border-radius:0;box-shadow:none}
+html.export .pdf{display:none}
+@page{size:1920px 1080px;margin:0}
+@media print{
+  html,body{background:#fff}
+  .deck{display:block;padding:0}
+  .frame{width:1920px!important;height:1080px!important;border-radius:0;box-shadow:none;break-after:page;page-break-after:always}
+  .frame:last-child{break-after:auto;page-break-after:auto}
+  .slide{transform:none!important}
+  .pdf{display:none}
+}
+
+/* ── slide layers ───────────────────────────────────────────────────── */
+.decor,.content{position:absolute;inset:0}
+.decor{z-index:0;pointer-events:none}
+.grain{position:absolute;inset:0;z-index:1;pointer-events:none;background:url("assets/grain.png") 0 0 / 200px 200px repeat;mix-blend-mode:soft-light;opacity:.45}
+.content{z-index:2}
+.abs{position:absolute}
+.glow,.orbit,.spark{position:absolute;overflow:visible;height:auto;transform-origin:50% 50%}
+.orbit{color:#000}
+.spark{color:#000}
+
+/* brand */
+.brand{position:absolute;left:128px;top:62px;display:flex;align-items:center;gap:14px}
+.brand img{height:54px;width:auto}
+.brand span{position:relative;font-weight:800;font-size:28px;line-height:1;padding-top:4px;letter-spacing:.005em}
+.brand sup{position:absolute;right:-2px;top:-12px;font-size:10px;line-height:1}
+
+/* type */
+.h{font-weight:800;font-size:112px;line-height:1.02;letter-spacing:-.01em}
+.lead{font-size:36px;line-height:1.42;color:var(--muted)}
+.t{font-weight:800;font-size:38px;line-height:1.16}
+.c{font-size:28px;line-height:1.4;color:var(--muted)}
+.money{color:var(--pink-deep)}
+.nowrap{white-space:nowrap}
+
+/* icon tiles */
+.ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tile{display:grid;place-items:center;flex:none;width:88px;height:88px;border-radius:24px;background:#000;color:#fff}
+.tile .ic{width:44px;height:44px}
+.tile.pink{background:var(--pink-strong)}
+.tile.soft{background:var(--mist);color:#000}
+
+/* phones (the site's device frame) */
+.phone{position:absolute;width:var(--w,360px);aspect-ratio:249.246/504.323;border-radius:16.85% / 8.33%;overflow:hidden;box-shadow:calc(var(--w,360px) * .16) calc(var(--w,360px) * .16) calc(var(--w,360px) * .34) rgb(0 0 0 / .2)}
+.phone .fr{position:absolute;inset:0;width:100%;height:100%}
+.phone .scr{position:absolute;left:5.623%;top:2.316%;width:89.172%;height:95.368%;border-radius:15.3% / 7.07%;overflow:hidden;background:var(--mist)}
+.phone .scr img{position:absolute;left:-.33%;top:-.216%;width:100.535%;height:100.523%;object-fit:cover}
+
+/* pills / chips */
+.pill{display:inline-flex;align-items:center;gap:12px;height:64px;padding:0 28px;border-radius:6px;font-size:28px;line-height:1;white-space:nowrap}
+.pill.dark{background:#000;color:#fff}
+.pill.line{border:2px solid #000}
+.dot{width:12px;height:12px;border-radius:50%;background:currentColor;flex:none}
+.tag{display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:40px;font-size:22px;line-height:1;white-space:nowrap;border:2px solid #000}
+.tag.dark{background:#000;color:#fff}
+.tag.ghost{border-color:rgb(0 0 0 / .22);color:var(--muted)}
+
+/* ── 1 title ───────────────────────────────────────────────────────── */
+.s1 .brand-xl{position:absolute;left:128px;top:128px;display:flex;align-items:center;gap:20px}
+.s1 .brand-xl img{height:104px;width:auto}
+.s1 .brand-xl span{position:relative;font-weight:800;font-size:52px;line-height:1;padding-top:6px}
+.s1 .brand-xl sup{position:absolute;right:-4px;top:-18px;font-size:16px}
+.s1 .h{position:absolute;left:128px;top:300px;font-size:140px;line-height:.98;width:980px}
+.s1 .lead{position:absolute;left:128px;top:772px;width:880px}
+.s1 .row{position:absolute;left:128px;top:916px;display:flex;gap:20px}
+
+/* ── 2 problem ─────────────────────────────────────────────────────── */
+.s2 .h{position:absolute;left:128px;top:196px}
+.s2 .cards{position:absolute;left:128px;top:520px;display:grid;grid-template-columns:1fr 1fr;gap:48px;width:1664px}
+.card{background:var(--paper);border-radius:28px;padding:52px 56px}
+.card-head{display:flex;align-items:center;gap:28px}
+.card-head .t{font-size:46px}
+.rows{display:grid;gap:22px;margin-top:40px}
+.rows li{display:flex;align-items:center;gap:20px;font-size:34px;line-height:1.2}
+.rows .ic{width:38px;height:38px;color:rgb(0 0 0 / .45)}
+
+/* ── 3 insight ─────────────────────────────────────────────────────── */
+.s3 .h{position:absolute;left:128px;top:196px}
+.chain{position:absolute;left:128px;top:580px;width:1664px;display:grid;grid-template-columns:repeat(3,1fr) max-content}
+.node{position:relative}
+.node .tile{width:120px;height:120px;border-radius:32px}
+.node .tile .ic{width:58px;height:58px}
+.node .t{font-size:52px;margin-top:40px}
+.node .c{margin-top:12px;font-size:30px}
+.arrow{flex:none;width:72px;height:120px;display:grid;place-items:center;color:rgb(0 0 0 / .35)}
+.arrow .ic{width:56px;height:56px;stroke-width:1.6}
+.node .arrow{position:absolute;left:calc(50% + 24px);top:0}
+
+/* ── 4 product ─────────────────────────────────────────────────────── */
+.s4 .copy{position:absolute;left:1010px;top:170px;width:790px}
+.s4 .h{font-size:104px}
+.list{display:grid;gap:44px;margin-top:84px}
+.list li{display:flex;align-items:center;gap:30px}
+.list .t{font-size:38px}
+.list .c{margin-top:6px}
+
+/* ── 5 how it works ────────────────────────────────────────────────── */
+.s5 .h{position:absolute;left:128px;top:150px;font-size:96px}
+.steps{position:absolute;left:128px;top:300px;width:1664px;display:grid;grid-template-columns:repeat(3,1fr);gap:56px}
+.step{position:relative;height:720px}
+.step .phone{left:50%;top:0;margin-left:-125px;--w:250px}
+.step .txt{position:absolute;left:0;right:0;top:536px;text-align:center}
+.step .num{display:inline-grid;place-items:center;width:52px;height:52px;border-radius:50%;background:#000;color:#fff;font-weight:800;font-size:26px;vertical-align:middle;margin-right:16px;position:relative;top:-9px}
+.step .t{font-size:46px;display:inline}
+.step .c{margin:16px auto 0;width:520px}
+.step-arrow{position:absolute;top:220px;width:64px;height:64px;border-radius:50%;background:#fff;box-shadow:0 10px 30px rgb(0 0 0 / .12);display:grid;place-items:center}
+.step-arrow .ic{width:30px;height:30px}
+
+/* ── 6 mobile ──────────────────────────────────────────────────────── */
+.s6 .h{position:absolute;left:128px;top:180px}
+.s6 .lead{position:absolute;left:128px;top:318px}
+.grid6{position:absolute;left:128px;top:452px;width:1160px;display:grid;grid-template-columns:1fr 1fr;gap:44px 48px}
+.feat{display:flex;align-items:center;gap:26px}
+.feat .tile{width:84px;height:84px;border-radius:22px}
+.feat .tile .ic{width:40px;height:40px}
+.feat .t{font-size:34px}
+.feat .c{font-size:26px;margin-top:4px}
+
+/* ── 7 under the hood ──────────────────────────────────────────────── */
+.s7 .h{position:absolute;left:128px;top:180px}
+.s7 .lead{position:absolute;left:128px;top:318px}
+.flow{position:absolute;left:128px;top:440px;width:1664px;display:grid;grid-template-columns:repeat(4,1fr) max-content}
+.fnode{position:relative}
+.fnode .tile{width:104px;height:104px;border-radius:28px}
+.fnode .tile .ic{width:50px;height:50px}
+.fnode .k{margin-top:30px;font-size:22px;letter-spacing:.14em;color:var(--muted)}
+.fnode .t{font-size:40px;margin-top:30px}
+.fnode .c{font-size:26px;margin-top:8px}
+.flow .arrow{position:absolute;left:calc(50% + 26px);top:0;height:104px;width:52px}
+.flow .arrow .ic{width:44px;height:44px}
+.chips{position:absolute;left:128px;top:830px;width:1664px;display:flex;flex-wrap:wrap;gap:18px}
+.chip{display:inline-flex;align-items:center;gap:12px;height:62px;padding:0 26px;border-radius:40px;background:var(--paper);font-size:26px;line-height:1;white-space:nowrap}
+.chip b{font-weight:800}
+.chip .soon{font-size:19px;letter-spacing:.08em;color:var(--muted);border:1.5px solid rgb(0 0 0 / .2);border-radius:20px;padding:6px 10px 5px}
+
+/* ── 8 live ────────────────────────────────────────────────────────── */
+.s8 .h{position:absolute;left:128px;top:180px}
+.checks{position:absolute;left:128px;top:470px;display:grid;gap:34px}
+.checks li{display:flex;align-items:center;gap:28px;font-size:42px;line-height:1.15}
+.checks .tile{width:76px;height:76px;border-radius:50%}
+.checks .tile .ic{width:38px;height:38px;stroke-width:2.6}
+.browser{position:absolute;left:992px;top:190px;width:800px;border-radius:22px;background:#fff;overflow:hidden;box-shadow:60px 60px 130px rgb(0 0 0 / .16),0 0 0 1px rgb(0 0 0 / .06)}
+.browser .bar{height:58px;display:flex;align-items:center;gap:10px;padding:0 22px;background:var(--paper);border-bottom:1px solid rgb(0 0 0 / .06)}
+.browser .bar i{width:14px;height:14px;border-radius:50%;background:rgb(0 0 0 / .14)}
+.browser .url{margin-left:18px;flex:1;height:36px;border-radius:18px;background:#fff;display:flex;align-items:center;padding:0 18px;font-size:20px;color:var(--muted)}
+.browser img{width:100%;height:auto}
+
+/* ── 9 business ────────────────────────────────────────────────────── */
+.s9 .h{position:absolute;left:128px;top:180px}
+.s9 .lead{position:absolute;left:128px;top:318px}
+.cards4{position:absolute;left:128px;top:466px;width:1664px;display:grid;grid-template-columns:repeat(4,1fr);gap:32px}
+.bcard{position:relative;height:460px;border-radius:28px;background:var(--paper);padding:44px 40px}
+.bcard .t{font-size:38px;margin-top:40px}
+.bcard .c{font-size:27px;margin-top:14px}
+.bcard .tag{position:absolute;right:36px;top:68px}
+
+/* ── 10 gtm ────────────────────────────────────────────────────────── */
+.s10 .h{position:absolute;left:128px;top:170px}
+.grid4{position:absolute;left:128px;top:470px;width:1200px;display:grid;gap:44px}
+.g{display:flex;align-items:center;gap:30px}
+.g .t{font-size:40px;display:flex;align-items:center;gap:18px}
+.g .c{font-size:28px;margin-top:6px}
+
+/* ── 11 close ──────────────────────────────────────────────────────── */
+.s11{background:#fff}
+.panel{position:absolute;left:48px;top:48px;right:48px;bottom:48px;border-radius:40px;background:#000;overflow:hidden;color:#fff}
+.s11 .brand{left:80px;top:64px}
+.s11 .brand span{color:#fff}
+.s11 .h{position:absolute;left:80px;top:180px;font-size:120px;width:1000px}
+.s11 .label{position:absolute;left:80px;top:478px;font-size:24px;letter-spacing:.16em;color:rgb(255 255 255 / .55)}
+.next{position:absolute;left:80px;top:526px;display:flex;flex-wrap:wrap;gap:16px;width:980px}
+.next li{display:inline-flex;align-items:center;gap:14px;height:64px;padding:0 26px;border-radius:40px;background:rgb(255 255 255 / .1);font-size:28px;white-space:nowrap}
+.next .ic{width:28px;height:28px}
+.links{position:absolute;left:80px;bottom:72px;display:grid;grid-template-columns:auto auto;gap:26px 80px}
+.links li{display:flex;align-items:center;gap:20px;font-size:34px;line-height:1}
+.links .ic{width:34px;height:34px;color:rgb(255 255 255 / .6)}
+.links .x{fill:currentColor;stroke:none}
+.links b{font-weight:800}
+.links .ph{color:rgb(255 255 255 / .55)}
+.s11 .phone{box-shadow:30px 40px 90px rgb(0 0 0 / .5)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="blur" x="-100%" y="-150%" width="300%" height="400%"><feGaussianBlur stdDeviation="60"/></filter>
+    <g id="g-pair" opacity=".7">
+      <ellipse cx="149.574" cy="158.342" rx="149.574" ry="78.913" fill="#ffb0c0" filter="url(#blur)"/>
+      <ellipse cx="180.521" cy="78.913" rx="146.48" ry="78.913" fill="#ff5a76" filter="url(#blur)"/>
+    </g>
+    <g id="g-orbit" fill="none" stroke="currentColor">
+      <ellipse cx="327.69" cy="391.74" rx="189.5" ry="273" transform="rotate(-45 327.69 391.74)" vector-effect="non-scaling-stroke" stroke-width="1.4"/>
+      <ellipse cx="359.69" cy="359.74" rx="189.5" ry="273" transform="rotate(-45 359.69 359.74)" vector-effect="non-scaling-stroke" stroke-width="1.4"/>
+      <ellipse cx="391.69" cy="327.74" rx="189.5" ry="273" transform="rotate(-45 391.69 327.74)" vector-effect="non-scaling-stroke" stroke-width="1.4"/>
+    </g>
+    <path id="g-spark" fill="currentColor" d="M32 0L33.505 29.929L62.434 22.111L34.435 32.791L50.809 57.889L32 34.56L13.191 57.889L29.565 32.791L1.566 22.111L30.495 29.929Z"/>
+
+    <!-- line icons, 24px grid -->
+    <symbol id="i-x" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+    <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+    <symbol id="i-dollar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-badge" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-percent" viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="i-android" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M6 9v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9H6Zm-2 0a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0v-5a1 1 0 0 0-1-1Zm16 0a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0v-5a1 1 0 0 0-1-1ZM8 18v2a1 1 0 0 0 1 1 1 1 0 0 0 1-1v-2H8Zm6 0v2a1 1 0 0 0 1 1 1 1 0 0 0 1-1v-2h-2ZM7.5 8h9a4.5 4.5 0 0 0-2.06-3.4l.9-1.36a.35.35 0 1 0-.58-.4l-.95 1.43A4.7 4.7 0 0 0 12 3.5c-.64 0-1.25.12-1.81.35l-.95-1.43a.35.35 0 1 0-.58.4l.9 1.36A4.5 4.5 0 0 0 7.5 8Zm2.25-2.1a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Zm4.5 0a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  </defs>
+</svg>
+
+<main class="deck">
+
+<!-- 1 · Title -->
+<div class="frame"><section class="slide s1" aria-label="Chumbucket: FOMO for prediction markets">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:-160px;top:20px;width:1080px"><use href="#g-pair"/></svg>
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1020px;top:330px;width:1180px;transform:scale(-1,1) rotate(-18deg)"><use href="#g-pair"/></svg>
+    <svg class="orbit" viewBox="0 0 719.488 719.488" style="left:1060px;top:90px;width:900px"><use href="#g-orbit"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1010px;top:150px;width:64px"><use href="#g-spark"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1790px;top:880px;width:52px;transform:rotate(45deg)"><use href="#g-spark"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1060px;top:900px;width:40px;transform:rotate(20deg)"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand-xl"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h1 class="h">FOMO for prediction markets.</h1>
+    <p class="lead">Call it with friends. Back it with <span class="money">USDC</span>.<br>Keep the receipt.</p>
+    <div class="row">
+      <a class="pill dark" href="https://chumbucket.fun">chumbucket.fun</a>
+      <span class="pill line"><span class="dot"></span>Live on Solana mainnet</span>
+    </div>
+    <div class="phone" style="--w:330px;left:1130px;top:220px;transform:rotate(-9deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/home-feed.webp" alt="Chumbucket home feed of calls"></div></div>
+    <div class="phone" style="--w:380px;left:1400px;top:130px;transform:rotate(7deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/receipt-missed.webp" alt="A Chumbucket receipt settled by Panta"></div></div>
+  </div>
+</section></div>
+
+<!-- 2 · Problem -->
+<div class="frame"><section class="slide s2" aria-label="Problem">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1180px;top:-230px;width:1000px;transform:rotate(12deg)"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1660px;top:330px;width:60px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Talk is free.<br>Trading is lonely.</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="card-head"><span class="tile"><svg class="ic"><use href="#i-x"/></svg></span><p class="t">Calls on X</p></div>
+        <ul class="rows">
+          <li><svg class="ic"><use href="#i-msg"/></svg>Cost nothing</li>
+          <li><svg class="ic"><use href="#i-ban"/></svg>Prove nothing</li>
+          <li><svg class="ic"><use href="#i-trash"/></svg>Get deleted when wrong</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="tile"><svg class="ic"><use href="#i-chart"/></svg></span><p class="t">Prediction markets</p></div>
+        <ul class="rows">
+          <li><svg class="ic"><use href="#i-monitor"/></svg>A solo trading screen</li>
+          <li><svg class="ic"><use href="#i-user"/></svg>Nobody to follow</li>
+          <li><svg class="ic"><use href="#i-eyeoff"/></svg>Nothing to show for it</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section></div>
+
+<!-- 3 · Insight -->
+<div class="frame"><section class="slide s3" aria-label="Insight">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:-260px;top:520px;width:1000px;transform:scaleY(-1)"><use href="#g-pair"/></svg>
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1250px;top:-260px;width:900px;transform:rotate(-10deg)"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1700px;top:240px;width:56px;transform:rotate(30deg)"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">People follow people,<br>not order books.</h2>
+    <div class="chain">
+      <div class="node"><span class="tile"><svg class="ic"><use href="#i-receipt"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Receipts</p><p class="c">Proof you<br>called it first.</p></div>
+      <div class="node"><span class="tile"><svg class="ic"><use href="#i-crown"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Status</p><p class="c">A record<br>people follow.</p></div>
+      <div class="node"><span class="tile"><svg class="ic"><use href="#i-flame"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">FOMO</p><p class="c">Friends<br>want in.</p></div>
+      <div class="node"><span class="tile pink"><svg class="ic"><use href="#i-dollar"/></svg></span><p class="t money">Volume</p><p class="c">Real trades<br>on Panta.</p></div>
+    </div>
+  </div>
+</section></div>
+
+<!-- 4 · Product -->
+<div class="frame"><section class="slide s4" aria-label="Product">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:-120px;top:420px;width:1100px;transform:scaleY(-1)"><use href="#g-pair"/></svg>
+    <svg class="orbit" viewBox="0 0 719.488 719.488" style="left:60px;top:150px;width:860px"><use href="#g-orbit"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:900px;top:120px;width:56px;transform:rotate(45deg)"><use href="#g-spark"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:110px;top:900px;width:44px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <div class="phone" style="--w:330px;left:190px;top:220px;transform:rotate(-6deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/home-feed.webp" alt="Home feed of friends' calls"></div></div>
+    <div class="phone" style="--w:330px;left:540px;top:270px;transform:rotate(6deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/call-on-record.webp" alt="A call on record"></div></div>
+    <div class="copy">
+      <h2 class="h">Every call<br>becomes<br>a receipt.</h2>
+      <ul class="list">
+        <li><span class="tile"><svg class="ic"><use href="#i-target"/></svg></span><div><p class="t">Call any Panta market</p><p class="c">YES or NO. Free, timestamped, locked.</p></div></li>
+        <li><span class="tile pink"><svg class="ic"><use href="#i-dollar"/></svg></span><div><p class="t">Tail or fade with <span class="money">USDC</span></p><p class="c">Back a friend’s call, or bet against it.</p></div></li>
+        <li><span class="tile"><svg class="ic"><use href="#i-receipt"/></svg></span><div><p class="t">Receipts and a track record</p><p class="c">Settled by Panta. Nobody can edit them.</p></div></li>
+      </ul>
+    </div>
+  </div>
+</section></div>
+
+<!-- 5 · How it works -->
+<div class="frame"><section class="slide s5" aria-label="How it works">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:420px;top:330px;width:1100px"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1700px;top:150px;width:60px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">From call to receipt.</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="phone"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/call-on-record.webp" alt="You're on record"></div></div>
+        <div class="txt"><span class="num">1</span><p class="t">Call</p><p class="c">YES or NO on any Panta market.<br>Locked with a timestamp.</p></div>
+      </div>
+      <div class="step">
+        <div class="phone"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/markets.webp" alt="Panta markets with YES and NO prices"></div></div>
+        <div class="txt"><span class="num">2</span><p class="t">Tail or fade</p><p class="c">Real <span class="money">USDC</span>, from your own wallet.<br>We never hold it.</p></div>
+      </div>
+      <div class="step">
+        <div class="phone"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/receipt-missed.webp" alt="A receipt settled by Panta"></div></div>
+        <div class="txt"><span class="num">3</span><p class="t">Receipt</p><p class="c">Panta settles the market.<br>The receipt follows its result.</p></div>
+      </div>
+    </div>
+    <div class="step-arrow" style="left:672px;top:520px"><svg class="ic"><use href="#i-arrow"/></svg></div>
+    <div class="step-arrow" style="left:1245px;top:520px"><svg class="ic"><use href="#i-arrow"/></svg></div>
+  </div>
+</section></div>
+
+<!-- 6 · Why mobile -->
+<div class="frame"><section class="slide s6" aria-label="Why mobile">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1180px;top:380px;width:1000px;transform:rotate(-24deg)"><use href="#g-pair"/></svg>
+    <svg class="orbit" viewBox="0 0 719.488 719.488" style="left:1210px;top:150px;width:800px"><use href="#g-orbit"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1290px;top:150px;width:56px;transform:rotate(45deg)"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Made for Seeker.</h2>
+    <p class="lead">From a friend’s call to a signed trade in a tap.</p>
+    <div class="grid6">
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-zap"/></svg></span><div><p class="t">One-tap signing</p><p class="c">Mobile Wallet Adapter</p></div></div>
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-shield"/></svg></span><div><p class="t">Seed Vault</p><p class="c">On Seeker, through MWA</p></div></div>
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-bell"/></svg></span><div><p class="t">Push alerts</p><p class="c">Backed, faded, settled</p></div></div>
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-share"/></svg></span><div><p class="t">Share receipts</p><p class="c">As an image or a link</p></div></div>
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-wallet"/></svg></span><div><p class="t">No seed phrase</p><p class="c">Built-in Chumbucket wallet</p></div></div>
+      <div class="feat"><span class="tile"><svg class="ic"><use href="#i-monitor"/></svg></span><div><p class="t">Any device</p><p class="c">Web app: chumbucket.fun/app</p></div></div>
+    </div>
+    <div class="phone" style="--w:370px;left:1420px;top:200px;transform:rotate(6deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/welcome.webp" alt="Welcome: Call it before it happens"></div></div>
+  </div>
+</section></div>
+
+<!-- 7 · Under the hood -->
+<div class="frame"><section class="slide s7" aria-label="Under the hood">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1240px;top:-250px;width:950px;transform:rotate(14deg)"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1680px;top:300px;width:52px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Non-custodial by design.</h2>
+    <p class="lead">Users sign every trade. Chumbucket never holds funds.</p>
+    <div class="flow">
+      <div class="fnode"><span class="tile"><svg class="ic"><use href="#i-box"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Prepare</p><p class="c">Panta’s API<br>builds the order</p></div>
+      <div class="fnode"><span class="tile"><svg class="ic"><use href="#i-pen"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Sign</p><p class="c">In the user’s<br>own wallet</p></div>
+      <div class="fnode"><span class="tile"><svg class="ic"><use href="#i-send"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Submit</p><p class="c">The signed order<br>goes to Panta</p></div>
+      <div class="fnode"><span class="tile"><svg class="ic"><use href="#i-badge"/></svg></span><div class="arrow"><svg class="ic"><use href="#i-arrow"/></svg></div><p class="t">Verify</p><p class="c">Fill and USDC debit<br>checked on chain</p></div>
+      <div class="fnode"><span class="tile pink"><svg class="ic"><use href="#i-dollar"/></svg></span><p class="t money">Funded</p><p class="c">Only then does<br>the call go public</p></div>
+    </div>
+    <div class="chips">
+      <span class="chip"><b>Panta</b> API + program</span>
+      <span class="chip"><b>Solana</b> Mobile Wallet Adapter</span>
+      <span class="chip"><b>Privy</b> embedded wallet</span>
+      <span class="chip"><b>Supabase</b> Postgres + auth</span>
+      <span class="chip"><b>Jupiter</b> gasless top-up <span class="soon">SOON</span></span>
+      <span class="chip"><b>Crossmint</b> card onramp <span class="soon">SOON</span></span>
+      <span class="chip"><b>Bun + tRPC</b> on Railway</span>
+    </div>
+  </div>
+</section></div>
+
+<!-- 8 · Live -->
+<div class="frame"><section class="slide s8" aria-label="Live today">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1000px;top:420px;width:1150px;transform:rotate(-8deg)"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:880px;top:300px;width:56px;transform:rotate(45deg)"><use href="#g-spark"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1800px;top:930px;width:44px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Live on<br>mainnet.</h2>
+    <ul class="checks">
+      <li><span class="tile"><svg class="ic"><use href="#i-check"/></svg></span>chumbucket.fun + web app</li>
+      <li><span class="tile"><svg class="ic"><use href="#i-check"/></svg></span>Android app on Seeker</li>
+      <li><span class="tile"><svg class="ic"><use href="#i-check"/></svg></span>iOS build</li>
+      <li><span class="tile pink"><svg class="ic"><use href="#i-check"/></svg></span><span>Real Panta trades,<br>signed in users’ own wallets</span></li>
+    </ul>
+    <div class="browser">
+      <div class="bar"><i></i><i></i><i></i><span class="url">chumbucket.fun/app</span></div>
+      <img src="assets/webapp-calls.webp" alt="Calls on the Chumbucket web app">
+    </div>
+  </div>
+</section></div>
+
+<!-- 9 · Business model -->
+<div class="frame"><section class="slide s9" aria-label="Business model">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1200px;top:-260px;width:980px;transform:rotate(10deg)"><use href="#g-pair"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1690px;top:290px;width:52px;transform:rotate(30deg)"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Revenue follows volume.</h2>
+    <p class="lead">Free calls bring people in. Money calls move volume on Panta.</p>
+    <div class="cards4">
+      <div class="bcard"><span class="tile pink"><svg class="ic"><use href="#i-percent"/></svg></span><p class="t">Panta revenue share</p><p class="c">Share of the volume<br>we bring to Panta.<br>Every buy is tagged.</p><span class="tag ghost">Planned</span></div>
+      <div class="bcard"><span class="tile pink"><svg class="ic"><use href="#i-plus"/></svg></span><p class="t">User-created markets</p><p class="c">Users open markets.<br>The creator fees<br>go to them.</p><span class="tag ghost">Planned</span></div>
+      <div class="bcard"><span class="tile pink"><svg class="ic"><use href="#i-tag"/></svg></span><p class="t">Listing fee</p><p class="c">Optional, to<br>feature a market.</p><span class="tag ghost">Planned</span></div>
+      <div class="bcard"><span class="tile pink"><svg class="ic"><use href="#i-bars"/></svg></span><p class="t">Premium stats</p><p class="c">Deeper records<br>for serious callers.</p><span class="tag ghost">Later</span></div>
+    </div>
+  </div>
+</section></div>
+
+<!-- 10 · Go-to-market -->
+<div class="frame"><section class="slide s10" aria-label="Go-to-market">
+  <div class="decor">
+    <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1180px;top:380px;width:1000px;transform:rotate(-20deg)"><use href="#g-pair"/></svg>
+    <svg class="orbit" viewBox="0 0 719.488 719.488" style="left:1220px;top:150px;width:800px"><use href="#g-orbit"/></svg>
+    <svg class="spark" viewBox="0 0 64 64" style="left:1300px;top:170px;width:56px"><use href="#g-spark"/></svg>
+  </div>
+  <div class="grain"></div>
+  <div class="content">
+    <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+    <h2 class="h">Every receipt<br>is an ad.</h2>
+    <div class="grid4">
+      <div class="g"><span class="tile"><svg class="ic"><use href="#i-x"/></svg></span><div><p class="t">Shared to X <span class="tag dark">Live</span></p><p class="c">As an image, or a link with a preview card.</p></div></div>
+      <div class="g"><span class="tile"><svg class="ic"><use href="#i-bot"/></svg></span><div><p class="t">@chumbucket bot <span class="tag ghost">Planned</span></p><p class="c">Posts receipts. Call a market from a reply.</p></div></div>
+      <div class="g"><span class="tile"><svg class="ic"><use href="#i-phone"/></svg></span><div><p class="t">Seeker + dApp Store</p><p class="c">Native where Solana’s mobile users are.</p></div></div>
+      <div class="g"><span class="tile"><svg class="ic"><use href="#i-trophy"/></svg></span><div><p class="t">Top callers</p><p class="c">Their followers come for the receipts.</p></div></div>
+    </div>
+    <div class="phone" style="--w:370px;left:1420px;top:200px;transform:rotate(6deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/receipt-missed.webp" alt="A receipt with share image and share link"></div></div>
+  </div>
+</section></div>
+
+<!-- 11 · Close -->
+<div class="frame"><section class="slide s11" aria-label="What's next">
+  <div class="panel">
+    <div class="decor">
+      <svg class="glow" viewBox="-190 -190 707 617.255" style="left:1050px;top:300px;width:1100px;transform:rotate(-16deg)"><use href="#g-pair"/></svg>
+            <svg class="spark" viewBox="0 0 64 64" style="left:1680px;top:110px;width:52px;color:#fff"><use href="#g-spark"/></svg>
+      <svg class="spark" viewBox="0 0 64 64" style="left:1080px;top:800px;width:40px;color:#fff;transform:rotate(45deg)"><use href="#g-spark"/></svg>
+    </div>
+    <div class="content">
+      <div class="brand"><img src="assets/bucket.webp" alt=""><span>CHUMBUCKET<sup>TM</sup></span></div>
+      <h2 class="h">Call it before it happens.</h2>
+      <p class="label">NEXT</p>
+      <ul class="next">
+        <li><svg class="ic"><use href="#i-phone"/></svg>dApp Store launch</li>
+        <li><svg class="ic"><use href="#i-bot"/></svg>@chumbucket bot on X</li>
+        <li><svg class="ic"><use href="#i-plus"/></svg>User-created markets</li>
+        <li><svg class="ic"><use href="#i-percent"/></svg>Panta revenue share</li>
+      </ul>
+      <ul class="links">
+        <li><svg class="ic"><use href="#i-globe"/></svg><a href="https://chumbucket.fun"><b>chumbucket.fun</b></a></li>
+        <li><svg class="ic x"><use href="#i-x"/></svg><a href="https://x.com/HeIsJoel0x">x.com/HeIsJoel0x</a></li>
+        <li><svg class="ic"><use href="#i-monitor"/></svg><a href="https://chumbucket.fun/app">chumbucket.fun/app</a></li>
+        <li><svg class="ic"><use href="#i-users"/></svg><span class="ph">Team: [team]</span></li>
+        <li><svg class="ic"><use href="#i-android"/></svg>Android: Solana dApp Store</li>
+      </ul>
+      <div class="phone" style="--w:300px;left:1130px;top:270px;transform:rotate(-8deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/call-on-record.webp" alt=""></div></div>
+      <div class="phone" style="--w:300px;left:1450px;top:260px;transform:rotate(8deg)"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/markets.webp" alt=""></div></div>
+      <div class="phone" style="--w:330px;left:1275px;top:180px"><img class="fr" src="assets/phone-frame.png" alt=""><div class="scr"><img src="assets/welcome.webp" alt="Welcome: Call it before it happens"></div></div>
+    </div>
+  </div>
+</section></div>
+
+</main>
+
+<a class="pdf" href="chumbucket-deck.pdf" download><svg class="ic"><use href="#i-download"/></svg>PDF</a>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var q = new URLSearchParams(location.search);
+  if (q.has("export")) root.classList.add("export");
+  var only = parseInt(q.get("slide") || "", 10);
+  var frames = Array.prototype.slice.call(document.querySelectorAll(".frame"));
+  if (only) frames.forEach(function (f, i) { if (i + 1 !== only) f.remove(); });
+  frames = Array.prototype.slice.call(document.querySelectorAll(".frame"));
+
+  function fit() {
+    if (root.classList.contains("export")) { root.style.setProperty("--s", 1); return; }
+    var pad = innerWidth < 700 ? 12 : 32;
+    var s = Math.min((innerWidth - 2 * pad) / 1920, (innerHeight - 2 * pad) / 1080);
+    root.style.setProperty("--s", Math.max(s, 0.1));
+    root.style.setProperty("--gap", pad + "px");
+  }
+  fit();
+  addEventListener("resize", fit);
+
+  function current() {
+    var best = 0, bd = Infinity;
+    frames.forEach(function (f, i) {
+      var r = f.getBoundingClientRect();
+      var d = Math.abs(r.top + r.height / 2 - innerHeight / 2);
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best;
+  }
+  function go(i) {
+    i = Math.max(0, Math.min(frames.length - 1, i));
+    frames[i].scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === "ArrowDown" || k === "ArrowRight" || k === "PageDown" || k === " ") { e.preventDefault(); go(current() + 1); }
+    else if (k === "ArrowUp" || k === "ArrowLeft" || k === "PageUp") { e.preventDefault(); go(current() - 1); }
+    else if (k === "Home") { e.preventDefault(); go(0); }
+    else if (k === "End") { e.preventDefault(); go(frames.length - 1); }
+  });
+})();
+</script>
+</body>
+</html>

@@ -59,7 +59,12 @@ const nextConfig: NextConfig = {
   // /c share page every new call link opens never ships the Arena client.
   async rewrites() {
     return {
-      beforeFiles: [{ source: "/c/:challengeId(chg_[^/]+)", destination: "/legacy-challenge/:challengeId" }],
+      beforeFiles: [
+        { source: "/c/:challengeId(chg_[^/]+)", destination: "/legacy-challenge/:challengeId" },
+        // The pitch deck is a static page in public/deck. Next sends /deck/ to
+        // /deck, and /deck serves its index.html (which sets <base href="/deck/">).
+        { source: "/deck", destination: "/deck/index.html" },
+      ],
       afterFiles: [],
       fallback: [],
     };
