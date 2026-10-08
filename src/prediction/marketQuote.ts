@@ -8,11 +8,18 @@
  * under load. Version 1 is Panta's partner API, which lists only USDC
  * markets; version 2 is a SOL-quoted market read from its program account.
  *
+ * Tradable also needs the primary sale: our trade path is Panta's primary
+ * buy, which answers MARKET_NOT_IN_PRIMARY in any other phase (docs, and live
+ * on 2026-10-08 for all 9 open secondary markets). The persisted signal is
+ * `rawStatus`, Panta's own status label, which tracks the phase ("secondary",
+ * "secondary_active" once graduated). A trade re-checks the fresh `phase`.
+ *
  * `VenueMarket` itself is frozen (contracts §3), so these ride beside it on
  * the wire, as `volumeUsdc` does in the catalog.
  */
 import { PANTA_CHAIN_PAYLOAD_VERSION } from "./PantaProgram.ts";
-import { PANTA_PAYLOAD_VERSION } from "./PantaVenue.ts";
+import { PANTA_PAYLOAD_VERSION, pantaPhase } from "./PantaVenue.ts";
+import type { RawPayload } from "./PredictionVenue.ts";
 import type { VenueMarket } from "./types.ts";
 
 export type QuoteCurrency = "USDC" | "SOL";
@@ -33,14 +40,24 @@ export function pantaQuoteCurrency(market: Pick<VenueMarket, "venue" | "payloadV
   return null;
 }
 
-/** Whether Chumbucket can place a trade on this market. */
-export const pantaTradable = (market: Pick<VenueMarket, "venue" | "payloadVersion">): boolean =>
-  pantaQuoteCurrency(market) === "USDC";
+/** Panta's status labels for a market in its primary sale. */
+const PRIMARY_SALE: ReadonlySet<string> = new Set(["primary", "open"]);
+
+/** Whether Chumbucket can place a trade on this market: USDC-quoted, in its primary sale. */
+export const pantaTradable = (market: Pick<VenueMarket, "venue" | "payloadVersion" | "rawStatus">): boolean =>
+  pantaQuoteCurrency(market) === "USDC" && PRIMARY_SALE.has(market.rawStatus);
+
+/** At trade time, from a fresh read: tradable, and the detail's own `phase`
+ *  says "primary" whenever that payload is at hand. */
+export function pantaInPrimarySale(market: Pick<VenueMarket, "venue" | "payloadVersion" | "rawStatus" | "venueMarketId">,
+  raw?: RawPayload | null): boolean {
+  return pantaTradable(market) && (!raw || (raw.venueMarketId === market.venueMarketId &&
+    raw.payloadVersion === PANTA_PAYLOAD_VERSION && pantaPhase(raw.body) === "primary"));
+}
 
 /** A Panta market as served: the frozen fields plus its money facts. Other
  *  venues' rows are returned unchanged. */
 export function servedMarket<T extends VenueMarket>(market: T): T | (T & MarketMoneyFields) {
   if (market.venue !== "panta") return market;
-  const quoteCurrency = pantaQuoteCurrency(market);
-  return { ...market, quoteCurrency, tradable: quoteCurrency === "USDC" };
+  return { ...market, quoteCurrency: pantaQuoteCurrency(market), tradable: pantaTradable(market) };
 }

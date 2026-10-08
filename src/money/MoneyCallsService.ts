@@ -121,7 +121,7 @@ export interface MoneyCallsDeps {
   maxBaseUnits: bigint | null;
   /** CHUMBUCKET_WALLET_ENABLED for this account: its Chumbucket wallet is the trading wallet. */
   chumbucketWallet: (userId: string) => boolean;
-  /** Whether our trade path can buy on this market (a USDC-quoted Panta market). Absent: every market. */
+  /** Whether our trade path can buy on this market (a USDC-quoted Panta market in its primary sale). Absent: every market. */
   tradable?: (marketId: string) => boolean;
   now?: () => number;
 }
@@ -152,7 +152,7 @@ export class MoneyCallsService {
 
     const wallet = this.wallet(person, input.wallet);
     const plan = this.deps.calls.service.planFundedCall(input.call, person.userId);
-    // A SOL-quoted market takes calls, never trades: refused before anything exists.
+    // A SOL-quoted or graduated market takes calls, never trades: refused before anything exists.
     if (this.deps.tradable && !this.deps.tradable(plan.marketId)) {
       throw new MoneyError("NOT_TRADABLE", "This market takes free calls only.");
     }

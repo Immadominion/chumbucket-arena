@@ -135,7 +135,7 @@ const KEY = "pk_live_synthetic_tests_only";
 const USDC_ID = "So11111111111111111111111111111111111111112";
 const usdcRow = {
   marketId: USDC_ID, category: "sports", title: "Synthetic USDC question?", description: "Synthetic.",
-  phase: "secondary", status: "secondary_active", resolved: false, startTime: NOW_S - 86_400,
+  phase: "primary", status: "open", resolved: false, startTime: NOW_S - 86_400,
   endTime: NOW_S + 86_400, resolutionTime: NOW_S + 90_000, yesPrice: "0.52", noPrice: "0.48", volumeUsdc: "12.00",
   onChain: { resolutionRule: "Exact synthetic settlement rule.", isActive: true },
 };

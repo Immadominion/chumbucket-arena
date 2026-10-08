@@ -1,5 +1,5 @@
 /** Async, private intent ledger. No in-memory success ahead of durability. */
-import { pantaTradable } from "./marketQuote.ts";
+import { pantaQuoteCurrency } from "./marketQuote.ts";
 import { Pgrest, type PgrestConfig } from "./pgrest.ts";
 import type { PantaPreparedOrder } from "./PantaExecution.ts";
 import type { Side } from "./types.ts";
@@ -16,8 +16,9 @@ export interface PantaTradeSession {
 }
 export interface PantaCallIntent {
   callId: string; marketId: string; venueMarketId: string; side: Side;
-  /** False for a market Chumbucket's trade path cannot trade (a SOL-quoted
-   *  Panta market read from its program account). Absent means tradable. */
+  /** False for a market whose quote asset Chumbucket's trade path cannot
+   *  trade (a SOL-quoted Panta market read from its program account). Absent
+   *  means USDC. The primary sale is checked on the fresh read at prepare. */
   tradable?: boolean;
   /**
    * The call's money call state (money_calls, MONEY_CALLS_ENABLED), or null
@@ -74,7 +75,7 @@ export class SupabasePantaTradingStore implements PantaTradingLedger {
           "money_calls", new URLSearchParams({ call_id: `eq.${callId}`, select: "state,idempotency_key,attempts,expires_at", limit: "1" })))[0] ?? null
       : null;
     return { callId, marketId: call.market_id, venueMarketId: market.venue_market_id, side: call.side,
-      tradable: pantaTradable({ venue: "panta", payloadVersion: market.payload_version }),
+      tradable: pantaQuoteCurrency({ venue: "panta", payloadVersion: market.payload_version }) === "USDC",
       moneyState: money?.state ?? null,
       moneyTradeKey: money ? `${money.idempotency_key}.t${money.attempts}` : null,
       moneyExpiresAt: money ? Date.parse(money.expires_at) : null };

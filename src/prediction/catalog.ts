@@ -22,7 +22,7 @@
 
 import { VenueError } from "./errors.ts";
 import { pantaReportedVolume } from "./PantaVenue.ts";
-import { pantaQuoteCurrency, type QuoteCurrency } from "./marketQuote.ts";
+import { pantaQuoteCurrency, pantaTradable, type QuoteCurrency } from "./marketQuote.ts";
 import type { VenueMarketRecord } from "./store.ts";
 import type { MarketStatus, VenueId, VenueMarket } from "./types.ts";
 
@@ -164,7 +164,7 @@ export function catalogPage(records: readonly VenueMarketRecord[], q: CatalogQue
       status: effectiveStatus(market, q.now),
       volumeUsdc: market.venue === "panta" && raw?.venue === "panta" ? pantaReportedVolume(raw.body) : null,
       quoteCurrency: pantaQuoteCurrency(market),
-      tradable: pantaQuoteCurrency(market) === "USDC",
+      tradable: pantaTradable(market),
     });
   }
 

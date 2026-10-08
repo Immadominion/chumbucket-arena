@@ -4,7 +4,8 @@ import type { PantaExecution, PantaPreparedOrder } from "./PantaExecution.ts";
 import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
 import type { PantaCallIntent, PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
-import type { PredictionVenue, VenueOrder } from "./PredictionVenue.ts";
+import { capturesRaw, type PredictionVenue, type VenueOrder } from "./PredictionVenue.ts";
+import { pantaInPrimarySale } from "./marketQuote.ts";
 import type { AccountWallets } from "../wallet/accountWallets.ts";
 import { VenueError } from "./errors.ts";
 
@@ -16,6 +17,8 @@ export const WALLET_NOT_LINKED_COPY = "Link this wallet to your account first";
 /** A call made with an amount is funded only through money.* (docs/money-api.md). */
 export const MONEY_CALL_ROUTE_COPY = "This call was made with an amount. Fund it from the call itself.";
 const MONEY_WINDOW_CLOSED_COPY = "This call's money window has closed. Make a new call.";
+/** Panta's primary buy answers MARKET_NOT_IN_PRIMARY outside the primary sale. */
+export const PRIMARY_SALE_ONLY_COPY = "Funding opens only while a Panta market is in its first sale. Your call still counts free.";
 /**
  * A money call may be traded only by money.*, only while PENDING, only with
  * its current attempt's key, and only inside its window. The SQL trigger on
@@ -92,6 +95,9 @@ export class PantaTradingService {
     if (call.tradable === false) return refuse("Trading isn't available on this market. Your call still counts");
     const market = await this.deps.venue.getMarket(call.venueMarketId);
     if (market.venue !== "panta" || market.status !== "OPEN" || (market.opensAt !== null && market.opensAt > this.now())) return refuse("This Panta market is not open for a primary buy");
+    // A graduated market quotes MARKET_NOT_IN_PRIMARY: refused before any reservation.
+    const venue = this.deps.venue;
+    if (!pantaInPrimarySale(market, capturesRaw(venue) ? venue.rawPayload(call.venueMarketId) : null)) return refuse(PRIMARY_SALE_ONLY_COPY);
     const reserved = await this.deps.store.reserve({
       id: crypto.randomUUID(), user_id: userId, call_id: call.callId, market_id: call.marketId,
       wallet_address: input.wallet, venue_market_id: call.venueMarketId, side: call.side,

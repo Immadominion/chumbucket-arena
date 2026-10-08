@@ -52,7 +52,7 @@ export interface Market {
   resolutionSource: string | null;
   /** The market's quote asset. Null/absent from an older BFF, which only served USDC markets. */
   quoteCurrency?: "USDC" | "SOL" | null;
-  /** Whether Chumbucket can trade it. A SOL-quoted market takes free calls only. Absent: tradable. */
+  /** Whether Chumbucket can trade it. A SOL-quoted market, or one past its primary sale, takes free calls only. Absent: tradable. */
   tradable?: boolean;
 }
 

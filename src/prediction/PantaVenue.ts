@@ -90,6 +90,12 @@ export function pantaPriceEvidenceMatches(body: unknown, prices: { yesPrice: str
   const parsed = rowSchema.pick({ yesPrice: true, noPrice: true }).safeParse(body);
   return parsed.success && parsed.data.yesPrice === prices.yesPrice && parsed.data.noPrice === prices.noPrice;
 }
+/** A captured row's documented `phase`, or null. Panta's primary buy works
+ *  only in phase "primary" (`MARKET_NOT_IN_PRIMARY` otherwise). */
+export function pantaPhase(body: unknown): Row["phase"] | null {
+  const parsed = rowSchema.pick({ phase: true }).safeParse(body);
+  return parsed.success ? parsed.data.phase : null;
+}
 /** The venue's own reported volume on a captured row, or null. Discovery
  *  sorting only: `volumeUsdc` is documented as a human-readable catalog figure,
  *  not settlement or price evidence, so drift reads as unavailable instead of
