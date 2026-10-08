@@ -4,7 +4,7 @@
  * all 9 open secondary markets, and INVALID_MARKET_PARAMS for Arsenal). Such a
  * market is served untradable, so the app hides the amount, and a buy is
  * refused on the fresh read before any reservation or quote. Plus the quote's
- * single retry for a bare INVALID_MARKET_PARAMS seen live the same day.
+ * bounded retries for a bare INVALID_MARKET_PARAMS seen live the same day.
  */
 import { describe, expect, test } from "bun:test";
 import { servedMarket, pantaTradable } from "../src/prediction/marketQuote.ts";
@@ -75,7 +75,7 @@ describe("money only in the primary sale (live 2026-10-08: MARKET_NOT_IN_PRIMARY
   });
 });
 
-describe("the quote's one retry", () => {
+describe("the quote's bounded retries", () => {
   const quote = { quoteId: "qt_1", marketId: TRAM, side: "yes", amountUsdc: "2.00", shares: "3.9", avgPrice: "0.51",
     feeUsdc: "0.04", expiresAt: "2026-10-08T06:00:00Z", blockhashExpiryHintSec: 60 };
   const transport = (answers: Response[]) => {
@@ -87,17 +87,18 @@ describe("the quote's one retry", () => {
   };
   const bare = () => jsonResponse({ code: "INVALID_MARKET_PARAMS" }, { status: 400 });
 
-  test("a bare INVALID_MARKET_PARAMS on the first quote is asked once more, a second later", async () => {
-    const t = transport([bare(), jsonResponse(quote)]);
+  test("a bare INVALID_MARKET_PARAMS quote is asked again, a second apart, until it quotes", async () => {
+    const t = transport([bare(), bare(), bare(), jsonResponse(quote)]);
     expect(await t.request("/primaryorderquote/", {})).toEqual(quote);
-    expect(t.paths).toEqual(["/api/v1/primaryorderquote/", "/api/v1/primaryorderquote/"]);
-    expect(t.slept).toEqual([1_000]);
+    expect(t.paths).toHaveLength(4);
+    expect(t.slept).toEqual([1_000, 1_000, 1_000]);
   });
 
-  test("only once, only that exact answer, only the quote", async () => {
-    const twice = transport([bare(), bare(), jsonResponse(quote)]);
-    await expect(twice.request("/primaryorderquote/", {})).rejects.toThrow("HTTP 400");
-    expect(twice.paths).toHaveLength(2);
+  test("at most six asks, only that exact answer, only the quote", async () => {
+    const many = transport([bare(), bare(), bare(), bare(), bare(), bare(), jsonResponse(quote)]);
+    await expect(many.request("/primaryorderquote/", {})).rejects.toThrow("HTTP 400");
+    expect(many.paths).toHaveLength(6);
+    expect(many.slept).toHaveLength(5);
     for (const answer of [
       jsonResponse({ code: "INVALID_MARKET_PARAMS", message: "amountUsdc: invalid", field: "amountUsdc" }, { status: 400 }),
       jsonResponse({ code: "MARKET_NOT_IN_PRIMARY" }, { status: 400 }),
