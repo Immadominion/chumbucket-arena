@@ -1,15 +1,21 @@
 /**
- * Read-only Solana RPC reader for Panta's SOL-quoted markets (./PantaProgram.ts
- * says why they exist and how an account is trusted). Never signs, never
- * writes, never sees a user key.
+ * Read-only Solana RPC reader for Panta's program accounts (./PantaProgram.ts
+ * says how an account is trusted): the SOL-quoted markets Panta's partner API
+ * never lists, and — since that API stopped returning its `onChain` block on
+ * 2026-10-08 — the rules, final flags and review window of each USDC market
+ * the API does list (`readUsdcEvent`, used by ./PantaVenue.ts). Never signs,
+ * never writes, never sees a user key.
  *
  * COST. Discovery lists the program's Event accounts with a zero-length data
  * slice (addresses only, a few KB), then reads full accounts only for
  * addresses it has not classified yet and for SOL markets that are not final.
- * The quote asset of an address never changes, so a USDC account is read once
- * per process and never again; a settled SOL market is not re-listed. A pass
- * therefore costs two small RPC calls once the first one has classified the
- * catalog (~600 KB, once).
+ * The quote asset of an address never changes, so discovery reads a USDC
+ * account once per process and skips it after that; a settled SOL market is
+ * not re-listed. A discovery pass therefore costs two small RPC calls once the
+ * first one has classified the catalog (~600 KB, once). Separately, every
+ * USDC detail read PantaVenue makes costs one `getAccountInfo` (~3 KB),
+ * reused for 15 s: at most one per USDC market per 15 s per caller, on top of
+ * the partner API read it accompanies.
  *
  * CATEGORY. The program stores no category. panta.market's own public registry
  * (the backend its website reads) supplies the display category; it is fetched
@@ -85,6 +91,8 @@ export class PantaChainCatalog {
   /** SOL markets whose result the program has published. Not re-listed. */
   private readonly final = new Set<string>();
   private readonly reads = new Map<string, PantaChainRead>();
+  /** USDC reads, held apart so a SOL read can never be served one. */
+  private readonly usdcReads = new Map<string, PantaChainRead>();
   private readonly categories = new Map<string, string | null>();
   private readonly categoryTriedAt = new Map<string, number>();
   private listed: { at: number; reads: PantaChainRead[] } | undefined;
@@ -176,6 +184,25 @@ export class PantaChainCatalog {
     return read;
   }
 
+  /** One USDC market's Event account, freshly read (or reused within 15s), for
+   *  the fields the partner API no longer publishes. VENUE_NOT_FOUND when the
+   *  address is not a USDC-quoted Panta event. Same guard as readSolMarket:
+   *  only an address the program lists as an Event account is read in full,
+   *  and the account must be owned by the program, decode, and sit at the
+   *  address PDA("event_usdc", creator, sha256(question)) gives it. */
+  async readUsdcEvent(address: string): Promise<PantaChainRead> {
+    const held = this.usdcReads.get(address);
+    if (held && this.clock.now() - held.fetchedAt < READ_REUSE_MS) return held;
+    if (this.quoteOf(address) === "SOL") throw notUsdc();
+    await this.assertMainnet();
+    if (this.quoteOf(address) !== "USDC" && !(await this.isProgramEvent(address))) throw notUsdc();
+    const [account] = await this.readAccounts([address]);
+    if (!account || this.classify(address, account.data) !== "USDC") throw notUsdc();
+    const read = this.build(account, this.usdcReads);
+    if (!read || read.quoteAsset !== "USDC") throw notUsdc();
+    return read;
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private classify(address: string, data: Uint8Array): Class {
@@ -193,12 +220,12 @@ export class PantaChainCatalog {
     }
   }
 
-  private build(a: { address: string; owner: string; data: Uint8Array; slot: number }): PantaChainRead | null {
+  private build(a: { address: string; owner: string; data: Uint8Array; slot: number }, held = this.reads): PantaChainRead | null {
     try {
       const read = pantaChainRead({ ...a, fetchedAt: this.clock.now(), category: this.categories.get(a.address) ?? null });
-      this.reads.delete(a.address);
-      this.reads.set(a.address, read);
-      if (this.reads.size > MAX_HELD_READS) this.reads.delete(this.reads.keys().next().value!);
+      held.delete(a.address);
+      held.set(a.address, read);
+      if (held.size > MAX_HELD_READS) held.delete(held.keys().next().value!);
       return read;
     } catch (error) {
       this.classes.delete(a.address);
@@ -211,6 +238,7 @@ export class PantaChainCatalog {
     this.classes.set(address, "UNSERVED");
     this.unservedAt.set(address, this.clock.now());
     this.reads.delete(address);
+    this.usdcReads.delete(address);
     this.config.onUnserved?.(address, error);
   }
 
@@ -331,4 +359,5 @@ function listable(data: Uint8Array, nowMs: number): boolean {
 }
 
 const notSol = () => new VenueError("VENUE_NOT_FOUND", "Not a SOL-quoted Panta market", { venue: "panta" });
+const notUsdc = () => new VenueError("VENUE_NOT_FOUND", "Not a USDC-quoted Panta market", { venue: "panta" });
 const rpcShape = (what: string) => new VenueError("VENUE_SCHEMA", `Solana RPC: unexpected ${what}`, { venue: "panta" });

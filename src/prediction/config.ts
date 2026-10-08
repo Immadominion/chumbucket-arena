@@ -48,6 +48,10 @@ export interface PredictionConfig {
   panta: { apiKey: string; timeoutMs: number } | null;
   /** Set when SOL-quoted Panta markets are read from the program. Never described outward (the URL can carry a provider key). */
   pantaSolMarkets?: { rpcUrl: string } | null;
+  /** Set whenever Panta is live and a catalog RPC is configured, SOL markets
+   *  or not: since 2026-10-08 a USDC market's rules and final flags are read
+   *  from its program account (./PantaVenue.ts). Same RPC as pantaSolMarkets. */
+  pantaProgram?: { rpcUrl: string } | null;
   polymarket: { baseUrl: string; timeoutMs: number } | null;
   flags: { fundedPositions: boolean };
   cache: CacheTtls;
@@ -97,6 +101,7 @@ export function resolvePredictionConfig(
     panta: venue === "panta" ? { apiKey: pantaKey!, timeoutMs: fromApp?.panta?.timeoutMs ?? num(env.PANTA_TIMEOUT_MS, 8_000) } : null,
     pantaSolMarkets: venue === "panta" && fromApp?.pantaSolMarkets?.enabled === true && fromApp.pantaSolMarkets.rpcUrl
       ? { rpcUrl: fromApp.pantaSolMarkets.rpcUrl } : null,
+    pantaProgram: venue === "panta" && fromApp?.pantaSolMarkets?.rpcUrl ? { rpcUrl: fromApp.pantaSolMarkets.rpcUrl } : null,
     polymarket: null,
     flags: {
       // Native Panta execution additionally requires durable schema and a

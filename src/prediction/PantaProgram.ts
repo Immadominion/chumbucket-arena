@@ -8,7 +8,9 @@
  * SOL-quoted and therefore missing from Chumbucket. A free call needs only the
  * market and its price, so those markets are read here, from the program
  * account itself, and offered for calls. They are never offered for trading:
- * our trade path is Panta's USDC primary-order API.
+ * our trade path is Panta's USDC primary-order API. Since 2026-10-08, when the
+ * partner API dropped its `onChain` block, USDC markets' rules and final flags
+ * are read from here too (PantaChainCatalog.readUsdcEvent, ./PantaVenue.ts).
  *
  * WHAT IS READ, AND FROM WHERE.
  *  - Layout: the `Event` account of program `balr_market`

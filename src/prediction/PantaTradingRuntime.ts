@@ -15,6 +15,7 @@ import { PantaPositionsService } from "./PantaPositions.ts";
 import { PantaReconciler } from "./PantaReconciler.ts";
 import { PantaSettlementChain } from "./PantaSettlementChain.ts";
 import { callsRuntimeFor } from "../calls/runtime.ts";
+import { predictionRuntimeFor } from "./runtime.ts";
 import { PantaTradingService } from "./PantaTradingService.ts";
 import { SupabaseAccountWallets } from "../wallet/accountWallets.ts";
 import { authIdentityRuntimeFor } from "../auth/AuthIdentityRuntime.ts";
@@ -90,7 +91,9 @@ function buildLifecycle(config: AppConfig): PantaLifecycle {
     store: ledger, execution,
     chain: { broadcast: tx => chain.broadcast(tx), failed: sig => chain.failed(sig),
       neverLanded: (sig, height) => settlement.neverLanded(sig, height) },
-    venue: new PantaVenue({ apiKey: panta.apiKey, timeoutMs: panta.timeoutMs }),
+    // The catalog's program reader: without it no USDC row (Panta dropped
+    // `onChain` on 2026-10-08) has rules, and every buy would be refused.
+    venue: new PantaVenue({ apiKey: panta.apiKey, timeoutMs: panta.timeoutMs, ...predictionRuntimeFor(config).pantaProgram }),
     maxAmountBaseUnits: config.predictions!.maxAmountBaseUnits!,
     // A buy is only ever quoted for one of the account's own proven wallets,
     // and never for one that signs in to another account (linking).

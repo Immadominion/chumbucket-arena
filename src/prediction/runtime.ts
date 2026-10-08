@@ -25,7 +25,7 @@
 
 import type { AppConfig } from "../config.ts";
 import { FixtureVenue } from "./FixtureVenue.ts";
-import { PantaVenue } from "./PantaVenue.ts";
+import { PantaVenue, type PantaVenueConfig } from "./PantaVenue.ts";
 import { PantaCatalogVenue } from "./PantaCatalogVenue.ts";
 import { PantaChainCatalog } from "./PantaChainCatalog.ts";
 import { registerSecret } from "./redact.ts";
@@ -74,6 +74,10 @@ export interface PredictionRuntime {
   ready: Promise<void>;
   /** The clock every read and write above uses; catalog reads judge "open" by it. */
   clock: Clock;
+  /** The program reader the live Panta adapter completes USDC rows with, for
+   *  any other PantaVenue built against this config (the trade path's).
+   *  Absent when Panta is not live or no catalog RPC is configured. */
+  pantaProgram?: Pick<PantaVenueConfig, "program" | "onProgramFailure">;
 }
 
 export interface BuildRuntimeOverrides {
@@ -94,27 +98,44 @@ export interface BuildRuntimeOverrides {
 }
 
 /** Live composition has no other-provider or demo fallback. */
-function buildVenue(config: PredictionConfig, clock: Clock): PredictionVenue {
+function buildVenue(config: PredictionConfig, clock: Clock): { venue: PredictionVenue; pantaProgram?: PredictionRuntime["pantaProgram"] } {
   if (config.venue === "panta" && config.panta) {
-    const live = new PantaVenue({ ...config.panta, clock, retry: config.retry,
+    const chain = pantaChain(config, clock);
+    // Since 2026-10-08 Panta's detail payload carries no rules or final flags;
+    // the live adapter reads them from each USDC market's program account.
+    const pantaProgram = chain ? { program: chain, onProgramFailure: (id: string, error: unknown) =>
+      console.warn(`[panta-chain] program fields unavailable for ${id}: ${describeFailure(error)}`) } : undefined;
+    const live = new PantaVenue({ ...config.panta, clock, retry: config.retry, ...pantaProgram,
       circuit: new CircuitBreaker({ ...config.circuit, clock, venue: "panta", name: "panta" }) });
-    if (!config.pantaSolMarkets) return live;
-    // The partner API lists only USDC markets; SOL-quoted ones come from the
-    // program account (./PantaProgram.ts). The RPC URL can carry a provider
-    // key, so it and its query values are redacted from every error.
-    const rpcUrl = config.pantaSolMarkets.rpcUrl;
+    if (!config.pantaSolMarkets || !chain) return { venue: live, pantaProgram };
+    return { pantaProgram, venue: new PantaCatalogVenue({ live, chain, clock,
+      onChainFailure: error => console.warn(`[panta-chain] SOL markets unavailable this pass: ${describeFailure(error)}`) }) };
+  }
+  // Only explicit in-code test injection can select fixtures, never env config.
+  if (config.venue === "fixture") return { venue: new FixtureVenue({ clock }) };
+  throw new VenueError("VENUE_MISCONFIGURED", "Panta is the only live prediction provider and requires a live server key", { venue: "panta" });
+}
+
+/** The program reader: SOL-quoted markets (when enabled) and USDC rows'
+ *  program fields. The RPC URL can carry a provider key, so it and its query
+ *  values are redacted from every error. A bad URL fails boot only when SOL
+ *  markets are enabled, as before; otherwise USDC rows without `onChain` are
+ *  refused, as they were before the reader existed, and it says so. */
+function pantaChain(config: PredictionConfig, clock: Clock): PantaChainCatalog | null {
+  const rpcUrl = config.pantaSolMarkets?.rpcUrl ?? config.pantaProgram?.rpcUrl;
+  if (!rpcUrl) return null;
+  try {
     registerSecret(rpcUrl);
     for (const [name, value] of new URL(rpcUrl).searchParams) {
       if (/key|token|secret|auth/i.test(name)) registerSecret(value);
     }
-    const chain = new PantaChainCatalog({ rpcUrl, clock, retry: config.retry,
+    return new PantaChainCatalog({ rpcUrl, clock, retry: config.retry,
       onUnserved: (address, error) => console.warn(`[panta-chain] set aside ${address}: ${describeFailure(error)}`) });
-    return new PantaCatalogVenue({ live, chain, clock,
-      onChainFailure: error => console.warn(`[panta-chain] SOL markets unavailable this pass: ${describeFailure(error)}`) });
+  } catch (error) {
+    if (config.pantaSolMarkets) throw error;
+    console.warn(`[panta-chain] program reads disabled: ${describeFailure(error)}`);
+    return null;
   }
-  // Only explicit in-code test injection can select fixtures, never env config.
-  if (config.venue === "fixture") return new FixtureVenue({ clock });
-  throw new VenueError("VENUE_MISCONFIGURED", "Panta is the only live prediction provider and requires a live server key", { venue: "panta" });
 }
 
 /** A log-safe one-liner: a VenueError's code and redacted message, nothing else. */
@@ -127,7 +148,8 @@ export function buildPredictionRuntime(
 ): PredictionRuntime {
   const config = overrides.config ?? resolvePredictionConfig(appConfig);
   const clock = overrides.clock ?? systemClock;
-  const venue = overrides.venue ?? buildVenue(config, clock);
+  const built = overrides.venue ? { venue: overrides.venue } : buildVenue(config, clock);
+  const venue = built.venue;
 
   const social = overrides.social ?? appConfig?.social;
   if (config.venue === "panta" && social && !overrides.store && appConfig?.predictions?.pantaSchemaReady !== true) {
@@ -196,7 +218,8 @@ export function buildPredictionRuntime(
   // cold-start refusal does not become an unhandled rejection before first use.
   void ready.catch(() => undefined);
 
-  return { config, venue, store, service, persistence, durable, marketSync, ready, clock };
+  return { config, venue, store, service, persistence, durable, marketSync, ready, clock,
+    ...(built.pantaProgram ? { pantaProgram: built.pantaProgram } : {}) };
 }
 
 let RUNTIMES = new WeakMap<AppConfig, PredictionRuntime>();

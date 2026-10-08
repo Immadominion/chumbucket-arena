@@ -1,6 +1,12 @@
 /** Panta's live, READ-ONLY adapter. Wire shape isolated here.
  * Docs: https://docs.panta.market/api-reference/markets/{list,get}.md
- * Detail-only onChain fields observed with a live key on 2026-09-28.
+ * Detail-only onChain fields observed with a live key on 2026-09-28. Panta
+ * removed that undocumented block on 2026-10-08: detail is now exactly the
+ * documented catalog row, with no rules and no final flags. When a row comes
+ * without it, the same fields are read from the market's own program account
+ * (`program`, ./PantaChainCatalog.ts) and merged into the captured body under
+ * the same names, beside an `onChainSource` that names the account, slot and
+ * bytes they came from. Prices still come only from the API.
  * Never infer a result from prices, `resolved`, or an oracle proposal alone.
  * No probability snapshot: independent USDC/share prices are NOT 1-p odds.
  * Test keys/fixtures are deliberately rejected instead of branded as live. */
@@ -14,11 +20,16 @@ import { VenueError, schemaError } from "./errors.ts";
 import { parseRetryAfter, type FetchLike } from "./http.ts";
 import { registerSecret } from "./redact.ts";
 import { marketUuid, type MarketStatus, type VenueMarket } from "./types.ts";
+import { PANTA_PROGRAM_ID, pantaChainRead, type PantaChainRead, type PantaEventAccount, type ReviewKind } from "./PantaProgram.ts";
 import type { Capabilities, CreateOrderInput, EventFilters, EventPage, IndicativePriceReader,
   IndicativePrices, Orderbook, PositionPage, PredictionVenue, PublishedResolution, RawPayload,
   RawPayloadCapture, ResolutionReader, TradingStatus, UnsignedOrder, UnsignedTransaction, VenueOrder } from "./PredictionVenue.ts";
 
 export const PANTA_BASE_URL = "https://live-api.panta.market/api/v1";
+/** Also names the quote asset (USDC) wherever a payload or row is re-read:
+ *  ./marketQuote.ts, ./sharePrices.ts and the snapshot CHECK in SQL. A body
+ *  with program-derived `onChain` is still this version: the same row shape
+ *  `publishedResolution` has always read, plus `onChainSource`. */
 export const PANTA_PAYLOAD_VERSION = 1;
 const address = z.string().refine(value => {
   try { return value.length >= 32 && value.length <= 44 && utils.bytes.bs58.decode(value).length === 32; }
@@ -43,6 +54,37 @@ const rowSchema = z.object({
   onChain: chainSchema.nullish(),
 }).passthrough();
 type Row = z.infer<typeof rowSchema>;
+/** Where a merged `onChain` block came from. `data` is the account exactly as
+ *  read, so the block (and a title taken from the question) can be re-derived
+ *  from the stored evidence alone; `fields` lists the body fields it supplied. */
+const programSourceSchema = z.object({
+  source: z.literal("solana-account"), cluster: z.literal("mainnet-beta"), programId: z.literal(PANTA_PROGRAM_ID),
+  account: address, owner: z.literal(PANTA_PROGRAM_ID), slot: z.number().int().nonnegative(),
+  dataEncoding: z.literal("base64"), data: z.string().min(1).max(65_536),
+  fields: z.array(z.enum(["onChain", "title"])).min(1),
+}).strict();
+type ProgramSource = z.infer<typeof programSourceSchema>;
+/** The program's review enum in the old block's lowercase spelling. Only
+ *  "none" is ever compared; any other value withholds a result. */
+const REVIEW_WIRE: Record<ReviewKind, string> = { None: "none", PrimaryInvalidity: "primary_invalidity", ResolutionDispute: "resolution_dispute" };
+/** The removed `onChain` block, field for field, from the Event account. Times
+ *  are the program's unix seconds, 0 when unset, as the block carried them. */
+function programOnChain(e: PantaEventAccount) {
+  return { resolutionRule: e.resolutionRule, sources: e.sourceOfTruth, isResolved: e.isResolved,
+    isCancelled: e.isCancelled, isActive: e.isActive, yesWins: e.yesWins, pendingReview: REVIEW_WIRE[e.pendingReview],
+    resolvedAt: e.resolvedAt, cancelledAt: e.cancelledAt, claimableAt: e.claimableAt, reviewExpiresAt: e.reviewExpiresAt };
+}
+/** An API row without `onChain`, completed from a verified USDC account read.
+ *  The API title is kept; a blank one becomes the account's question, which
+ *  the address derivation proves is the one the market was created with. */
+export function pantaWithProgramFields(body: Record<string, unknown>, read: PantaChainRead): Record<string, unknown> {
+  const raw = read.raw.body as { owner: string; slot: number; data: string };
+  const title = typeof body.title === "string" && !body.title.trim() && read.event.question.trim() ? read.event.question : null;
+  const onChainSource: ProgramSource = { source: "solana-account", cluster: "mainnet-beta", programId: PANTA_PROGRAM_ID,
+    account: read.address, owner: PANTA_PROGRAM_ID, slot: raw.slot, dataEncoding: "base64", data: raw.data,
+    fields: title === null ? ["onChain"] : ["onChain", "title"] };
+  return { ...body, ...(title === null ? {} : { title }), onChain: programOnChain(read.event), onChainSource };
+}
 /** Store/SQL evidence parity while keeping Panta wire-field parsing here. */
 export function pantaPriceEvidenceMatches(body: unknown, prices: { yesPrice: string | null; noPrice: string | null }): boolean {
   const parsed = rowSchema.pick({ yesPrice: true, noPrice: true }).safeParse(body);
@@ -70,7 +112,13 @@ export interface PantaVenueConfig {
   clock?: Clock;
   retry?: Partial<RetryOptions>;
   circuit?: CircuitBreaker;
+  /** Reads a USDC market's program account for the fields the detail payload
+   *  stopped carrying. Absent, a row without `onChain` is refused as before. */
+  program?: PantaProgramReader;
+  /** Told when a program read failed; the row is then served without it. */
+  onProgramFailure?: (id: string, error: unknown) => void;
 }
+export interface PantaProgramReader { readUsdcEvent(address: string): Promise<PantaChainRead> }
 
 export class PantaVenue implements PredictionVenue, RawPayloadCapture, ResolutionReader, IndicativePriceReader {
   private readonly clock: Clock;
@@ -168,6 +216,7 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
     if (!raw || raw.venue !== "panta" || raw.venueMarketId !== id || raw.payloadVersion !== PANTA_PAYLOAD_VERSION) return null;
     const row = this.parseRow(raw.body);
     if (row.marketId !== id) throw schemaError("panta", "resolution market mismatch");
+    if ((raw.body as { onChainSource?: unknown }).onChainSource !== undefined) this.checkProgramFields(id, row, raw);
     const c = row.onChain;
     if (!c || c.pendingReview !== "none") return null;
     if (c.reviewExpiresAt === undefined || c.reviewExpiresAt * 1000 > this.clock.now()) return null;
@@ -208,16 +257,55 @@ export class PantaVenue implements PredictionVenue, RawPayloadCapture, Resolutio
   }
   private async detail(id: string): Promise<Detail> {
     this.checkAddress(id);
-    const detail = await this.cache.load(`detail:${id}`, () => this.circuit.run(async () => {
-      const body = await this.request(`/markets/${id}/`);
-      const row = this.parseRow(body);
-      if (row.marketId !== id) throw schemaError("panta", "detail address mismatch");
-      const fetchedAt = this.clock.now();
-      const raw = { venue: "panta" as const, venueMarketId: id, payloadVersion: PANTA_PAYLOAD_VERSION, fetchedAt, body };
-      return { row, raw, fetchedAt };
-    }), 15_000);
+    const detail = await this.cache.load(`detail:${id}`, async () => {
+      const api = await this.circuit.run(async () => {
+        const body = await this.request(`/markets/${id}/`);
+        const row = this.parseRow(body);
+        if (row.marketId !== id) throw schemaError("panta", "detail address mismatch");
+        return { body, row, fetchedAt: this.clock.now() };
+      });
+      // Outside the circuit: an RPC fault is not a Panta fault. `fetchedAt`
+      // stays the API read's, which the price evidence is keyed on.
+      const body = api.row.onChain ? api.body : await this.withProgramFields(id, api.body);
+      const row = body === api.body ? api.row : this.parseRow(body);
+      const raw = { venue: "panta" as const, venueMarketId: id, payloadVersion: PANTA_PAYLOAD_VERSION, fetchedAt: api.fetchedAt, body };
+      return { row, raw, fetchedAt: api.fetchedAt };
+    }, 15_000);
     this.remember(detail.raw);
     return detail;
+  }
+  /** The API row completed from the market's program account, or the row
+   *  unchanged when no reader is configured or the read fails (getMarket then
+   *  refuses it, as it would have without the reader). Never invents rules. */
+  private async withProgramFields(id: string, body: unknown): Promise<unknown> {
+    if (!this.config.program) return body;
+    try {
+      const read = await this.config.program.readUsdcEvent(id);
+      if (read.address !== id || read.quoteAsset !== "USDC") throw schemaError("panta", "program read for another market");
+      return pantaWithProgramFields(body as Record<string, unknown>, read);
+    } catch (error) {
+      this.config.onProgramFailure?.(id, error);
+      return body;
+    }
+  }
+  /** A body that says its `onChain` came from a program account must agree
+   *  with those bytes, re-derived here: owner, USDC derivation, every field. */
+  private checkProgramFields(id: string, row: Row, raw: RawPayload): void {
+    const parsed = programSourceSchema.safeParse((raw.body as { onChainSource?: unknown }).onChainSource);
+    if (!parsed.success || parsed.data.account !== id) throw schemaError("panta", "program evidence envelope");
+    const s = parsed.data;
+    let read: PantaChainRead;
+    try { read = pantaChainRead({ address: id, owner: s.owner, data: Buffer.from(s.data, "base64"), slot: s.slot, fetchedAt: raw.fetchedAt, category: null }); }
+    catch { throw schemaError("panta", "program evidence is not this market's account"); }
+    const expected: Record<string, unknown> = programOnChain(read.event);
+    const actual = (row.onChain ?? {}) as Record<string, unknown>;
+    const titled = s.fields.includes("title");
+    if (read.quoteAsset !== "USDC" || !s.fields.includes("onChain") ||
+        Object.keys(actual).length !== Object.keys(expected).length ||
+        Object.entries(expected).some(([k, v]) => JSON.stringify(actual[k]) !== JSON.stringify(v)) ||
+        (titled && row.title !== read.event.question)) {
+      throw schemaError("panta", "program evidence does not match its bytes");
+    }
   }
   private remember(raw: RawPayload): void {
     this.raw.delete(raw.venueMarketId); this.raw.set(raw.venueMarketId, raw);

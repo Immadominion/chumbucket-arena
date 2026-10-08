@@ -2,7 +2,9 @@
  * The whole open Panta catalog behind the one venue interface MarketSync knows.
  *
  * Panta's partner API (./PantaVenue.ts) stays the only source for USDC
- * markets: their status, prices, results and anything tradable. Its catalog
+ * markets' catalog rows and prices, and for anything tradable; since
+ * 2026-10-08 their rules and final flags come from each market's own program
+ * account, merged by PantaVenue through the same PantaChainCatalog. Its catalog
  * never lists SOL-quoted markets, so when a walk of that catalog reaches its
  * last page, the SOL-quoted markets that are still live are appended from
  * the program accounts themselves (./PantaChainCatalog.ts). Each SOL market
