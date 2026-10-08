@@ -123,13 +123,16 @@ describe("detail without onChain, completed from the program account", () => {
     expect(page.events[0]!.markets[0]!.rulesText).toStartWith("Resolve YES");
   });
 
-  test("an account read is reused for 15 s, then read again", async () => {
+  test("an account read is reused for 5 min, then read again", async () => {
     const h = rig();
     await h.chain.readUsdcEvent(TRAM);
     await h.chain.readUsdcEvent(TRAM);
     const reads = () => h.rpc.asked.filter(a => a.method === "getAccountInfo").length;
     expect(reads()).toBe(1);
-    h.clock.advance(15_000);
+    h.clock.advance(299_000);
+    await h.chain.readUsdcEvent(TRAM);
+    expect(reads()).toBe(1);
+    h.clock.advance(1_000);
     await h.chain.readUsdcEvent(TRAM);
     expect(reads()).toBe(2);
     // A USDC read is never served as a SOL market.

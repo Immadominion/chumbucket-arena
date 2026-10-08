@@ -14,8 +14,8 @@
  * not re-listed. A discovery pass therefore costs two small RPC calls once the
  * first one has classified the catalog (~600 KB, once). Separately, every
  * USDC detail read PantaVenue makes costs one `getAccountInfo` (~3 KB),
- * reused for 15 s: at most one per USDC market per 15 s per caller, on top of
- * the partner API read it accompanies.
+ * reused for 5 min: at most one per USDC market per 5 min per process, on top
+ * of the partner API read it accompanies.
  *
  * CATEGORY. The program stores no category. panta.market's own public registry
  * (the backend its website reads) supplies the display category; it is fetched
@@ -40,6 +40,10 @@ import type { RawPayload } from "./PredictionVenue.ts";
 
 export const PANTA_REGISTRY_URL = "https://production-api.balr.fun/api/v1/events/registry";
 const READ_REUSE_MS = 15_000;
+// A USDC event backs rules and final flags only (prices stay the API's), and
+// every catalog sync re-reads it: reuse it longer so the shared RPC keeps its
+// budget for balances and fills (429s observed live 2026-10-08 at 15s).
+const USDC_READ_REUSE_MS = 300_000;
 const LIST_REUSE_MS = 30_000;
 const RETRY_UNSERVED_MS = 600_000;
 const CATEGORY_RETRY_MS = 600_000;
@@ -184,7 +188,7 @@ export class PantaChainCatalog {
     return read;
   }
 
-  /** One USDC market's Event account, freshly read (or reused within 15s), for
+  /** One USDC market's Event account, freshly read (or reused within 5 min), for
    *  the fields the partner API no longer publishes. VENUE_NOT_FOUND when the
    *  address is not a USDC-quoted Panta event. Same guard as readSolMarket:
    *  only an address the program lists as an Event account is read in full,
@@ -192,7 +196,7 @@ export class PantaChainCatalog {
    *  address PDA("event_usdc", creator, sha256(question)) gives it. */
   async readUsdcEvent(address: string): Promise<PantaChainRead> {
     const held = this.usdcReads.get(address);
-    if (held && this.clock.now() - held.fetchedAt < READ_REUSE_MS) return held;
+    if (held && this.clock.now() - held.fetchedAt < USDC_READ_REUSE_MS) return held;
     if (this.quoteOf(address) === "SOL") throw notUsdc();
     await this.assertMainnet();
     if (this.quoteOf(address) !== "USDC" && !(await this.isProgramEvent(address))) throw notUsdc();
