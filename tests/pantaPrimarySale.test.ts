@@ -87,18 +87,18 @@ describe("the quote's bounded retries", () => {
   };
   const bare = () => jsonResponse({ code: "INVALID_MARKET_PARAMS" }, { status: 400 });
 
-  test("a bare INVALID_MARKET_PARAMS quote is asked again, a second apart, until it quotes", async () => {
+  test("a bare INVALID_MARKET_PARAMS quote is asked again, 0.8 s apart, until it quotes", async () => {
     const t = transport([bare(), bare(), bare(), jsonResponse(quote)]);
     expect(await t.request("/primaryorderquote/", {})).toEqual(quote);
     expect(t.paths).toHaveLength(4);
-    expect(t.slept).toEqual([1_000, 1_000, 1_000]);
+    expect(t.slept).toEqual([800, 800, 800]);
   });
 
-  test("at most six asks, only that exact answer, only the quote", async () => {
-    const many = transport([bare(), bare(), bare(), bare(), bare(), bare(), jsonResponse(quote)]);
+  test("at most twelve asks, only that exact answer, only the quote", async () => {
+    const many = transport([...Array.from({ length: 12 }, bare), jsonResponse(quote)]);
     await expect(many.request("/primaryorderquote/", {})).rejects.toThrow("HTTP 400");
-    expect(many.paths).toHaveLength(6);
-    expect(many.slept).toHaveLength(5);
+    expect(many.paths).toHaveLength(12);
+    expect(many.slept).toHaveLength(11);
     for (const answer of [
       jsonResponse({ code: "INVALID_MARKET_PARAMS", message: "amountUsdc: invalid", field: "amountUsdc" }, { status: 400 }),
       jsonResponse({ code: "MARKET_NOT_IN_PRIMARY" }, { status: 400 }),

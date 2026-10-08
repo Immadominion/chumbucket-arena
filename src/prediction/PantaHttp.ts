@@ -7,11 +7,13 @@ import { PANTA_BASE_URL } from "./PantaVenue.ts";
 const paths = new Set(["/primaryorderquote/", "/primaryorderbuild/", "/primaryordersubmit/", "/primaryorderverify/", "/trades/", "/claim/build/"]);
 /** Live 2026-10-08: a primary market's quote answers 400
  *  `{"code":"INVALID_MARKET_PARAMS"}` with no message or field about four times
- *  in five, and an identical request a second later can quote (16 probes at
- *  1 s: 3 quoted). A refused quote opens no session, so only that exact answer
- *  is asked again, a second apart, up to QUOTE_ATTEMPTS in all. Never
- *  build/submit. */
-const QUOTE_ATTEMPTS = 6;
+ *  in five, and quotes come back in short runs (16 probes at 1 s, twice:
+ *  `xOxxxxxxxxxxOOxx`, `xxxxxxxxxOOOOxxx`). A refused quote opens no session,
+ *  so only that exact answer is asked again, QUOTE_GAP_MS apart, up to
+ *  QUOTE_ATTEMPTS in all (~13 s, inside the app's 20 s prepare timeout).
+ *  Never build/submit. */
+const QUOTE_ATTEMPTS = 12;
+const QUOTE_GAP_MS = 800;
 async function bareParamsRefusal(res: Response): Promise<boolean> {
   try {
     const text = await res.text();
@@ -33,7 +35,7 @@ export function pantaPost(apiKey: string, timeoutMs = 8_000, fetchImpl: typeof f
         headers: { "X-Api-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok && attempt < QUOTE_ATTEMPTS && path === "/primaryorderquote/" && res.status === 400 && await bareParamsRefusal(res)) {
-        await sleep(1_000);
+        await sleep(QUOTE_GAP_MS);
         return await post(path, body, attempt + 1);
       }
       if (!res.ok) {
