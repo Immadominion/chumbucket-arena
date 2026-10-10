@@ -14,7 +14,7 @@
  * never to a client-named wallet or market. There is no in-memory success.
  */
 import { createHash } from "node:crypto";
-import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
+import { signedMessageHash, validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
 import type { PantaClaimExecution, PantaPreparedClaim } from "./PantaClaims.ts";
 import type { PantaClaimSession, PantaClaimStore } from "./PantaClaimStore.ts";
 import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
@@ -117,7 +117,8 @@ export class PantaClaimService {
     let row = await this.own(userId, claimId);
     if (row.state === "FAILED") return refuse("This claim failed; prepare a new one");
     const binding = row.prepared!.binding;
-    const tx = validateSignedPantaTransaction(signedPayload, row.wallet_address, binding.messageHash);
+    // The reviewed bytes let a wallet app's own priority fee and Lighthouse checks through, nothing else.
+    const tx = validateSignedPantaTransaction(signedPayload, row.wallet_address, binding.messageHash, row.prepared!.transaction.payload);
     if (row.signature !== null && (row.signature !== tx.signature || row.signed_transaction !== signedPayload)) {
       return refuse("This claim already approved a different transaction");
     }
@@ -142,8 +143,11 @@ export class PantaClaimService {
   async reconcile(row: PantaClaimSession): Promise<PantaClaimSession> {
     if (row.state !== "SUBMITTED" || !row.signature || !row.prepared) return row;
     const b = row.prepared.binding;
+    // The chain holds the message the wallet signed, which may be its amendment of the reviewed one.
+    let messageHash = b.messageHash;
+    try { if (row.signed_transaction) messageHash = signedMessageHash(row.signed_transaction); } catch { /* reviewed hash */ }
     const proof = await this.deps.chain.verifyClaim({ signature: row.signature, owner: row.wallet_address,
-      market: row.venue_market_id, programId: b.programId, messageHash: b.messageHash });
+      market: row.venue_market_id, programId: b.programId, messageHash });
     if (proof) {
       let providerTrade: NonNullable<PantaClaimSession["confirm_evidence"]>["providerTrade"] = null;
       try {
@@ -154,7 +158,7 @@ export class PantaClaimService {
         }
       } catch { /* Attribution is optional and never gates a proven payout. */ }
       const saved = await this.deps.claims.update(row.id, "SUBMITTED", { state: "CONFIRMED", confirm_evidence: {
-        payoutBaseUnits: proof.payoutBaseUnits, slot: proof.slot, messageHash: b.messageHash, independentlyVerified: true, providerTrade } });
+        payoutBaseUnits: proof.payoutBaseUnits, slot: proof.slot, messageHash, independentlyVerified: true, providerTrade } });
       return saved ?? row;
     }
     if (await this.deps.chain.failed?.(row.signature) || await this.deps.chain.neverLanded?.(row.signature, b.lastValidBlockHeight)) {

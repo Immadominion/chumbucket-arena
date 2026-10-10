@@ -142,6 +142,8 @@ const bindingSchema = z.object({ version: z.literal(1), quoteId: identifier, pro
   idempotencyKey: identifier, canonicalUserId: identifier.nullable(), providerAttributionUserId: providerAttribution, programId: address,
   createdAt: millis, expiresAt: millis, lastValidBlockHeight: blockHeight,
   signature: signature.nullable(), messageHash: z.string().regex(/^[a-f0-9]{64}$/),
+  // Set only for verification when the wallet app amended the reviewed message (walletAmendment.ts).
+  signedMessageHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   derived: derivedSchema, unsignedOrder: unsignedSchema, review: reviewSchema }).strict();
 /** JSON-serializable durable server record; Main owns its storage and identity. */
 export type PantaOrderBinding = Omit<z.infer<typeof bindingSchema>, "unsignedOrder" | "providerAttributionUserId"> & {
@@ -345,11 +347,12 @@ export class PantaExecution {
     let independentlyVerified: boolean;
     try {
       independentlyVerified = await this.verifyTransaction({ signature: saved.signature, owner: saved.owner,
-        market: saved.venueMarketId, programId: this.programId, amountBaseUnits: saved.amountBaseUnits, messageHash: saved.messageHash });
+        market: saved.venueMarketId, programId: this.programId, amountBaseUnits: saved.amountBaseUnits,
+        messageHash: saved.signedMessageHash ?? saved.messageHash });
     } catch { throw new VenueError("VENUE_UNAVAILABLE", "Panta execution: independent verification unavailable", { venue: "panta" }); }
     if (independentlyVerified !== true) return confirmedPending();
     return { ...this.venueOrder(saved, "FILLED"), fillEvidence: { providerVerify: verification, providerTrade: trade,
-      messageHash: saved.messageHash, independentlyVerified: true, expectedShares: saved.review.expectedShares } };
+      messageHash: saved.signedMessageHash ?? saved.messageHash, independentlyVerified: true, expectedShares: saved.review.expectedShares } };
   }
 
   private validateBinding(value: unknown): PantaOrderBinding {

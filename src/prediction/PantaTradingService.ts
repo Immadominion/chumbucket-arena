@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import type { PantaExecution, PantaPreparedOrder } from "./PantaExecution.ts";
 import type { PantaSettlementChain } from "./PantaSettlementChain.ts";
-import { validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
+import { signedMessageHash, validateSignedPantaTransaction, type PantaChain } from "./PantaChain.ts";
 import type { PantaCallIntent, PantaTradingLedger, PantaTradingStore, PantaTradeSession } from "./PantaTradingStore.ts";
 import { capturesRaw, type PredictionVenue, type VenueOrder } from "./PredictionVenue.ts";
 import { pantaInPrimarySale } from "./marketQuote.ts";
@@ -149,7 +149,9 @@ export class PantaTradingService {
     if (row.state === "FAILED") return refuse("This Panta order failed; review a new intent");
     // Still the account's own wallet: a link revoked since prepare stops the broadcast.
     if (row.state !== "FILLED") await this.assertOwnWallet(userId, row.wallet_address, session);
-    const tx = validateSignedPantaTransaction(signedPayload, row.wallet_address, row.prepared!.binding.messageHash);
+    // The reviewed bytes let a wallet app's own priority fee and Lighthouse checks through, nothing else.
+    const tx = validateSignedPantaTransaction(signedPayload, row.wallet_address, row.prepared!.binding.messageHash,
+      row.prepared!.binding.unsignedOrder.transaction.payload);
     if (row.signature !== null && (row.signature !== tx.signature || row.signed_transaction !== signedPayload)) return refuse("This intent already approved a different transaction");
     if (row.state === "FILLED") return this.view(row);
     if (row.state === "QUOTED") {
@@ -190,7 +192,12 @@ export class PantaTradingService {
     // confirmed on-chain error stays proof even while Panta is unreachable.
     let remote: Awaited<ReturnType<PantaExecution["verify"]>> | null = null;
     let unverified: unknown = null;
-    try { remote = await this.deps.execution.verify({ ...row.prepared.binding, signature: row.signature }); }
+    // The chain holds the message the wallet signed, which may be its amendment of the reviewed one.
+    try {
+      const signedHash = row.signed_transaction ? signedMessageHash(row.signed_transaction) : row.prepared.binding.messageHash;
+      remote = await this.deps.execution.verify({ ...row.prepared.binding, signature: row.signature,
+        ...(signedHash !== row.prepared.binding.messageHash ? { signedMessageHash: signedHash } : {}) });
+    }
     catch (error) { unverified = error; }
     if (remote?.fundingState === "FILLED") {
       const saved = await this.deps.store.update(row.id, "SUBMITTED", { state: "FILLED", fill_evidence: remote });

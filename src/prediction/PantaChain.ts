@@ -3,6 +3,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { utils } from "@coral-xyz/anchor";
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { VenueError } from "./errors.ts";
+import { walletAmendmentRefusal } from "./walletAmendment.ts";
 
 // Verified against https://api.mainnet-beta.solana.com getGenesisHash 2026-09-29.
 export const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -25,18 +26,43 @@ export function confirmsUsdcDeposit(meta: {
   } catch { return false; }
 }
 
-export interface SignedPantaTransaction { bytes: Uint8Array; signature: string; }
-export function validateSignedPantaTransaction(payload: string, owner: string, messageHash: string): SignedPantaTransaction {
+export interface SignedPantaTransaction {
+  bytes: Uint8Array;
+  signature: string;
+  /** SHA-256 of the message actually signed: the reviewed one, or the wallet's amendment of it. */
+  messageHash: string;
+}
+/** SHA-256 of a signed transaction's message (the one the chain will hold). */
+export function signedMessageHash(payload: string): string {
+  return hash(VersionedTransaction.deserialize(Buffer.from(payload, "base64")).message.serialize());
+}
+/**
+ * The owner's one signature over exactly the reviewed message, or, given the
+ * reviewed bytes, over that message as a wallet app amended it (priority fee
+ * and Lighthouse assertions only; see walletAmendment.ts).
+ */
+export function validateSignedPantaTransaction(payload: string, owner: string, messageHash: string, reviewedPayload?: string): SignedPantaTransaction {
   try {
     const bytes = Buffer.from(payload, "base64");
     if (bytes.toString("base64") !== payload || bytes.length > 1232) throw new Error();
     const tx = VersionedTransaction.deserialize(bytes);
     if (tx.message.header.numRequiredSignatures !== 1 || tx.signatures.length !== 1 ||
-        tx.message.staticAccountKeys[0]?.toBase58() !== owner || hash(tx.message.serialize()) !== messageHash) throw new Error();
+        tx.message.staticAccountKeys[0]?.toBase58() !== owner) throw new Error();
+    const signedHash = hash(tx.message.serialize());
+    if (signedHash !== messageHash) {
+      if (reviewedPayload === undefined) throw new Error();
+      const reviewed = VersionedTransaction.deserialize(Buffer.from(reviewedPayload, "base64"));
+      if (hash(reviewed.message.serialize()) !== messageHash) throw new Error();
+      const refusal = walletAmendmentRefusal(reviewed.message, tx.message);
+      if (refusal !== null) {
+        console.warn(`[panta-sign] wallet-amended transaction refused: ${refusal}`);
+        throw new Error();
+      }
+    }
     const signature = tx.signatures[0]!;
     const key = createPublicKey({ format: "der", type: "spki", key: Buffer.concat([spki, new PublicKey(owner).toBuffer()]) });
     if (!verify(null, tx.message.serialize(), key, signature)) throw new Error();
-    return { bytes, signature: utils.bytes.bs58.encode(signature) };
+    return { bytes, signature: utils.bytes.bs58.encode(signature), messageHash: signedHash };
   } catch {
     throw new VenueError("VENUE_BAD_REQUEST", "Wallet approval does not match the reviewed Panta transaction", { venue: "panta" });
   }

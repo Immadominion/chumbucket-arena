@@ -4,7 +4,8 @@ import { PantaExecution } from "../src/prediction/PantaExecution.ts";
 import { PantaTradingService, WALLET_NOT_LINKED_COPY, type PantaPrepareInput } from "../src/prediction/PantaTradingService.ts";
 import type { PantaCallIntent, PantaTradeSession, PantaTradingStore } from "../src/prediction/PantaTradingStore.ts";
 import { PantaVenue } from "../src/prediction/PantaVenue.ts";
-import { PantaChain, validateSignedPantaTransaction, confirmsUsdcDeposit, MAINNET_USDC_MINT } from "../src/prediction/PantaChain.ts";
+import { PantaChain, validateSignedPantaTransaction, confirmsUsdcDeposit, MAINNET_USDC_MINT, signedMessageHash } from "../src/prediction/PantaChain.ts";
+import { lighthouseCheck, walletAmended } from "./walletAmendmentFixtures.ts";
 import { pantaPost } from "../src/prediction/PantaHttp.ts";
 import { pantaTradingReadiness, setPantaTradingRuntime, PANTA_MAINNET_PROGRAM_ID } from "../src/prediction/PantaTradingRuntime.ts";
 import { loadConfig } from "../src/config.ts";
@@ -372,4 +373,20 @@ test("a provider outage still lets a confirmed on-chain error FAIL the buy, but 
   expect([...h.ledger.rows.values()][0]!.state).toBe("SUBMITTED");
   h.chainFailure();
   expect((await h.service.reconcile([...h.ledger.rows.values()][0]!)).state).toBe("FAILED");
+});
+test("a wallet app's own priority fee and Lighthouse checks reach broadcast, and the fill is proven against the message it signed",async()=>{
+  const h=rig();const prepared=await h.service.prepare(user,h.input);
+  const amended=walletAmended(prepared.order.transaction.payload,{signer:owner,
+    after:[lighthouseCheck(6,owner.publicKey),lighthouseCheck(10,new PublicKey(userTokenAccount))]});
+  const amendedHash=signedMessageHash(amended);
+  expect(amendedHash).not.toBe([...h.ledger.rows.values()][0]!.prepared!.binding.messageHash);
+  expect((await h.service.submit(user,prepared.order.orderId,amended)).fundingState).toBe("SUBMITTED");
+  expect(h.broadcasts).toBe(1);expect([...h.ledger.rows.values()][0]!.signed_transaction).toBe(amended);
+  h.confirm();
+  const row=await h.service.reconcile([...h.ledger.rows.values()][0]!);
+  expect(row.state).toBe("FILLED");
+  expect((row.fill_evidence as unknown as {fillEvidence:{messageHash:string}}).fillEvidence.messageHash).toBe(amendedHash);
+  // A changed buy is still refused, and cannot replace the approval already given.
+  const tampered=walletAmended(prepared.order.transaction.payload,{signer:owner,core:ixs=>ixs.slice(0,2)});
+  await expect(h.service.submit(user,prepared.order.orderId,tampered)).rejects.toThrow("Wallet approval");
 });
