@@ -101,14 +101,22 @@ export class PantaChain {
       throw new VenueError("VENUE_UNAVAILABLE", "Broadcast acknowledgement is missing; check this order or retry the same approval", { venue: "panta" });
     }
   }
-  async verifyTransaction(input: { signature: string; owner: string; market: string; programId: string; amountBaseUnits: string; messageHash: string }): Promise<boolean> {
+  /**
+   * The owner's USDC fell by exactly the stake, or by the stake plus [feeBaseUnits]
+   * when the program charges the reviewed venue fee in the same transaction.
+   */
+  async verifyTransaction(input: { signature: string; owner: string; market: string; programId: string; amountBaseUnits: string; feeBaseUnits?: string; messageHash: string }): Promise<boolean> {
     await this.assertMainnet();
     try {
       const result = await this.connection.getTransaction(input.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
       if (!result?.meta || result.meta.err !== null || result.transaction.signatures[0] !== input.signature) return false;
       const message = result.transaction.message;
       if (message.header.numRequiredSignatures !== 1 || message.staticAccountKeys[0]?.toBase58() !== input.owner || hash(message.serialize()) !== input.messageHash) return false;
-      if (!confirmsUsdcDeposit(result.meta, input.owner, input.amountBaseUnits)) return false;
+      const debits = [input.amountBaseUnits];
+      if (input.feeBaseUnits !== undefined && /^[1-9][0-9]{0,19}$/.test(input.feeBaseUnits)) {
+        debits.push((BigInt(input.amountBaseUnits) + BigInt(input.feeBaseUnits)).toString());
+      }
+      if (!debits.some(debit => confirmsUsdcDeposit(result.meta!, input.owner, debit))) return false;
       const keys = message.staticAccountKeys;
       return keys.some(key => key.toBase58() === input.market) && message.compiledInstructions.some(ix => keys[ix.programIdIndex]?.toBase58() === input.programId);
     } catch { return false; }

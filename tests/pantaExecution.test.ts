@@ -593,7 +593,7 @@ describe("synthetic provider attribution plus independent reviewed-message verif
     expect(order.fillEvidence).toMatchObject({ messageHash: binding.messageHash, independentlyVerified: true,
       expectedShares: nativeShares, providerVerify: { amountUsdc: 20000000 }, providerTrade: { kind: "buy", status: "processed" } });
     expect(r.rpcCalls).toEqual([{ signature: SIG, owner: OWNER, market: MARKET, programId: PROGRAM,
-      amountBaseUnits: "20000000", messageHash: binding.messageHash }]);
+      amountBaseUnits: "20000000", feeBaseUnits: "400001", messageHash: binding.messageHash }]);
     expect(r.calls.at(-1)).toEqual({ path: TRADE, body: { signature: SIG, wallet: OWNER, marketId: MARKET,
       quoteId: "qt_synthetic", clientOrderId: "synthetic-buy-1" } });
   });
@@ -638,12 +638,30 @@ describe("synthetic provider attribution plus independent reviewed-message verif
   });
   for (const patch of [
     { status: "unknown" }, { orderId: "ord_other" }, { signature: OTHER_SIG }, { wallet: FOREIGN },
-    { marketId: FOREIGN }, { side: "no" }, { amountUsdc: 20 }, { amountUsdc: "20.00" },
+    { marketId: FOREIGN }, { side: "no" }, { amountUsdc: 20 }, { amountUsdc: "20.01" }, { amountUsdc: "20.0000001" },
     { amountUsdc: 20_000_000.5 }, { amountUsdc: Number.MAX_SAFE_INTEGER + 1 }, { extra: true },
   ]) test(`verify schema/binding mismatch fails loudly: ${Object.entries(patch)[0]?.join("=")}`, async () => {
     const r = rig({ verify: patch }); const binding = await submitted(r);
     await expect(r.execution.verify(binding)).rejects.toMatchObject({ code: "VENUE_SCHEMA" });
     expect(r.calls.some(call => call.path === TRADE)).toBe(false); expect(r.rpcCalls).toEqual([]);
+  });
+  test("live Panta replies (human amount, fee, shares, expiry) FILL against the stake plus the reviewed fee", async () => {
+    // Shapes as mainnet Panta answered for a real $2 buy on 2026-10-10.
+    const r = rig({
+      verify: { amountUsdc: "20.00", wallet: OWNER, expectedShares: nativeShares, feeUsdc: "0.40", lastError: "",
+        expiresAt: new Date(NOW + 60_000).toISOString().replace(/\.\d+Z$/, "Z") },
+      trade: { amountUsdc: "20.00", amountUsdcBase: "20000000" },
+    });
+    const binding = await submitted(r);
+    expect((await r.execution.verify(binding)).fundingState).toBe("FILLED");
+    expect(r.rpcCalls).toHaveLength(1);
+    expect(r.rpcCalls[0]).toMatchObject({ amountBaseUnits: "20000000", feeBaseUnits: "400001" });
+  });
+  test("a trade report for another stake is not a fill", async () => {
+    const r = rig({ trade: { amountUsdc: "21.00", amountUsdcBase: "21000000" } });
+    const binding = await submitted(r);
+    expect((await r.execution.verify(binding)).fundingState).toBe("SUBMITTED");
+    expect(r.rpcCalls).toEqual([]);
   });
   for (const field of ["signature", "marketId", "side", "amountUsdc"]) test(`confirmed but incomplete verify evidence stays SUBMITTED: ${field}`, async () => {
     const r = rig({ verify: { [field]: undefined } }); const binding = await submitted(r);

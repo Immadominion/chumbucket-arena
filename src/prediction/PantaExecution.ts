@@ -77,9 +77,14 @@ function usdcBase(value: string): bigint {
 const humanUsdcPattern = /^(0|[1-9][0-9]{0,13})(\.[0-9]{1,6})?$/;
 const humanUsdc = z.string().regex(humanUsdcPattern)
   .refine(value => humanUsdcPattern.test(value) && usdcBase(value) <= U64_MAX);
-// VERIFY's amountUsdc is integer BASE UNITS, unlike quote/build's human USDC.
-// Never coerce an unsafe JSON number, fractional number, or human decimal string.
-const verifyAmount = z.union([baseUnits, z.number().int().positive().safe()]);
+// VERIFY's amountUsdc: integer BASE UNITS (a JSON integer or a digit string),
+// or, as live Panta answers since October 2026, human USDC written with a
+// decimal point ("2.00"). A digit string stays base units; never coerce an
+// unsafe or fractional JSON number.
+const pointedUsdc = z.string().regex(/^(0|[1-9][0-9]{0,13})\.[0-9]{1,6}$/);
+const verifyAmount = z.union([baseUnits, pointedUsdc, z.number().int().positive().safe()]);
+const verifiedBaseUnits = (value: string | number): string =>
+  typeof value === "string" && value.includes(".") ? usdcBase(value).toString() : String(value);
 const millis = z.number().int().nonnegative().safe();
 const blockHeight = z.number().int().positive().safe();
 const expiry = z.string().max(40).datetime({ offset: true });
@@ -118,12 +123,17 @@ const verifySchema = z.object({ orderId: identifier,
   status: z.enum(["built", "submitted", "confirmed", "failed", "expired"]),
   signature: signature.nullable().optional(), wallet: address.optional(),
   marketId: address.optional(), side: nativeSide.optional(), amountUsdc: verifyAmount.optional(),
+  // Live Panta also reports these. Typed, informational, never a money gate.
+  expectedShares: decimal.optional(), feeUsdc: humanUsdc.optional(),
+  lastError: z.string().max(500).optional(), expiresAt: expiry.optional(),
 }).strict();
 // Missing attribution is absence of fill evidence. Present fields must still
 // conform to their exact types; unknown fields/statuses remain schema failures.
 const tradeSchema = z.object({ signature: signature.optional(), status: z.literal("processed").optional(),
   marketId: address.optional(), wallet: address.optional(), side: nativeSide.optional(),
-  kind: z.enum(["buy", "claim"]).optional() }).strict();
+  kind: z.enum(["buy", "claim"]).optional(),
+  // Live Panta reports the amount both ways; the base units must be the reviewed stake.
+  amountUsdc: humanUsdc.optional(), amountUsdcBase: baseUnits.optional() }).strict();
 
 const reviewSchema = z.object({ amountUsdc: humanUsdc, amountBaseUnits: baseUnits,
   avgPrice: positiveDecimal, feeUsdc: humanUsdc, expectedShares: positiveDecimal,
@@ -168,7 +178,7 @@ export interface PantaExecutionConfig {
   /** Server-configured account bound to the Panta API key, not an app person. */
   providerUserId: string;
   verifyTransaction: (input: { signature: string; owner: string; market: string; programId: string;
-    amountBaseUnits: string; messageHash: string }) => Promise<boolean>;
+    amountBaseUnits: string; feeBaseUnits?: string; messageHash: string }) => Promise<boolean>;
 }
 /** Strictly parsed provider evidence, attached ONLY after the independent RPC gate. */
 export interface PantaFillEvidence {
@@ -328,7 +338,7 @@ export class PantaExecution {
       (verification.wallet === undefined || verification.wallet === saved.owner) &&
       (verification.marketId === undefined || verification.marketId === saved.venueMarketId) &&
       (verification.side === undefined || verification.side === saved.side.toLowerCase()) &&
-      (verification.amountUsdc === undefined || String(verification.amountUsdc) === saved.amountBaseUnits),
+      (verification.amountUsdc === undefined || verifiedBaseUnits(verification.amountUsdc) === saved.amountBaseUnits),
       "verify intent or signature mismatch");
     if (verification.status === "failed") return this.venueOrder(saved, "FAILED");
     if (verification.status === "expired") return { ...pending(), providerStatus: "expired" };
@@ -342,12 +352,15 @@ export class PantaExecution {
       signature: saved.signature, wallet: saved.owner, marketId: saved.venueMarketId,
       quoteId: saved.quoteId, clientOrderId: saved.idempotencyKey,
     }), "trade report response");
+    if (trade.amountUsdcBase !== undefined && trade.amountUsdcBase !== saved.amountBaseUnits) return confirmedPending();
     if (trade.status !== "processed" || trade.kind !== "buy" || trade.signature !== saved.signature ||
         trade.wallet !== saved.owner || trade.marketId !== saved.venueMarketId || trade.side !== saved.side.toLowerCase()) return confirmedPending();
     let independentlyVerified: boolean;
     try {
       independentlyVerified = await this.verifyTransaction({ signature: saved.signature, owner: saved.owner,
         market: saved.venueMarketId, programId: this.programId, amountBaseUnits: saved.amountBaseUnits,
+        // The program takes the reviewed fee from the owner in the same transaction.
+        feeBaseUnits: usdcBase(saved.review.feeUsdc).toString(),
         messageHash: saved.signedMessageHash ?? saved.messageHash });
     } catch { throw new VenueError("VENUE_UNAVAILABLE", "Panta execution: independent verification unavailable", { venue: "panta" }); }
     if (independentlyVerified !== true) return confirmedPending();
