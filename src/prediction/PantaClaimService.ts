@@ -158,7 +158,9 @@ export class PantaClaimService {
         }
       } catch { /* Attribution is optional and never gates a proven payout. */ }
       const saved = await this.deps.claims.update(row.id, "SUBMITTED", { state: "CONFIRMED", confirm_evidence: {
-        payoutBaseUnits: proof.payoutBaseUnits, slot: proof.slot, messageHash, independentlyVerified: true, providerTrade } });
+        // The ledger checks messageHash against the reviewed binding; an amended signature is recorded beside it.
+        payoutBaseUnits: proof.payoutBaseUnits, slot: proof.slot, messageHash: b.messageHash,
+        ...(messageHash !== b.messageHash ? { signedMessageHash: messageHash } : {}), independentlyVerified: true, providerTrade } });
       return saved ?? row;
     }
     if (await this.deps.chain.failed?.(row.signature) || await this.deps.chain.neverLanded?.(row.signature, b.lastValidBlockHeight)) {

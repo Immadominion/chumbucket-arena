@@ -385,7 +385,9 @@ test("a wallet app's own priority fee and Lighthouse checks reach broadcast, and
   h.confirm();
   const row=await h.service.reconcile([...h.ledger.rows.values()][0]!);
   expect(row.state).toBe("FILLED");
-  expect((row.fill_evidence as unknown as {fillEvidence:{messageHash:string}}).fillEvidence.messageHash).toBe(amendedHash);
+  // The ledger's FILLED check: the reviewed hash where it looks, the signed one beside it.
+  const evidence=(row.fill_evidence as unknown as {fillEvidence:{messageHash:string;signedMessageHash?:string}}).fillEvidence;
+  expect(evidence.messageHash).toBe(row.prepared!.binding.messageHash);expect(evidence.signedMessageHash).toBe(amendedHash);
   // A changed buy is still refused, and cannot replace the approval already given.
   const tampered=walletAmended(prepared.order.transaction.payload,{signer:owner,core:ixs=>ixs.slice(0,2)});
   await expect(h.service.submit(user,prepared.order.orderId,tampered)).rejects.toThrow("Wallet approval");

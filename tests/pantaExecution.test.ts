@@ -653,9 +653,14 @@ describe("synthetic provider attribution plus independent reviewed-message verif
       trade: { amountUsdc: "20.00", amountUsdcBase: "20000000" },
     });
     const binding = await submitted(r);
-    expect((await r.execution.verify(binding)).fundingState).toBe("FILLED");
+    const filled = await r.execution.verify(binding);
+    expect(filled.fundingState).toBe("FILLED");
     expect(r.rpcCalls).toHaveLength(1);
     expect(r.rpcCalls[0]).toMatchObject({ amountBaseUnits: "20000000", feeBaseUnits: "400001" });
+    // As the ledger's FILLED check requires: base units, and the reviewed message hash.
+    expect(filled.fillEvidence?.providerVerify).toMatchObject({ amountUsdc: "20000000", amountUsdcReported: "20.00" });
+    expect(filled.fillEvidence?.messageHash).toBe(binding.messageHash);
+    expect(filled.fillEvidence?.signedMessageHash).toBeUndefined();
   });
   test("a trade report for another stake is not a fill", async () => {
     const r = rig({ trade: { amountUsdc: "21.00", amountUsdcBase: "21000000" } });

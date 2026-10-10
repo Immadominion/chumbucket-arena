@@ -182,9 +182,13 @@ export interface PantaExecutionConfig {
 }
 /** Strictly parsed provider evidence, attached ONLY after the independent RPC gate. */
 export interface PantaFillEvidence {
-  providerVerify: z.infer<typeof verifySchema>;
+  /** Panta's verify reply; a human amount ("2.00") is recorded in base units, as reported in amountUsdcReported. */
+  providerVerify: z.infer<typeof verifySchema> & { amountUsdcReported?: string };
   providerTrade: z.infer<typeof tradeSchema>;
+  /** The reviewed message (the ledger checks it against the binding). */
   messageHash: string;
+  /** The message the wallet signed and the chain holds, when the wallet amended the reviewed one. */
+  signedMessageHash?: string;
   independentlyVerified: true;
   expectedShares: string;
 }
@@ -364,8 +368,13 @@ export class PantaExecution {
         messageHash: saved.signedMessageHash ?? saved.messageHash });
     } catch { throw new VenueError("VENUE_UNAVAILABLE", "Panta execution: independent verification unavailable", { venue: "panta" }); }
     if (independentlyVerified !== true) return confirmedPending();
-    return { ...this.venueOrder(saved, "FILLED"), fillEvidence: { providerVerify: verification, providerTrade: trade,
-      messageHash: saved.signedMessageHash ?? saved.messageHash, independentlyVerified: true, expectedShares: saved.review.expectedShares } };
+    // The ledger's FILLED check wants the reviewed message hash and a base-unit amount.
+    const reported = verification.amountUsdc;
+    const providerVerify = typeof reported === "string" && reported.includes(".")
+      ? { ...verification, amountUsdc: verifiedBaseUnits(reported), amountUsdcReported: reported } : verification;
+    return { ...this.venueOrder(saved, "FILLED"), fillEvidence: { providerVerify, providerTrade: trade,
+      messageHash: saved.messageHash, ...(saved.signedMessageHash ? { signedMessageHash: saved.signedMessageHash } : {}),
+      independentlyVerified: true, expectedShares: saved.review.expectedShares } };
   }
 
   private validateBinding(value: unknown): PantaOrderBinding {
